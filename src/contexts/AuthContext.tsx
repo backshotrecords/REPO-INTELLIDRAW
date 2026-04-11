@@ -1,25 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { apiGetMe, apiLogin, apiRegister, apiLogout, removeToken } from "../lib/api";
-
-interface User {
-  id: string;
-  email: string;
-  displayName: string;
-  activeModelId?: string;
-  hasApiKey?: boolean;
-}
-
-interface AuthContextType {
-  user: User | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, displayName: string) => Promise<void>;
-  logout: () => void;
-  refreshUser: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextType | null>(null);
+import { AuthContext } from "./AuthContextDef";
+import type { User } from "./AuthContextDef";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -35,15 +17,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Check auth on mount
+  // Check auth on mount — all setState happens in promise callbacks to avoid cascading renders
   useEffect(() => {
+    let cancelled = false;
     const token = localStorage.getItem("intellidraw_token");
-    if (token) {
-      refreshUser().finally(() => setIsLoading(false));
-    } else {
-      setIsLoading(false);
-    }
-  }, [refreshUser]);
+    const initAuth = token
+      ? apiGetMe()
+          .then((data) => {
+            if (!cancelled) setUser(data.user);
+          })
+          .catch(() => {
+            if (!cancelled) {
+              setUser(null);
+              removeToken();
+            }
+          })
+      : Promise.resolve();
+
+    initAuth.finally(() => {
+      if (!cancelled) setIsLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const login = async (email: string, password: string) => {
     const data = await apiLogin(email, password);
@@ -75,12 +73,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
 }

@@ -35,20 +35,7 @@ export default function WorkspacePage() {
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load canvas
-  useEffect(() => {
-    if (id && id !== "new") {
-      loadCanvas(id);
-    } else if (id === "new") {
-      createNewCanvas();
-    }
-  }, [id]);
-
-  // Scroll chat to bottom
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatHistory, showChat]);
-
-  const loadCanvas = async (canvasId: string) => {
+  const loadCanvas = useCallback(async (canvasId: string) => {
     try {
       const canvas = await apiGetCanvas(canvasId);
       setCanvasId(canvas.id);
@@ -59,9 +46,9 @@ export default function WorkspacePage() {
       console.error("Failed to load canvas:", err);
       navigate("/dashboard");
     }
-  };
+  }, [navigate]);
 
-  const createNewCanvas = async () => {
+  const createNewCanvas = useCallback(async () => {
     try {
       const canvas = await apiCreateCanvas();
       setCanvasId(canvas.id);
@@ -71,7 +58,20 @@ export default function WorkspacePage() {
     } catch (err) {
       console.error("Failed to create canvas:", err);
     }
-  };
+  }, [navigate]);
+
+  useEffect(() => {
+    if (id && id !== "new") {
+      loadCanvas(id);
+    } else if (id === "new") {
+      createNewCanvas();
+    }
+  }, [id, loadCanvas, createNewCanvas]);
+
+  // Scroll chat to bottom
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory, showChat]);
 
   // Auto-save with 2-second debounce
   const autoSave = useCallback(

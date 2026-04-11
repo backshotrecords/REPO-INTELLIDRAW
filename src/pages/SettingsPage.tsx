@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
 import {
