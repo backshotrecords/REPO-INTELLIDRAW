@@ -199,7 +199,7 @@ export default function DashboardPage() {
             {filtered.map((canvas) => (
               <div
                 key={canvas.id}
-                className="group bg-surface-container-lowest rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20 cursor-pointer"
+                className="group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20 cursor-pointer"
                 onClick={() => {
                   if (exportMode) {
                     toggleExportSelection(canvas.id);
@@ -226,7 +226,7 @@ export default function DashboardPage() {
                 )}
 
                 {/* Preview area */}
-                <div className="aspect-video relative overflow-hidden bg-surface-container-high">
+                <div className="aspect-video relative overflow-hidden bg-surface-container-high rounded-t-xl">
                   <div className="w-full h-full flex items-center justify-center bg-surface-container-low canvas-grid">
                     <span className="material-symbols-outlined text-4xl text-outline-variant/40">
                       account_tree
