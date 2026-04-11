@@ -107,7 +107,7 @@ export default function DashboardPage() {
 
   return (
     <div className="bg-surface text-on-surface min-h-screen pb-32">
-      <TopBar showSearch onMenuClick={() => {}} />
+      <TopBar showSearch />
 
       <main className="max-w-7xl mx-auto px-6 pt-8">
         {/* Title & Stats */}

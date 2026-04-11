@@ -204,7 +204,7 @@ export default function SettingsPage() {
 
   return (
     <div className="bg-background font-body text-on-surface min-h-screen pb-32">
-      <TopBar onMenuClick={() => {}} />
+      <TopBar />
 
       <main className="max-w-4xl mx-auto px-6 pt-12 space-y-16">
         {/* Header */}
