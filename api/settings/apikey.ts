@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { authenticateRequest } from "../lib/auth";
-import { supabase } from "../lib/db";
-import { encrypt, decrypt } from "../lib/crypto";
+import { authenticateRequest } from "../lib/auth.js";
+import { supabase } from "../lib/db.js";
+import { encrypt, decrypt } from "../lib/crypto.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);

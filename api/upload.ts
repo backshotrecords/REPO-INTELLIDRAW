@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { authenticateRequest } from "./lib/auth";
-import { supabase } from "./lib/db";
-import { decrypt } from "./lib/crypto";
+import { authenticateRequest } from "./lib/auth.js";
+import { supabase } from "./lib/db.js";
+import { decrypt } from "./lib/crypto.js";
 import OpenAI from "openai";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
