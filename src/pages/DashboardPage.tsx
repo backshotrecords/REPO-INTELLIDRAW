@@ -1,0 +1,328 @@
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import TopBar from "../components/TopBar";
+import BottomNav from "../components/BottomNav";
+import { apiListCanvases, apiCreateCanvas, apiDeleteCanvas } from "../lib/api";
+import { exportAsMarkdown, exportAsZip } from "../utils/export";
+
+interface Canvas {
+  id: string;
+  title: string;
+  mermaid_code: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export default function DashboardPage() {
+  const [canvases, setCanvases] = useState<Canvas[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [selectedForExport, setSelectedForExport] = useState<Set<string>>(new Set());
+  const [exportMode, setExportMode] = useState(false);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    loadCanvases();
+  }, []);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const loadCanvases = async () => {
+    try {
+      const data = await apiListCanvases();
+      setCanvases(data);
+    } catch (err) {
+      console.error("Failed to load canvases:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateCanvas = async () => {
+    try {
+      const canvas = await apiCreateCanvas();
+      navigate(`/canvas/${canvas.id}`);
+    } catch (err) {
+      console.error("Failed to create canvas:", err);
+    }
+  };
+
+  const handleDeleteCanvas = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this canvas?")) return;
+    try {
+      await apiDeleteCanvas(id);
+      setCanvases((prev) => prev.filter((c) => c.id !== id));
+      setMenuOpenId(null);
+    } catch (err) {
+      console.error("Failed to delete canvas:", err);
+    }
+  };
+
+  const handleExport = () => {
+    const selected = canvases.filter((c) => selectedForExport.has(c.id));
+    if (selected.length === 0) return;
+    if (selected.length === 1) {
+      exportAsMarkdown(selected[0]);
+    } else {
+      exportAsZip(selected);
+    }
+    setExportMode(false);
+    setSelectedForExport(new Set());
+  };
+
+  const toggleExportSelection = (id: string) => {
+    setSelectedForExport((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const timeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return new Date(dateStr).toLocaleDateString();
+  };
+
+  const filtered = canvases.filter((c) =>
+    c.title.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="bg-surface text-on-surface min-h-screen pb-32">
+      <TopBar showSearch onMenuClick={() => {}} />
+
+      <main className="max-w-7xl mx-auto px-6 pt-8">
+        {/* Title & Stats */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+          <div>
+            <h1 className="text-5xl font-extrabold tracking-tight text-primary mb-2 font-headline">
+              My Canvases
+            </h1>
+            <p className="text-on-surface-variant max-w-md">
+              Precision diagrams curated by your master drafter AI. Organize, edit, and export your architectural flows.
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <div className="bg-surface-container-low px-6 py-4 rounded-xl flex items-center gap-4">
+              <div className="bg-tertiary-fixed p-3 rounded-full">
+                <span
+                  className="material-symbols-outlined text-on-tertiary-fixed"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  auto_awesome
+                </span>
+              </div>
+              <div>
+                <div className="text-2xl font-bold font-headline">{canvases.length}</div>
+                <div className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                  Active Flows
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Search Bar Mobile */}
+        <div className="md:hidden mb-8">
+          <div className="relative w-full">
+            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">
+              search
+            </span>
+            <input
+              className="w-full bg-surface-container-high border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-secondary outline-none"
+              placeholder="Search your library..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Export bar */}
+        {exportMode && (
+          <div className="mb-6 flex items-center justify-between bg-secondary-fixed/30 rounded-xl px-6 py-3">
+            <span className="text-sm font-semibold text-on-surface">
+              {selectedForExport.size} selected
+            </span>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setExportMode(false); setSelectedForExport(new Set()); }}
+                className="text-sm font-bold text-on-surface-variant hover:text-on-surface"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={selectedForExport.size === 0}
+                className="px-4 py-2 editorial-gradient text-white text-sm font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-40"
+              >
+                Export {selectedForExport.size === 1 ? ".md" : ".zip"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Loading */}
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="spinner w-8 h-8" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <span className="material-symbols-outlined text-6xl text-outline-variant/40">
+              dashboard_customize
+            </span>
+            <p className="text-on-surface-variant">
+              {search ? "No canvases match your search" : "No canvases yet. Create your first one!"}
+            </p>
+          </div>
+        ) : (
+          /* Grid */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {filtered.map((canvas) => (
+              <div
+                key={canvas.id}
+                className="group bg-surface-container-lowest rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20 cursor-pointer"
+                onClick={() => {
+                  if (exportMode) {
+                    toggleExportSelection(canvas.id);
+                  } else {
+                    navigate(`/canvas/${canvas.id}`);
+                  }
+                }}
+              >
+                {/* Export checkbox */}
+                {exportMode && (
+                  <div className="absolute top-4 right-4 z-20">
+                    <div
+                      className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+                        selectedForExport.has(canvas.id)
+                          ? "bg-secondary border-secondary text-white"
+                          : "border-outline-variant bg-white/80"
+                      }`}
+                    >
+                      {selectedForExport.has(canvas.id) && (
+                        <span className="material-symbols-outlined text-sm">check</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Preview area */}
+                <div className="aspect-video relative overflow-hidden bg-surface-container-high">
+                  <div className="w-full h-full flex items-center justify-center bg-surface-container-low canvas-grid">
+                    <span className="material-symbols-outlined text-4xl text-outline-variant/40">
+                      account_tree
+                    </span>
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-primary/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+
+                {/* Card body */}
+                <div className="p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-on-surface">{canvas.title}</h3>
+                      <p className="text-sm text-on-surface-variant">
+                        Modified {timeAgo(canvas.updated_at)}
+                      </p>
+                    </div>
+                    <div className="relative" ref={menuOpenId === canvas.id ? menuRef : undefined}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuOpenId(menuOpenId === canvas.id ? null : canvas.id);
+                        }}
+                        className="text-on-surface-variant hover:text-primary p-2 hover:bg-surface-container-high rounded-lg transition-colors"
+                      >
+                        <span className="material-symbols-outlined">more_vert</span>
+                      </button>
+
+                      {menuOpenId === canvas.id && (
+                        <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-ambient-lg border border-outline-variant/10 py-2 min-w-[160px] z-30">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/canvas/${canvas.id}`);
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3"
+                          >
+                            <span className="material-symbols-outlined text-lg">edit</span>
+                            Edit
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              exportAsMarkdown(canvas);
+                              setMenuOpenId(null);
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3"
+                          >
+                            <span className="material-symbols-outlined text-lg">download</span>
+                            Export .md
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteCanvas(canvas.id);
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-sm text-error hover:bg-error-container/20 flex items-center gap-3"
+                          >
+                            <span className="material-symbols-outlined text-lg">delete</span>
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+
+      {/* Export FAB (when not in export mode) */}
+      {!exportMode && canvases.length > 0 && (
+        <button
+          onClick={() => setExportMode(true)}
+          className="fixed bottom-28 left-8 z-50 bg-secondary-fixed text-on-secondary-fixed-variant w-14 h-14 rounded-2xl shadow-lg hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center md:bottom-8"
+        >
+          <span className="material-symbols-outlined text-2xl">download</span>
+        </button>
+      )}
+
+      {/* FAB: New Canvas */}
+      <button
+        onClick={handleCreateCanvas}
+        className="fixed bottom-28 right-8 z-50 bg-gradient-to-br from-primary to-primary-container text-white w-16 h-16 rounded-2xl shadow-lg hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center group md:bottom-8"
+      >
+        <span className="material-symbols-outlined text-3xl group-hover:rotate-90 transition-transform duration-300">
+          add
+        </span>
+        <span className="absolute right-20 bg-primary text-white text-xs font-bold px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+          New Canvas
+        </span>
+      </button>
+
+      <BottomNav />
+    </div>
+  );
+}

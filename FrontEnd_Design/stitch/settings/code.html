@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>IntelliDraw Settings</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-dim": "#d7dadc",
+                        "tertiary-fixed-dim": "#4cd6ff",
+                        "secondary-fixed-dim": "#adc6ff",
+                        "on-primary-fixed": "#0b1d2d",
+                        "surface-variant": "#e0e3e5",
+                        "primary-container": "#1a2b3c",
+                        "on-secondary-container": "#fefcff",
+                        "primary-fixed-dim": "#b7c8de",
+                        "on-surface-variant": "#44474c",
+                        "on-secondary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-tertiary-fixed": "#001f28",
+                        "secondary-container": "#0070eb",
+                        "on-tertiary-fixed-variant": "#004e60",
+                        "inverse-surface": "#2d3133",
+                        "background": "#f7fafc",
+                        "on-tertiary-container": "#009dc1",
+                        "tertiary-fixed": "#b7eaff",
+                        "on-surface": "#181c1e",
+                        "outline-variant": "#c4c6cd",
+                        "on-primary-fixed-variant": "#38485a",
+                        "on-primary-container": "#8192a7",
+                        "on-tertiary": "#ffffff",
+                        "surface-container": "#ebeef0",
+                        "primary": "#041627",
+                        "on-secondary-fixed-variant": "#004493",
+                        "inverse-on-surface": "#eef1f3",
+                        "on-background": "#181c1e",
+                        "surface-bright": "#f7fafc",
+                        "tertiary-container": "#002e3a",
+                        "on-error-container": "#93000a",
+                        "surface-container-high": "#e5e9eb",
+                        "surface-container-highest": "#e0e3e5",
+                        "error-container": "#ffdad6",
+                        "surface": "#f7fafc",
+                        "secondary-fixed": "#d8e2ff",
+                        "inverse-primary": "#b7c8de",
+                        "error": "#ba1a1a",
+                        "outline": "#74777d",
+                        "surface-container-low": "#f1f4f6",
+                        "tertiary": "#001820",
+                        "on-primary": "#ffffff",
+                        "on-secondary-fixed": "#001a41",
+                        "secondary": "#0058bc",
+                        "primary-fixed": "#d2e4fb",
+                        "surface-tint": "#4f6073"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .fill-icon {
+            font-variation-settings: 'FILL' 1;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background font-body text-on-surface min-h-screen pb-32">
+<!-- TopAppBar -->
+<header class="bg-slate-50/70 dark:bg-slate-900/70 backdrop-blur-xl docked full-width top-0 sticky z-40 flex justify-between items-center w-full px-6 py-4">
+<div class="flex items-center gap-4">
+<button class="p-2 rounded-full hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors active:scale-95 duration-200">
+<span class="material-symbols-outlined text-slate-900 dark:text-slate-100">menu</span>
+</button>
+<h1 class="text-xl font-extrabold text-slate-900 dark:text-white font-manrope tracking-tight">IntelliDraw</h1>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-10 h-10 rounded-full overflow-hidden bg-surface-container-high border-2 border-white">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="Professional architect profile portrait with thoughtful expression, neutral studio lighting, high resolution editorial style" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAI97st4wjkUyp1i5liNTOLmDXFH0Bzwk4YIVvXOMiUJbFQWg98vwbeHL1bD-mWgSgX1cCfUlGqPzMqIT7mrTEJJj5wkfves469j4Nuj5cbl28XWIvksS__j2ijAuG0KwbRezGoXw68_r7dtLnDNgq8guO8oZDLZwz8yt14F-itON6wssAcygDnbHCuzEUXunowi59Ub3EYYL3qRaZZxDr3RJQsJlmRyEk-_E-vBnNgUKUxaHrLz4XUXz0BnoxXLoBkuZlET_Wkstc"/>
+</div>
+</div>
+</header>
+<main class="max-w-4xl mx-auto px-6 pt-12 space-y-16">
+<!-- Header Section -->
+<section class="space-y-2">
+<h2 class="text-4xl font-headline font-extrabold tracking-tight text-primary">Settings</h2>
+<p class="text-on-surface-variant text-lg">Manage your workspace precision and intelligence configurations.</p>
+</section>
+<!-- Account Settings Section (Bento Inspired) -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<div class="md:col-span-1">
+<h3 class="text-xl font-headline font-bold text-primary">Account Details</h3>
+<p class="text-sm text-on-surface-variant mt-2">Update your profile and subscription preferences.</p>
+</div>
+<div class="md:col-span-2 space-y-6">
+<div class="bg-surface-container-low rounded-xl p-8 space-y-8">
+<!-- User Identity -->
+<div class="flex items-center gap-6">
+<div class="relative">
+<div class="w-24 h-24 rounded-xl overflow-hidden bg-white shadow-sm">
+<img alt="Master Drafter" class="w-full h-full object-cover" data-alt="Close up of a professional male architect in a clean white shirt, soft natural indoor lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDlN7IsHzMgJQ5SdmoDx24nPzU93Dkxwdscr5VlqAlVJVzmmCLL1aI3G5-Uvyu3dawQdULjuU4jFyrP2N5DeDHxVa5ClQfl1fJhqnSiCeA53w2XMFKOQwkO8vUM7UF8JE16-8Onev33WkkgNS6k_t6jbmiQ5ual88sXhhcSiqvsn2tUlDWA8Txr3QkIcUi-1BhAT69Ilqt2UgYdJYmcaohGaEw6vrZJ62iflDYQG1UnoZTshGcvSoTEHKMfZp-PfEGSrLF12Hr07PQ"/>
+</div>
+<button class="absolute -bottom-2 -right-2 bg-white text-primary p-2 rounded-lg shadow-lg border border-outline-variant/15 active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-[20px]">edit</span>
+</button>
+</div>
+<div>
+<p class="text-2xl font-headline font-bold text-on-surface">Master Drafter</p>
+<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-tertiary-fixed text-on-tertiary-fixed mt-2">
+<span class="material-symbols-outlined text-[14px] mr-1" style="font-variation-settings: 'FILL' 1;">workspace_premium</span>
+                                Pro Plan
+                            </span>
+</div>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+<div class="space-y-2">
+<label class="text-sm font-medium text-on-surface-variant">Full Name</label>
+<input class="w-full bg-surface-container-high border-none rounded-lg px-4 py-3 focus:ring-2 focus:ring-secondary/20 transition-all outline-none" type="text" value="Alexander Sterling"/>
+</div>
+<div class="space-y-2">
+<label class="text-sm font-medium text-on-surface-variant">Email Address</label>
+<input class="w-full bg-surface-container-high border-none rounded-lg px-4 py-3 focus:ring-2 focus:ring-secondary/20 transition-all outline-none" type="email" value="alexander.s@intellidraw.ai"/>
+</div>
+</div>
+<div class="pt-4 flex justify-end">
+<button class="px-6 py-2.5 text-sm font-bold text-on-surface-variant hover:bg-surface-container-high rounded-md transition-colors">
+                            Discard Changes
+                        </button>
+<button class="ml-4 px-8 py-2.5 bg-gradient-to-br from-primary to-primary-container text-white text-sm font-bold rounded-md active:scale-95 transition-transform">
+                            Save Account Settings
+                        </button>
+</div>
+</div>
+</div>
+</section>
+<!-- API Configuration Section -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<div class="md:col-span-1">
+<h3 class="text-xl font-headline font-bold text-primary">API Configuration</h3>
+<p class="text-sm text-on-surface-variant mt-2">Connect your own AI models for custom rendering logic and semantic analysis.</p>
+</div>
+<div class="md:col-span-2">
+<div class="bg-surface-container-lowest rounded-xl p-8 border border-outline-variant/15 shadow-sm space-y-8">
+<div class="flex items-center gap-4 p-4 bg-tertiary-container rounded-lg">
+<span class="material-symbols-outlined text-on-tertiary-fixed" style="font-variation-settings: 'FILL' 1;">info</span>
+<p class="text-sm text-tertiary-fixed">Your API keys are encrypted at rest and never visible to our support team.</p>
+</div>
+<div class="space-y-6">
+<div class="space-y-2">
+<div class="flex justify-between">
+<label class="text-sm font-semibold text-on-surface">OpenAI API Key</label>
+<a class="text-xs text-secondary font-semibold hover:underline" href="#">Get key from dashboard</a>
+</div>
+<div class="relative">
+<input class="w-full bg-surface-container-high border-none rounded-lg pl-4 pr-12 py-4 focus:ring-2 focus:ring-secondary/20 transition-all outline-none font-mono text-sm" placeholder="sk-..." type="password" value="sk-••••••••••••••••••••••••••••"/>
+<button class="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">visibility</span>
+</button>
+</div>
+</div>
+<div class="flex flex-col sm:flex-row gap-4 pt-4">
+<button class="flex-1 px-8 py-3.5 bg-gradient-to-br from-primary to-primary-container text-white text-sm font-bold rounded-md active:scale-95 transition-transform flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[20px]">save</span>
+                                Save Key
+                            </button>
+<button class="flex-1 px-8 py-3.5 bg-secondary-fixed text-on-secondary-fixed-variant text-sm font-bold rounded-md hover:bg-secondary-fixed-dim transition-colors active:scale-95 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[20px]">bolt</span>
+                                Test Connection
+                            </button>
+</div>
+</div>
+<!-- Connection Status (Insight Tooltip Style) -->
+<div class="flex items-center gap-3 p-4 bg-surface-container-low rounded-lg">
+<div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+<p class="text-xs font-semibold text-on-surface-variant">System Status: Connected to gpt-4-turbo</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Danger Zone -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<div class="md:col-span-1">
+<h3 class="text-xl font-headline font-bold text-error">Danger Zone</h3>
+<p class="text-sm text-on-surface-variant mt-2">Irreversible actions regarding your workspace and data.</p>
+</div>
+<div class="md:col-span-2">
+<div class="bg-error-container/30 rounded-xl p-8 border border-error/10">
+<div class="flex items-center justify-between gap-6">
+<div>
+<p class="font-bold text-on-error-container">Archive All Projects</p>
+<p class="text-sm text-on-error-container/70">Move all active canvases to the archive folder.</p>
+</div>
+<button class="px-6 py-2.5 text-error font-bold border border-error/20 hover:bg-error/10 rounded-md transition-colors">
+                            Archive All
+                        </button>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-2 bg-white/80 dark:bg-slate-950/80 backdrop-blur-2xl rounded-t-3xl shadow-[0px_-12px_32px_rgba(24,28,30,0.06)] md:hidden">
+<button class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 px-5 py-2 hover:text-slate-900 dark:hover:text-white transition-all active:scale-90 duration-150">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-inter text-[10px] font-semibold uppercase tracking-wider mt-1">Canvases</span>
+</button>
+<button class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 px-5 py-2 hover:text-slate-900 dark:hover:text-white transition-all active:scale-90 duration-150">
+<span class="material-symbols-outlined">draw</span>
+<span class="font-inter text-[10px] font-semibold uppercase tracking-wider mt-1">Draw</span>
+</button>
+<button class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 px-5 py-2 hover:text-slate-900 dark:hover:text-white transition-all active:scale-90 duration-150">
+<span class="material-symbols-outlined">smart_toy</span>
+<span class="font-inter text-[10px] font-semibold uppercase tracking-wider mt-1">AI Chat</span>
+</button>
+<button class="flex flex-col items-center justify-center bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl px-5 py-2 transition-all active:scale-90 duration-150">
+<span class="material-symbols-outlined fill-icon">settings</span>
+<span class="font-inter text-[10px] font-semibold uppercase tracking-wider mt-1">Settings</span>
+</button>
+</nav>
+</body></html>

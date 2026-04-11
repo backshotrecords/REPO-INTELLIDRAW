@@ -1,0 +1,109 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { authenticateRequest } from "./lib/auth";
+import { supabase } from "./lib/db";
+import { decrypt } from "./lib/crypto";
+import OpenAI from "openai";
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const authPayload = await authenticateRequest(req);
+  if (!authPayload) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const { message, mermaidCode, chatHistory } = req.body;
+
+  if (!message) {
+    return res.status(400).json({ error: "Message is required" });
+  }
+
+  try {
+    // Get user's API key and active model
+    const { data: user } = await supabase
+      .from("users")
+      .select("api_key_encrypted, active_model_id")
+      .eq("id", authPayload.userId)
+      .single();
+
+    if (!user?.api_key_encrypted) {
+      return res.status(400).json({
+        error: "No API key configured. Please add your OpenAI API key in Settings.",
+      });
+    }
+
+    const apiKey = decrypt(user.api_key_encrypted);
+
+    // Get the active model ID
+    let modelId = "gpt-4o";
+    if (user.active_model_id) {
+      const { data: model } = await supabase
+        .from("ai_models")
+        .select("model_id")
+        .eq("id", user.active_model_id)
+        .single();
+      if (model) modelId = model.model_id;
+    }
+
+    const openai = new OpenAI({ apiKey });
+
+    // Build conversation history for context
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content: `You are IntelliDraw, an AI assistant that helps users create and refine Mermaid flowcharts through natural conversation.
+
+CURRENT MERMAID CODE:
+\`\`\`mermaid
+${mermaidCode || "flowchart TD\n    A[Start]"}
+\`\`\`
+
+INSTRUCTIONS:
+1. Respond conversationally to the user's request
+2. When you need to update the flowchart, include the COMPLETE updated Mermaid code in a fenced code block with the language identifier "mermaid"
+3. Always output the FULL mermaid code, not just the changes
+4. Use valid Mermaid syntax (flowchart TD, graph LR, etc.)
+5. Keep your conversational response concise but helpful
+6. If the user asks for changes, apply them and show the updated code
+7. Use descriptive node labels and proper flow connections`,
+      },
+    ];
+
+    // Add chat history for context (last 20 messages max)
+    const history = Array.isArray(chatHistory) ? chatHistory.slice(-20) : [];
+    for (const msg of history) {
+      messages.push({
+        role: msg.role as "user" | "assistant",
+        content: msg.content,
+      });
+    }
+
+    // Add the new user message
+    messages.push({ role: "user", content: message });
+
+    const completion = await openai.chat.completions.create({
+      model: modelId,
+      messages,
+      max_tokens: 4096,
+      temperature: 0.7,
+    });
+
+    const aiResponse = completion.choices[0]?.message?.content || "I couldn't generate a response. Please try again.";
+
+    // Extract mermaid code from the response if present
+    const mermaidMatch = aiResponse.match(/```mermaid\n([\s\S]*?)```/);
+    const updatedMermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
+
+    return res.status(200).json({
+      response: aiResponse,
+      updatedMermaidCode,
+      model: modelId,
+    });
+  } catch (err: unknown) {
+    console.error("Chat error:", err);
+    const errorMessage = err instanceof Error ? err.message : "Failed to get AI response";
+    return res.status(500).json({ error: errorMessage });
+  }
+}

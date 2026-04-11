@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>IntelliDraw Dashboard</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts: Manrope & Inter -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-dim": "#d7dadc",
+                        "tertiary-fixed-dim": "#4cd6ff",
+                        "secondary-fixed-dim": "#adc6ff",
+                        "on-primary-fixed": "#0b1d2d",
+                        "surface-variant": "#e0e3e5",
+                        "primary-container": "#1a2b3c",
+                        "on-secondary-container": "#fefcff",
+                        "primary-fixed-dim": "#b7c8de",
+                        "on-surface-variant": "#44474c",
+                        "on-secondary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-tertiary-fixed": "#001f28",
+                        "secondary-container": "#0070eb",
+                        "on-tertiary-fixed-variant": "#004e60",
+                        "inverse-surface": "#2d3133",
+                        "background": "#f7fafc",
+                        "on-tertiary-container": "#009dc1",
+                        "tertiary-fixed": "#b7eaff",
+                        "on-surface": "#181c1e",
+                        "outline-variant": "#c4c6cd",
+                        "on-primary-fixed-variant": "#38485a",
+                        "on-primary-container": "#8192a7",
+                        "on-tertiary": "#ffffff",
+                        "surface-container": "#ebeef0",
+                        "primary": "#041627",
+                        "on-secondary-fixed-variant": "#004493",
+                        "inverse-on-surface": "#eef1f3",
+                        "on-background": "#181c1e",
+                        "surface-bright": "#f7fafc",
+                        "tertiary-container": "#002e3a",
+                        "on-error-container": "#93000a",
+                        "surface-container-high": "#e5e9eb",
+                        "surface-container-highest": "#e0e3e5",
+                        "error-container": "#ffdad6",
+                        "surface": "#f7fafc",
+                        "secondary-fixed": "#d8e2ff",
+                        "inverse-primary": "#b7c8de",
+                        "error": "#ba1a1a",
+                        "outline": "#74777d",
+                        "surface-container-low": "#f1f4f6",
+                        "tertiary": "#001820",
+                        "on-primary": "#ffffff",
+                        "on-secondary-fixed": "#001a41",
+                        "secondary": "#0058bc",
+                        "primary-fixed": "#d2e4fb",
+                        "surface-tint": "#4f6073"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3 { font-family: 'Manrope', sans-serif; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface min-h-screen pb-32">
+<!-- TopAppBar -->
+<header class="bg-slate-50/70 dark:bg-slate-900/70 backdrop-blur-xl docked full-width top-0 sticky z-40 no-line tonal-shift-bg flat no shadows">
+<div class="flex justify-between items-center w-full px-6 py-4">
+<div class="flex items-center gap-4">
+<button class="hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors active:scale-95 duration-200 p-2 rounded-full">
+<span class="material-symbols-outlined text-slate-900 dark:text-slate-100">menu</span>
+</button>
+<span class="text-xl font-extrabold text-slate-900 dark:text-white font-manrope tracking-tight">IntelliDraw</span>
+</div>
+<div class="hidden md:flex flex-1 max-w-md mx-8">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="w-full bg-surface-container-high border-none rounded-xl py-2 pl-10 pr-4 focus:ring-2 focus:ring-secondary text-sm" placeholder="Search canvases..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<img alt="User Profile" class="w-10 h-10 rounded-full object-cover border-2 border-surface-container-highest" data-alt="Close-up portrait of a professional man in a studio setting with soft lighting and a clean neutral background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB98suWvG06XP0JoEifkln0FluTBwzNXBo3ScvINlin3bTb1InQQ_nVOklxTd4viMQ_Y5FE3aco7wRRERiXIan6cffNoKbqtUq_37xqT2x4cfK_T_2b0llNvRUDxJyYlQlc_4BxPc2chF0a4psrE_LCq1kljEjnow1RpIs3ewDbS-erMrtYJNAA6axSStJi178BFHpo239P_LkOKTtQvpn7lkFk4skpcj9CqDqip7s6k8jRfq6ZJz24E2u6uvFVJm6Dq8IL8flRhQ4"/>
+</div>
+</div>
+</header>
+<main class="max-w-7xl mx-auto px-6 pt-8">
+<!-- Title & Stats -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+<div>
+<h1 class="text-5xl font-extrabold tracking-tight text-primary mb-2">My Canvases</h1>
+<p class="text-on-surface-variant max-w-md">Precision diagrams curated by your master drafter AI. Organize, edit, and export your architectural flows.</p>
+</div>
+<div class="flex gap-4">
+<div class="bg-surface-container-low px-6 py-4 rounded-xl flex items-center gap-4">
+<div class="bg-tertiary-fixed p-3 rounded-full">
+<span class="material-symbols-outlined text-on-tertiary-fixed" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+</div>
+<div>
+<div class="text-2xl font-bold font-headline">24</div>
+<div class="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Active Flows</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Search Bar Mobile Only -->
+<div class="md:hidden mb-8">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="w-full bg-surface-container-high border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-secondary" placeholder="Search your library..." type="text"/>
+</div>
+</div>
+<!-- Grid Layout: Asymmetric Bento Style -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+<!-- Canvas Card 1 -->
+<div class="group bg-surface-container-lowest rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20">
+<div class="aspect-video relative overflow-hidden bg-surface-container-high">
+<img alt="Blueprint Preview" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A clean, minimalist digital architectural floor plan blueprint with blue lines on a dark background showing precise measurements" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDhc-wnTNgvZrk4mLWYvDmp8qFbT7aWLxX2Lxnb-H_m8U3UbkNbnndHHm9mz2SRBTqDVpWQGzYELe45hDyFFQBQrkZTfXL4qFyACxQlsVWxMEtBdDoOC32PlaZlgl4nqgtKTuZxsHQTlFhVuNjY5K1Bg9ch6toMdAl9aon3shm2GjpzJexnnJIav9FzLg7yjhENsj5olsM0_lu87uIFdT3eUraB3LqT1D_gI0NsBDUo5XKosb82k-4ejeD_JGi93EUCo9dCMkx9RJY"/>
+<div class="absolute inset-0 bg-gradient-to-t from-primary/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="absolute top-4 left-4">
+<span class="bg-tertiary-fixed text-on-tertiary-fixed px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm">AI Optimized</span>
+</div>
+</div>
+<div class="p-6">
+<div class="flex justify-between items-start mb-4">
+<div>
+<h3 class="text-lg font-bold text-on-surface">Cloud Infrastructure 2024</h3>
+<p class="text-sm text-on-surface-variant">Modified 2 hours ago</p>
+</div>
+<button class="text-on-surface-variant hover:text-primary p-2 hover:bg-surface-container-high rounded-lg transition-colors">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+<div class="flex items-center gap-2">
+<div class="flex -space-x-2">
+<div class="w-6 h-6 rounded-full bg-secondary-fixed border-2 border-surface-container-lowest"></div>
+<div class="w-6 h-6 rounded-full bg-tertiary-fixed border-2 border-surface-container-lowest"></div>
+</div>
+<span class="text-xs font-medium text-on-surface-variant">Shared with 2 others</span>
+</div>
+</div>
+</div>
+<!-- Canvas Card 2 -->
+<div class="group bg-surface-container-lowest rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20">
+<div class="aspect-video relative overflow-hidden bg-surface-container-high">
+<img alt="Data Flow Preview" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="Digital visualization of a neural network or data flow with glowing nodes and connecting lines on a deep navy background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJ4HJ7ywK2Z_A14gxsFU1V7k0gA9qex87sEbr7Y1PlU4OF0mBWPcegdj0Sg4RzKssS4NaXGvz1IZahOrCzNwPHuCx5z2fkDQr9Lx3CppB6B-y1S5zBkwW-tSfnCcMAIfGP09qQmYMy2R9ycK1t3YiQvqvA7hrrZRiCLCZpNI59_oyJcqUqK591GUyd1PsiKIKPMWr4TqNnqLesoRyBfwGdSjGSwMF8kvhWAWXp7k6YrnDz2fCmp6iRcSV82RtOLp_MYccclwQg5vw"/>
+<div class="absolute inset-0 bg-gradient-to-t from-primary/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+</div>
+<div class="p-6">
+<div class="flex justify-between items-start mb-4">
+<div>
+<h3 class="text-lg font-bold text-on-surface">Neural Pipeline Map</h3>
+<p class="text-sm text-on-surface-variant">Modified yesterday</p>
+</div>
+<button class="text-on-surface-variant hover:text-primary p-2 hover:bg-surface-container-high rounded-lg transition-colors">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+<div class="flex items-center gap-2">
+<span class="bg-surface-container-high text-on-surface-variant px-2 py-0.5 rounded text-[10px] font-bold">DRAFT</span>
+</div>
+</div>
+</div>
+<!-- Canvas Card 3 -->
+<div class="group bg-surface-container-lowest rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20">
+<div class="aspect-video relative overflow-hidden bg-surface-container-high">
+<img alt="UX Wireframe Preview" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A clean mobile app user flow diagram with grey boxes and arrows representing a seamless user journey" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA0_XaQmJS-q4uMd5cST_ySjXKvydV1FP720xyYcnsU12c8vpoM4pB8ualW_ElSCxIdCM9rX9v3ai4HiilVLShUI9QPjPOrcKffRbnyQK85Xyhofo43KIgof62Wrt15hMOi12thP05IuploPgyWs2dwCGeCbrtqKYh6RKUq39d0gJxVVK3ofCJy1u4JBKmleBGXmJexLGrDUmsPSDZxBGGooJhlerBEyxm5Ad3CkNiANdLC7UbDxo1Zhg2ZHnBL9CW1zF-9Fw6oow8"/>
+<div class="absolute inset-0 bg-gradient-to-t from-primary/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+</div>
+<div class="p-6">
+<div class="flex justify-between items-start mb-4">
+<div>
+<h3 class="text-lg font-bold text-on-surface">Mobile App User Flow</h3>
+<p class="text-sm text-on-surface-variant">Modified 3 days ago</p>
+</div>
+<button class="text-on-surface-variant hover:text-primary p-2 hover:bg-surface-container-high rounded-lg transition-colors">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+<div class="flex items-center gap-2">
+<span class="bg-surface-container-high text-on-surface-variant px-2 py-0.5 rounded text-[10px] font-bold">V2.4</span>
+</div>
+</div>
+</div>
+<!-- Canvas Card 4 -->
+<div class="group bg-surface-container-lowest rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20">
+<div class="aspect-video relative overflow-hidden bg-surface-container-high">
+<div class="w-full h-full flex items-center justify-center bg-surface-container-low">
+<span class="material-symbols-outlined text-4xl text-outline-variant/40">dashboard_customize</span>
+</div>
+</div>
+<div class="p-6">
+<div class="flex justify-between items-start mb-4">
+<div>
+<h3 class="text-lg font-bold text-on-surface">Marketing Funnel Design</h3>
+<p class="text-sm text-on-surface-variant">Modified 1 week ago</p>
+</div>
+<button class="text-on-surface-variant hover:text-primary p-2 hover:bg-surface-container-high rounded-lg transition-colors">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- FAB: New Canvas -->
+<button class="fixed bottom-28 right-8 z-50 bg-gradient-to-br from-primary to-primary-container text-white w-16 h-16 rounded-2xl shadow-lg hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center group">
+<span class="material-symbols-outlined text-3xl group-hover:rotate-90 transition-transform duration-300">add</span>
+<span class="absolute right-20 bg-primary text-white text-xs font-bold px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">New Canvas</span>
+</button>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-2 bg-white/80 dark:bg-slate-950/80 backdrop-blur-2xl rounded-t-3xl shadow-[0px_-12px_32px_rgba(24,28,30,0.06)]">
+<!-- Active Tab: Canvases -->
+<a class="flex flex-col items-center justify-center bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl px-5 py-2 active:scale-90 duration-150 transition-all" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="font-inter text-[10px] font-semibold uppercase tracking-wider mt-1">Canvases</span>
+</a>
+<!-- Inactive Tab: Draw -->
+<a class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 px-5 py-2 hover:text-slate-900 dark:hover:text-white transition-all active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined">draw</span>
+<span class="font-inter text-[10px] font-semibold uppercase tracking-wider mt-1">Draw</span>
+</a>
+<!-- Inactive Tab: AI Chat -->
+<a class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 px-5 py-2 hover:text-slate-900 dark:hover:text-white transition-all active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined">smart_toy</span>
+<span class="font-inter text-[10px] font-semibold uppercase tracking-wider mt-1">AI Chat</span>
+</a>
+<!-- Inactive Tab: Settings -->
+<a class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 px-5 py-2 hover:text-slate-900 dark:hover:text-white transition-all active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-inter text-[10px] font-semibold uppercase tracking-wider mt-1">Settings</span>
+</a>
+</nav>
+<!-- Contextual Insight (AI Tooltip Example) -->
+<div class="fixed bottom-32 left-8 max-w-xs z-50">
+<div class="bg-tertiary-container text-on-tertiary-fixed p-4 rounded-xl shadow-xl border border-tertiary-fixed-dim/20">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-tertiary-fixed-dim text-sm">lightbulb</span>
+<span class="text-[10px] font-black uppercase tracking-[0.2em] text-tertiary-fixed-dim">AI Insight</span>
+</div>
+<p class="text-xs leading-relaxed opacity-90">Your 'Cloud Infrastructure' flow is becoming complex. Would you like me to suggest a sub-diagram structure?</p>
+</div>
+</div>
+</body></html>
