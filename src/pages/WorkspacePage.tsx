@@ -44,6 +44,8 @@ export default function WorkspacePage() {
       setChatHistory(canvas.chat_history || []);
     } catch (err) {
       console.error("Failed to load canvas:", err);
+      const message = err instanceof Error ? err.message : "Unknown error";
+      alert(`Failed to load canvas: ${message}`);
       navigate("/dashboard");
     }
   }, [navigate]);
