@@ -308,7 +308,7 @@ export default function WorkspacePage() {
             /* Infinite canvas */
             <div
               ref={canvasRef}
-              className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-pan-x touch-pan-y canvas-area"
+              className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area"
               onWheel={handleWheel}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
