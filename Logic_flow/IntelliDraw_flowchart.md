@@ -243,7 +243,6 @@ flowchart LR
 
     BOT_NAV --> TAB_CANVASES["🗂 Canvases"]
     BOT_NAV --> TAB_DRAW["✏️ Draw"]
-    BOT_NAV --> TAB_CHAT["🤖 AI Chat"]
     BOT_NAV --> TAB_SETTINGS["⚙️ Settings"]
 ```
 

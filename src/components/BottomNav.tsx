@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 const tabs = [
   { id: "canvases", label: "Canvases", icon: "dashboard", path: "/dashboard" },
   { id: "draw", label: "Draw", icon: "draw", path: "/canvas/new" },
-  { id: "chat", label: "AI Chat", icon: "smart_toy", path: "/canvas/new" },
   { id: "settings", label: "Settings", icon: "settings", path: "/settings" },
 ];
 
