@@ -240,62 +240,34 @@ export default function WorkspacePage() {
     <div className="bg-background font-body text-on-surface overflow-hidden h-screen flex flex-col">
       {/* Header */}
       <header className="bg-white/90 backdrop-blur-md border-b border-outline-variant/30 sticky top-0 z-50">
-        <div className="flex flex-col w-full">
-          <div className="flex justify-between items-center px-4 py-3">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => navigate("/dashboard")}
-                className="material-symbols-outlined text-on-surface p-2 -ml-2 rounded-full active:bg-surface-container-high transition-colors"
+        <div className="flex justify-between items-center w-full px-4 py-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate("/dashboard")}
+              className="material-symbols-outlined text-on-surface p-2 -ml-2 rounded-full active:bg-surface-container-high transition-colors"
+            >
+              arrow_back
+            </button>
+            {editingTitle ? (
+              <input
+                className="font-manrope font-extrabold text-lg tracking-tight text-primary bg-surface-container-high rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-secondary"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={handleTitleSave}
+                onKeyDown={(e) => e.key === "Enter" && handleTitleSave()}
+                autoFocus
+              />
+            ) : (
+              <h1
+                onClick={() => setEditingTitle(true)}
+                className="font-manrope font-extrabold text-lg tracking-tight text-primary cursor-pointer hover:text-secondary transition-colors"
               >
-                arrow_back
-              </button>
-              {editingTitle ? (
-                <input
-                  className="font-manrope font-extrabold text-lg tracking-tight text-primary bg-surface-container-high rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-secondary"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  onBlur={handleTitleSave}
-                  onKeyDown={(e) => e.key === "Enter" && handleTitleSave()}
-                  autoFocus
-                />
-              ) : (
-                <h1
-                  onClick={() => setEditingTitle(true)}
-                  className="font-manrope font-extrabold text-lg tracking-tight text-primary cursor-pointer hover:text-secondary transition-colors"
-                >
-                  {title}
-                </h1>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              {saving && <span className="text-xs text-on-surface-variant animate-pulse">Saving...</span>}
-            </div>
+                {title}
+              </h1>
+            )}
           </div>
-
-          {/* View toggle tabs */}
-          <div className="px-4 pb-3">
-            <div className="bg-surface-container-low p-1 rounded-xl flex items-center w-full">
-              <button
-                onClick={() => setActiveView("flowchart")}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
-                  activeView === "flowchart"
-                    ? "bg-white text-secondary shadow-sm"
-                    : "text-on-surface-variant/70 hover:bg-surface-container-high"
-                }`}
-              >
-                Flowchart
-              </button>
-              <button
-                onClick={() => setActiveView("code")}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
-                  activeView === "code"
-                    ? "bg-white text-secondary shadow-sm"
-                    : "text-on-surface-variant/70 hover:bg-surface-container-high"
-                }`}
-              >
-                Mermaid Code
-              </button>
-            </div>
+          <div className="flex items-center gap-3">
+            {saving && <span className="text-xs text-on-surface-variant animate-pulse">Saving...</span>}
           </div>
         </div>
       </header>
@@ -303,7 +275,37 @@ export default function WorkspacePage() {
       {/* Main content */}
       <main className="relative flex-1 flex overflow-hidden min-h-0">
         {/* Canvas / Code area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          {/* Floating view toggle toolbar */}
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 pointer-events-auto">
+            <div className="inline-flex items-center bg-white/80 backdrop-blur-xl rounded-full border border-outline-variant/20 px-1 py-1 gap-0.5 shadow-lg shadow-black/5">
+              <button
+                onClick={() => setActiveView("flowchart")}
+                className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-full text-xs font-semibold transition-all duration-200 ${
+                  activeView === "flowchart"
+                    ? "bg-white text-on-surface shadow-sm"
+                    : "text-on-surface-variant hover:bg-surface-container-high/60"
+                }`}
+              >
+                <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1, 'wght' 400, 'opsz' 20" }}>account_tree</span>
+                Flowchart
+              </button>
+
+              <div className="w-px h-5 bg-outline-variant/20" />
+
+              <button
+                onClick={() => setActiveView("code")}
+                className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-full text-xs font-semibold transition-all duration-200 ${
+                  activeView === "code"
+                    ? "bg-white text-on-surface shadow-sm"
+                    : "text-on-surface-variant hover:bg-surface-container-high/60"
+                }`}
+              >
+                <span className="material-symbols-outlined text-base">code</span>
+                Mermaid Code
+              </button>
+            </div>
+          </div>
           {activeView === "flowchart" ? (
             /* Infinite canvas */
             <div
@@ -448,38 +450,51 @@ export default function WorkspacePage() {
           </div>
         </div>
 
-        {/* Chat panel (desktop sidebar / mobile bottom sheet) */}
+        {/* Agent Manager panel (desktop sidebar / mobile bottom sheet) */}
         <div
-          className={`fixed md:relative left-0 md:left-auto right-0 bottom-[104px] md:bottom-auto top-auto md:top-0 h-[50vh] md:h-full w-full md:w-[380px] bg-white/95 backdrop-blur-3xl md:bg-white border-t md:border-t-0 md:border-l border-outline-variant/20 z-20 md:z-auto transition-all duration-300 flex flex-col shadow-[0_-10px_40px_rgb(0,0,0,0.1)] md:shadow-none ${
+          className={`fixed md:relative left-0 md:left-auto right-0 bottom-[104px] md:bottom-auto top-auto md:top-0 h-[50vh] md:h-full w-full md:w-[380px] bg-white/80 backdrop-blur-2xl md:bg-white/90 md:backdrop-blur-xl border-t md:border-t-0 md:border-l border-outline-variant/15 z-20 md:z-auto transition-all duration-300 flex flex-col shadow-[0_-10px_40px_rgb(0,0,0,0.08)] md:shadow-none ${
             showChat ? "translate-y-0 opacity-100" : "translate-y-[20%] opacity-0 pointer-events-none md:translate-y-0 md:opacity-100 md:pointer-events-auto"
           }`}
         >
-          {/* Chat header */}
-          <div className="p-4 border-b border-outline-variant/20 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span
-                className="material-symbols-outlined text-secondary"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                smart_toy
-              </span>
-              <span className="font-bold text-sm text-on-surface">AI Assistant</span>
+          {/* Panel header */}
+          <div className="px-5 py-4 border-b border-outline-variant/10 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/15 to-secondary/15 flex items-center justify-center">
+                <span
+                  className="material-symbols-outlined text-lg text-primary"
+                  style={{ fontVariationSettings: "'FILL' 1, 'wght' 500" }}
+                >
+                  hub
+                </span>
+              </div>
+              <div>
+                <span className="font-bold text-sm text-on-surface tracking-tight">Agent Manager</span>
+              </div>
+            </div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/50">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">Online</span>
             </div>
           </div>
 
           {/* Chat messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+          <div className="flex-1 overflow-y-auto px-4 py-5 space-y-4 no-scrollbar">
             {chatHistory.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full gap-3 text-on-surface-variant/50">
-                <span
-                  className="material-symbols-outlined text-4xl"
-                  style={{ fontVariationSettings: "'FILL' 1" }}
-                >
-                  auto_awesome
-                </span>
-                <p className="text-sm text-center max-w-[220px]">
-                  Start a conversation to generate or refine your flowchart
-                </p>
+              <div className="flex flex-col items-center justify-center h-full gap-4 text-on-surface-variant/40">
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/8 to-secondary/8 flex items-center justify-center">
+                  <span
+                    className="material-symbols-outlined text-3xl text-primary/40"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    psychology
+                  </span>
+                </div>
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-semibold text-on-surface-variant/60">No active tasks</p>
+                  <p className="text-xs text-on-surface-variant/40 max-w-[200px]">
+                    Describe a flowchart to start generating or refining diagrams
+                  </p>
+                </div>
               </div>
             )}
 
@@ -488,11 +503,16 @@ export default function WorkspacePage() {
                 key={i}
                 className={`chat-message-enter flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
+                {msg.role === "assistant" && (
+                  <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary/15 to-secondary/15 flex items-center justify-center mr-2 mt-1 shrink-0">
+                    <span className="material-symbols-outlined text-xs text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>hub</span>
+                  </div>
+                )}
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                     msg.role === "user"
-                      ? "bg-primary text-white rounded-br-md"
-                      : "bg-surface-container-low text-on-surface rounded-bl-md"
+                      ? "bg-primary text-white rounded-br-md shadow-sm shadow-primary/10"
+                      : "bg-surface-container-low/80 text-on-surface rounded-bl-md border border-outline-variant/10"
                   }`}
                 >
                   <p className="whitespace-pre-wrap">{cleanMessageContent(msg.content)}</p>
@@ -502,11 +522,14 @@ export default function WorkspacePage() {
 
             {chatLoading && (
               <div className="flex justify-start">
-                <div className="bg-surface-container-low rounded-2xl rounded-bl-md px-4 py-3">
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-on-surface-variant/30 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <div className="w-2 h-2 bg-on-surface-variant/30 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <div className="w-2 h-2 bg-on-surface-variant/30 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary/15 to-secondary/15 flex items-center justify-center mr-2 mt-1 shrink-0">
+                  <span className="material-symbols-outlined text-xs text-primary animate-spin" style={{ fontVariationSettings: "'FILL' 1" }}>progress_activity</span>
+                </div>
+                <div className="bg-surface-container-low/80 rounded-2xl rounded-bl-md px-4 py-3 border border-outline-variant/10">
+                  <div className="flex gap-1.5">
+                    <div className="w-1.5 h-1.5 bg-primary/30 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <div className="w-1.5 h-1.5 bg-primary/30 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <div className="w-1.5 h-1.5 bg-primary/30 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
                   </div>
                 </div>
               </div>
