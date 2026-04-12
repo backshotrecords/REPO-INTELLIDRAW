@@ -109,7 +109,7 @@ export default function DashboardPage() {
 
   return (
     <div className="bg-surface text-on-surface min-h-screen pb-32">
-      <TopBar showSearch />
+      <TopBar showSearch onSearchChange={setSearch} />
 
       <main className="max-w-7xl mx-auto px-6 pt-8">
         {/* Title & Stats */}
