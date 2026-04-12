@@ -269,12 +269,6 @@ export default function WorkspacePage() {
             </div>
             <div className="flex items-center gap-3">
               {saving && <span className="text-xs text-on-surface-variant animate-pulse">Saving...</span>}
-              <button
-                onClick={() => setShowChat(!showChat)}
-                className="material-symbols-outlined text-on-surface-variant text-xl p-2 rounded-full hover:bg-surface-container-high transition-colors md:hidden"
-              >
-                {showChat ? "close" : "smart_toy"}
-              </button>
             </div>
           </div>
 
@@ -401,10 +395,22 @@ export default function WorkspacePage() {
           )}
 
           {/* Chat input bar (always visible at bottom) */}
-          <div className="bg-white border-t border-outline-variant/40 shadow-[0_-8px_30px_rgb(0,0,0,0.06)] z-30">
+          <div className="bg-white border-t border-outline-variant/40 shadow-[0_-8px_30px_rgb(0,0,0,0.06)] z-30 relative">
             <div className="p-4 pb-8 md:pb-4 flex items-center gap-3">
+              {/* Chat History Toggle (Mobile) */}
+              <button
+                onClick={() => setShowChat(!showChat)}
+                className={`md:hidden shrink-0 h-14 w-14 rounded-2xl flex items-center justify-center transition-all ${
+                  showChat ? "bg-primary text-white" : "bg-surface-container-high text-on-surface hover:text-primary active:scale-95"
+                }`}
+              >
+                <span className="material-symbols-outlined text-2xl">
+                  {showChat ? "keyboard_arrow_down" : "history"}
+                </span>
+              </button>
+
               {/* File upload */}
-              <label className="cursor-pointer p-2 text-on-surface-variant hover:text-primary transition-colors">
+              <label className="cursor-pointer shrink-0 p-2 text-on-surface-variant hover:text-primary transition-colors">
                 <span className="material-symbols-outlined text-xl">attach_file</span>
                 <input
                   type="file"
@@ -444,10 +450,8 @@ export default function WorkspacePage() {
 
         {/* Chat panel (desktop sidebar / mobile bottom sheet) */}
         <div
-          className={`${
-            showChat ? "translate-x-0" : "translate-x-full md:translate-x-0"
-          } fixed md:relative right-0 top-0 h-full w-full md:w-[380px] bg-white border-l border-outline-variant/20 z-40 md:z-auto transition-transform duration-300 flex flex-col ${
-            !showChat && "hidden md:flex"
+          className={`fixed md:relative left-0 md:left-auto right-0 bottom-[104px] md:bottom-auto top-auto md:top-0 h-[50vh] md:h-full w-full md:w-[380px] bg-white/95 backdrop-blur-3xl md:bg-white border-t md:border-t-0 md:border-l border-outline-variant/20 z-20 md:z-auto transition-all duration-300 flex flex-col shadow-[0_-10px_40px_rgb(0,0,0,0.1)] md:shadow-none ${
+            showChat ? "translate-y-0 opacity-100" : "translate-y-[20%] opacity-0 pointer-events-none md:translate-y-0 md:opacity-100 md:pointer-events-auto"
           }`}
         >
           {/* Chat header */}
@@ -461,12 +465,6 @@ export default function WorkspacePage() {
               </span>
               <span className="font-bold text-sm text-on-surface">AI Assistant</span>
             </div>
-            <button
-              onClick={() => setShowChat(false)}
-              className="md:hidden p-2 text-on-surface-variant hover:text-on-surface"
-            >
-              <span className="material-symbols-outlined">close</span>
-            </button>
           </div>
 
           {/* Chat messages */}

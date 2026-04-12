@@ -36,10 +36,10 @@ export default function TopBar({ showSearch, onSearchChange }: TopBarProps) {
       <header className="bg-slate-50/70 backdrop-blur-xl sticky top-0 z-40">
         <div className="flex justify-between items-center w-full px-6 py-4">
           <div className="flex items-center gap-4">
-            {/* Hamburger — mobile only */}
+            {/* Hamburger */}
             <button
               onClick={() => setShowMobileMenu(true)}
-              className="md:hidden hover:bg-slate-200/50 transition-colors active:scale-95 duration-200 p-2 rounded-full"
+              className="hover:bg-slate-200/50 transition-colors active:scale-95 duration-200 p-2 rounded-full"
             >
               <span className="material-symbols-outlined text-slate-900">menu</span>
             </button>
@@ -125,9 +125,9 @@ export default function TopBar({ showSearch, onSearchChange }: TopBarProps) {
         </div>
       </header>
 
-      {/* Mobile sidebar overlay */}
+      {/* Mobile/Desktop sidebar overlay */}
       {showMobileMenu && (
-        <div className="fixed inset-0 z-[100] md:hidden">
+        <div className="fixed inset-0 z-[100]">
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
