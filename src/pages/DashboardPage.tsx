@@ -4,6 +4,7 @@ import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
 import { apiListCanvases, apiCreateCanvas, apiDeleteCanvas } from "../lib/api";
 import { exportAsMarkdown, exportAsZip } from "../utils/export";
+import { useMermaidThumbnails } from "../hooks/useMermaidThumbnails";
 
 interface Canvas {
   id: string;
@@ -22,6 +23,7 @@ export default function DashboardPage() {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const thumbnails = useMermaidThumbnails(canvases);
 
   useEffect(() => {
     loadCanvases();
@@ -228,9 +230,21 @@ export default function DashboardPage() {
                 {/* Preview area */}
                 <div className="aspect-video relative overflow-hidden bg-surface-container-high rounded-t-xl">
                   <div className="w-full h-full flex items-center justify-center bg-surface-container-low canvas-grid">
-                    <span className="material-symbols-outlined text-4xl text-outline-variant/40">
-                      account_tree
-                    </span>
+                    {thumbnails[canvas.id] ? (
+                      <div
+                        className="thumb-preview w-full h-full flex items-center justify-center p-2 pointer-events-none"
+                        dangerouslySetInnerHTML={{ __html: thumbnails[canvas.id] }}
+                      />
+                    ) : canvas.mermaid_code?.trim() ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="spinner w-5 h-5" />
+                        <span className="text-[10px] text-on-surface-variant/50 font-medium">Rendering…</span>
+                      </div>
+                    ) : (
+                      <span className="material-symbols-outlined text-4xl text-outline-variant/40">
+                        account_tree
+                      </span>
+                    )}
                   </div>
                   <div className="absolute inset-0 bg-gradient-to-t from-primary/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>

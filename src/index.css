@@ -96,6 +96,25 @@
   height: auto;
 }
 
+/* ======================================
+   Dashboard Thumbnail Previews
+   ====================================== */
+.thumb-preview svg {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+}
+
+.thumb-preview {
+  animation: thumbFadeIn 400ms ease forwards;
+}
+
+@keyframes thumbFadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 0.85; transform: scale(1); }
+}
+
 .mermaid-container .node rect,
 .mermaid-container .node polygon,
 .mermaid-container .node circle {
