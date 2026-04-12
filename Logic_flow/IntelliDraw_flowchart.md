@@ -218,19 +218,33 @@ flowchart LR
 
 ---
 
-## Navigation Flow (Mobile Bottom Nav)
+## Navigation Flow
 
 ```mermaid
 flowchart LR
-    %% Bottom nav tabs and their destinations
-    %% "Draw" and "AI Chat" both route into the Workspace
-    %% because chat is embedded in the canvas per the logic flow
+    %% All primary navigational mechanisms
 
-    NAV[Bottom Navigation Bar]
-    NAV --> TAB_CANVASES["🗂 Canvases → Dashboard"]
-    NAV --> TAB_DRAW["✏️ Draw → Workspace — most recent canvas"]
-    NAV --> TAB_CHAT["🤖 AI Chat → Workspace — chat panel focused"]
-    NAV --> TAB_SETTINGS["⚙️ Settings → Settings Page"]
+    subgraph Navigation Interfaces
+        TOP_BAR[Top Bar]
+        BOT_NAV[Bottom Nav - Mobile Only]
+    end
+
+    TOP_BAR --> HAMBURGER["Hamburger Menu (All Devices)"]
+    TOP_BAR --> AVATAR["User Avatar Dropdown"]
+
+    HAMBURGER --> HM_DASH["🗂 My Canvases"]
+    HAMBURGER --> HM_NEW["✏️ New Canvas"]
+    HAMBURGER --> HM_SET["⚙️ Settings"]
+    HAMBURGER --> HM_LOGOUT["🚪 Log Out"]
+
+    AVATAR --> AV_SET["⚙️ Settings"]
+    AVATAR --> AV_DASH["🗂 My Canvases"]
+    AVATAR --> AV_LOGOUT["🚪 Log Out"]
+
+    BOT_NAV --> TAB_CANVASES["🗂 Canvases"]
+    BOT_NAV --> TAB_DRAW["✏️ Draw"]
+    BOT_NAV --> TAB_CHAT["🤖 AI Chat"]
+    BOT_NAV --> TAB_SETTINGS["⚙️ Settings"]
 ```
 
 ---
@@ -273,9 +287,11 @@ flowchart LR
 - **Backend:** All API routes as Vercel Serverless Functions (`/api/*`)
 - **Database:** Supabase hosted PostgreSQL (connection via environment variable)
 
-### Mobile-First Design
+### UI & Navigation Design
 - All layouts are **mobile-first** with responsive breakpoints (sm → md → lg)
-- Bottom navigation visible on mobile, top bar navigation on desktop
-- Touch targets minimum **48px** per design system
-- Canvas supports **pinch-zoom** and **two-finger pan**
-- Chat panel is a **bottom sheet** on mobile, **side panel** on desktop
+- **Top Navigation:** Continuous top bar with a **universal hamburger menu** (all devices) opening a slide-out sidebar, and a **user avatar dropdown** for account/settings shortcuts.
+- **Mobile Navigation:** Bottom navigation bar handles quick switching on mobile devices.
+- **Canvas Interaction:** Supports **pinch-zoom**, **two-finger pan**, and maintains minimum **48px** touch targets per standard guidelines.
+- **AI Chat Layout:**
+  - On **desktop**, chat is a steady right **side panel**.
+  - On **mobile**, chat is a **collapsible bottom-sheet covering the lower half of the screen**. The toggle button for this sheet sits beside the active chat input bar.
