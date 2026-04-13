@@ -26,6 +26,7 @@ export default function WorkspacePage() {
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [isFixing, setIsFixing] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Canvas pan/zoom state
   const [zoom, setZoom] = useState(1);
@@ -370,6 +371,20 @@ export default function WorkspacePage() {
                 <span className="material-symbols-outlined text-base">code</span>
                 Mermaid Code
               </button>
+
+              <div className="w-px h-5 bg-outline-variant/20" />
+
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(mermaidCode);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }}
+                className="inline-flex items-center gap-1 px-3 py-2 rounded-full text-xs font-semibold text-on-surface-variant hover:bg-surface-container-high/60 transition-all duration-200"
+                title="Copy Mermaid code"
+              >
+                <span className="material-symbols-outlined text-base">{copied ? "check" : "content_copy"}</span>
+              </button>
             </div>
           </div>
           {activeView === "flowchart" ? (
@@ -433,8 +448,13 @@ export default function WorkspacePage() {
             <div className="flex-1 overflow-auto bg-surface-container-lowest p-4">
               <textarea
                 className="w-full h-full min-h-[500px] bg-surface-container-high rounded-xl p-6 font-mono text-sm text-on-surface outline-none focus:ring-2 focus:ring-secondary/20 resize-none"
-                value={mermaidCode}
-                onChange={(e) => handleMermaidCodeChange(e.target.value)}
+                value={"\n\n\n\n" + mermaidCode}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  // Strip the 4 leading newlines we inject for visual padding
+                  const stripped = raw.startsWith("\n\n\n\n") ? raw.slice(4) : raw.trimStart();
+                  handleMermaidCodeChange(stripped);
+                }}
                 spellCheck={false}
                 placeholder="Enter Mermaid code here..."
               />
@@ -539,7 +559,7 @@ export default function WorkspacePage() {
                 </span>
               </div>
               <div>
-                <span className="font-bold text-sm text-on-surface tracking-tight">Agent Manager</span>
+                <span className="font-bold text-sm text-on-surface tracking-tight">Agent Log</span>
               </div>
             </div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/50">
