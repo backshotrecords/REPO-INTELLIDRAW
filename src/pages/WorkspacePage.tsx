@@ -369,7 +369,7 @@ export default function WorkspacePage() {
                 }`}
               >
                 <span className="material-symbols-outlined text-base">code</span>
-                Mermaid Code
+                Code
               </button>
 
               <div className="w-px h-5 bg-outline-variant/20" />
