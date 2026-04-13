@@ -7,6 +7,7 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  causedCrash?: boolean;
 }
 
 export default function WorkspacePage() {
@@ -107,7 +108,20 @@ export default function WorkspacePage() {
       content: "⚡ Hold on, I noticed a syntax error in the flowchart. Debugging it right now...",
       timestamp: new Date().toISOString(),
     };
-    setChatHistory((prev) => [...prev, helperMessage]);
+
+    // Flag the last user message as the culprit for analytics
+    let updatedHistoryForFix = [...chatHistory];
+    for (let i = updatedHistoryForFix.length - 1; i >= 0; i--) {
+      if (updatedHistoryForFix[i].role === "user") {
+        updatedHistoryForFix[i] = { ...updatedHistoryForFix[i], causedCrash: true };
+        break;
+      }
+    }
+    updatedHistoryForFix.push(helperMessage);
+
+    setChatHistory(updatedHistoryForFix);
+    // Force a save to persist the crash flag to the DB immediately
+    autoSave(brokenCode, updatedHistoryForFix);
 
     try {
       // Fetch admin sanitization rules
@@ -118,7 +132,7 @@ export default function WorkspacePage() {
         fixMessage += "\n\nAlso apply these sanitization rules:\n" + rules.map((r, i) => `${i + 1}. ${r}`).join("\n");
       }
 
-      const result = await apiChat(fixMessage, brokenCode, chatHistory);
+      const result = await apiChat(fixMessage, brokenCode, updatedHistoryForFix);
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
