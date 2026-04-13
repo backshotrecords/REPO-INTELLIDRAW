@@ -18,7 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Find user by email
     const { data: user, error } = await supabase
       .from("users")
-      .select("id, email, password_hash, display_name, active_model_id")
+      .select("id, email, password_hash, display_name, active_model_id, is_global_admin")
       .eq("email", email.toLowerCase())
       .single();
 
@@ -42,6 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         email: user.email,
         displayName: user.display_name,
         activeModelId: user.active_model_id,
+        isGlobalAdmin: user.is_global_admin,
       },
     });
   } catch (err) {

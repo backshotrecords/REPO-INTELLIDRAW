@@ -15,7 +15,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { data: user, error } = await supabase
       .from("users")
-      .select("id, email, display_name, active_model_id, api_key_encrypted")
+      .select("id, email, display_name, active_model_id, api_key_encrypted, is_global_admin")
       .eq("id", authPayload.userId)
       .single();
 
@@ -30,6 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         displayName: user.display_name,
         activeModelId: user.active_model_id,
         hasApiKey: !!user.api_key_encrypted,
+        isGlobalAdmin: user.is_global_admin,
       },
     });
   } catch (err) {
