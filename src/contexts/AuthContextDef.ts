@@ -6,6 +6,7 @@ export interface User {
   displayName: string;
   activeModelId?: string;
   hasApiKey?: boolean;
+  isGlobalAdmin?: boolean;
 }
 
 export interface AuthContextType {

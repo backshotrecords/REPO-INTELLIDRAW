@@ -247,3 +247,51 @@ export async function apiSetActiveModel(modelId: string) {
   if (!res.ok) throw new Error(data.error || "Failed to set active model");
   return data;
 }
+
+// ===== Admin Rules =====
+
+export async function apiGetRules() {
+  const res = await apiFetch("/admin/rules");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch rules");
+  return data.rules;
+}
+
+export async function apiCreateRule(rule_description: string) {
+  const res = await apiFetch("/admin/rules", {
+    method: "POST",
+    body: JSON.stringify({ rule_description }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to create rule");
+  return data.rule;
+}
+
+export async function apiUpdateRule(id: string, is_active: boolean) {
+  const res = await apiFetch(`/admin/rules/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ is_active }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update rule");
+  return data.rule;
+}
+
+export async function apiDeleteRule(id: string) {
+  const res = await apiFetch(`/admin/rules/${id}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to delete rule");
+  return data.success;
+}
+
+// ===== Chat Fix =====
+
+export async function apiChatFix(mermaidCode: string, errorMsg: string, chatHistory: any[]) {
+  const res = await apiFetch("/chat_fix", {
+    method: "POST",
+    body: JSON.stringify({ mermaidCode, errorMsg, chatHistory }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fix code");
+  return data;
+}

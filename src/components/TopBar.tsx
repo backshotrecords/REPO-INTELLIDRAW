@@ -112,6 +112,19 @@ export default function TopBar({ showSearch, onSearchChange }: TopBarProps) {
 
                 <div className="h-px bg-outline-variant/10 my-1" />
 
+                {user?.isGlobalAdmin && (
+                  <button
+                    onClick={() => {
+                      navigate("/admin");
+                      setShowDropdown(false);
+                    }}
+                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3 text-primary font-semibold"
+                  >
+                    <span className="material-symbols-outlined text-lg">admin_panel_settings</span>
+                    Admin Rules
+                  </button>
+                )}
+
                 <button
                   onClick={handleLogout}
                   className="w-full px-4 py-2.5 text-left text-sm text-error hover:bg-error-container/20 flex items-center gap-3"
@@ -198,6 +211,20 @@ export default function TopBar({ showSearch, onSearchChange }: TopBarProps) {
                 </span>
                 Settings
               </button>
+              {user?.isGlobalAdmin && (
+                <button
+                  onClick={() => {
+                    navigate("/admin");
+                    setShowMobileMenu(false);
+                  }}
+                  className="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-semibold text-primary hover:bg-surface-container-low transition-colors"
+                >
+                  <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
+                    admin_panel_settings
+                  </span>
+                  Admin Rules
+                </button>
+              )}
             </nav>
 
             {/* Logout at bottom */}

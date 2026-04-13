@@ -135,7 +135,7 @@ app.post("/api/auth/login", async (req, res) => {
   try {
     const { data: user, error } = await supabase
       .from("users")
-      .select("id, email, password_hash, display_name, active_model_id")
+      .select("id, email, password_hash, display_name, active_model_id, is_global_admin")
       .eq("email", email.toLowerCase())
       .single();
 
@@ -147,7 +147,7 @@ app.post("/api/auth/login", async (req, res) => {
     const token = await createToken({ userId: user.id, email: user.email });
     return res.status(200).json({
       token,
-      user: { id: user.id, email: user.email, displayName: user.display_name, activeModelId: user.active_model_id },
+      user: { id: user.id, email: user.email, displayName: user.display_name, activeModelId: user.active_model_id, isGlobalAdmin: user.is_global_admin },
     });
   } catch (err) {
     console.error("Login error:", err);
@@ -159,7 +159,7 @@ app.get("/api/auth/me", requireAuth(async (req, res) => {
   try {
     const { data: user, error } = await supabase
       .from("users")
-      .select("id, email, display_name, active_model_id, api_key_encrypted")
+      .select("id, email, display_name, active_model_id, api_key_encrypted, is_global_admin")
       .eq("id", req.auth.userId)
       .single();
 
@@ -168,7 +168,7 @@ app.get("/api/auth/me", requireAuth(async (req, res) => {
     return res.status(200).json({
       user: {
         id: user.id, email: user.email, displayName: user.display_name,
-        activeModelId: user.active_model_id, hasApiKey: !!user.api_key_encrypted,
+        activeModelId: user.active_model_id, hasApiKey: !!user.api_key_encrypted, isGlobalAdmin: user.is_global_admin,
       },
     });
   } catch (err) {
@@ -544,6 +544,139 @@ app.put("/api/settings/models", requireAuth(async (req, res) => {
     return res.status(200).json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+// ============================================================
+// ADMIN RULES ROUTES
+// ============================================================
+app.get("/api/admin/rules", requireAuth(async (req, res) => {
+  try {
+    const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();
+    if (!user?.is_global_admin) return res.status(403).json({ error: "Forbidden" });
+
+    const { data, error } = await supabase.from("sanitization_rules").select("*").order("created_at", { ascending: false });
+    if (error) return res.status(500).json({ error: "Failed to fetch rules" });
+    return res.status(200).json({ rules: data || [] });
+  } catch (err) {
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+app.post("/api/admin/rules", requireAuth(async (req, res) => {
+  const { rule_description, is_active } = req.body;
+  try {
+    const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();
+    if (!user?.is_global_admin) return res.status(403).json({ error: "Forbidden" });
+
+    const { data, error } = await supabase.from("sanitization_rules").insert({
+      rule_description,
+      is_active: is_active !== undefined ? is_active : true
+    }).select("*").single();
+
+    if (error) return res.status(500).json({ error: "Failed to create rule" });
+    return res.status(201).json({ rule: data });
+  } catch (err) {
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+app.put("/api/admin/rules/:id", requireAuth(async (req, res) => {
+  const { is_active } = req.body;
+  try {
+    const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();
+    if (!user?.is_global_admin) return res.status(403).json({ error: "Forbidden" });
+
+    const { data, error } = await supabase.from("sanitization_rules").update({ is_active }).eq("id", req.params.id).select("*").single();
+    if (error) return res.status(500).json({ error: "Failed to update rule" });
+    return res.status(200).json({ rule: data });
+  } catch (err) {
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+app.delete("/api/admin/rules/:id", requireAuth(async (req, res) => {
+  try {
+    const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();
+    if (!user?.is_global_admin) return res.status(403).json({ error: "Forbidden" });
+
+    const { error } = await supabase.from("sanitization_rules").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: "Failed to delete rule" });
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+// ============================================================
+// CHAT FIX ROUTE
+// ============================================================
+app.post("/api/chat_fix", requireAuth(async (req, res) => {
+  const { mermaidCode, errorMsg, chatHistory } = req.body;
+  if (!mermaidCode || !errorMsg) return res.status(400).json({ error: "Missing required fields" });
+
+  try {
+    const { data: user } = await supabase.from("users").select("api_key_encrypted, active_model_id").eq("id", req.auth.userId).single();
+    if (!user?.api_key_encrypted) return res.status(400).json({ error: "No API key configured" });
+
+    const apiKey = decrypt(user.api_key_encrypted);
+    let modelId = "gpt-4o";
+    if (user.active_model_id) {
+      const { data: model } = await supabase.from("ai_models").select("model_id").eq("id", user.active_model_id).single();
+      if (model) modelId = model.model_id;
+    }
+
+    const { data: rules } = await supabase.from("sanitization_rules").select("rule_description").eq("is_active", true);
+    
+    let rulesText = "";
+    if (rules && rules.length > 0) {
+      rulesText = "\n\nAdditionally, you MUST adhere to these global sanitization rules:\n" + 
+        rules.map((r, i) => `${i + 1}. ${r.rule_description}`).join("\n");
+    }
+
+    const openai = new OpenAI({ apiKey });
+    
+    const messages = [
+      {
+        role: "system",
+        content: `You are IntelliDraw's Code Fixer. The previous AI attempted to generate Mermaid code, but the Mermaid parser crashed.
+        
+YOUR TASK:
+Return the COMPLETE, fixed Mermaid code in a single markdown code block (\`\`\`mermaid \`\`\`).
+Do NOT reply with explanations. Only return the code.
+
+CURRENT BROKEN CODE:
+\`\`\`mermaid
+${mermaidCode}
+\`\`\`
+
+THE PARSER ERROR WAS:
+${errorMsg}
+
+Please fix the specific error mentioned above.
+ALSO: Check the rest of the code for any standard syntax issues that typically cause Mermaid to fail (e.g., unescaped parentheses in node string values).${rulesText}`
+      }
+    ];
+
+    const history = Array.isArray(chatHistory) ? chatHistory.slice(-10) : [];
+    for (const msg of history) {
+      messages.push({ role: msg.role, content: msg.content });
+    }
+    
+    messages.push({ role: "user", content: "Please fix the code." });
+
+    const completion = await openai.chat.completions.create({
+      model: modelId, messages, max_tokens: 4096, temperature: 0.2,
+    });
+
+    const aiResponse = completion.choices[0]?.message?.content || "";
+    const mermaidMatch = aiResponse.match(/```mermaid\n([\s\S]*?)```/);
+    const updatedMermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
+
+    return res.status(200).json({ response: aiResponse, updatedMermaidCode, model: modelId });
+  } catch (err) {
+    console.error("Chat Fix error:", err);
+    return res.status(500).json({ error: err.message || "Failed to fix code" });
   }
 }));
 

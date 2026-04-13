@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import MermaidRenderer from "../components/MermaidRenderer";
-import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiChat, apiUploadFile } from "../lib/api";
+import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiChat, apiUploadFile, apiChatFix } from "../lib/api";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -24,6 +24,7 @@ export default function WorkspacePage() {
   const [showChat, setShowChat] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
+  const [isFixing, setIsFixing] = useState(false);
 
   // Canvas pan/zoom state
   const [zoom, setZoom] = useState(1);
@@ -95,6 +96,31 @@ export default function WorkspacePage() {
     },
     [canvasId]
   );
+
+  const handleSyntaxError = async (errorMsg: string, code: string) => {
+    if (isFixing) return;
+    setIsFixing(true);
+
+    const helperMessage: ChatMessage = {
+      role: "assistant",
+      content: "Hold on, I noticed a syntax error in the flowchart. Debugging it right now...",
+      timestamp: new Date().toISOString(),
+    };
+
+    setChatHistory((prev) => [...prev, helperMessage]);
+    
+    try {
+      const result = await apiChatFix(code, errorMsg, chatHistory);
+      if (result.updatedMermaidCode) {
+        setMermaidCode(result.updatedMermaidCode);
+        autoSave(result.updatedMermaidCode);
+      }
+    } catch (err) {
+      console.error("Auto-fix failed:", err);
+    } finally {
+      setIsFixing(false);
+    }
+  };
 
   const handleMermaidCodeChange = (newCode: string) => {
     setMermaidCode(newCode);
@@ -354,7 +380,12 @@ export default function WorkspacePage() {
                   transition: isPanning ? "none" : "transform 0.1s ease-out",
                 }}
               >
-                <MermaidRenderer code={mermaidCode} className="min-h-[400px] min-w-[300px]" />
+                <MermaidRenderer 
+                  code={mermaidCode} 
+                  className="min-h-[400px] min-w-[300px]" 
+                  onSyntaxError={handleSyntaxError}
+                  isFixing={isFixing}
+                />
               </div>
             </div>
           ) : (

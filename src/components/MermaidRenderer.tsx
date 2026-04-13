@@ -4,6 +4,8 @@ import mermaid from "mermaid";
 interface MermaidRendererProps {
   code: string;
   className?: string;
+  onSyntaxError?: (errorMsg: string, code: string) => void;
+  isFixing?: boolean;
 }
 
 // Configure mermaid once
@@ -22,7 +24,7 @@ mermaid.initialize({
 
 let renderCounter = 0;
 
-export default function MermaidRenderer({ code, className = "" }: MermaidRendererProps) {
+export default function MermaidRenderer({ code, className = "", onSyntaxError, isFixing = false }: MermaidRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [svgHtml, setSvgHtml] = useState<string>("");
@@ -43,7 +45,13 @@ export default function MermaidRenderer({ code, className = "" }: MermaidRendere
         setError(null);
       } catch (err) {
         console.error("Mermaid render error:", err);
-        setError(err instanceof Error ? err.message : "Failed to render diagram");
+        const errMsg = err instanceof Error ? err.message : "Failed to render diagram";
+        if (onSyntaxError) {
+          onSyntaxError(errMsg, code.trim());
+          setError(null);
+        } else {
+          setError(errMsg);
+        }
         setSvgHtml("");
       }
     };
@@ -67,6 +75,17 @@ export default function MermaidRenderer({ code, className = "" }: MermaidRendere
           <p className="text-xs text-on-error-container/70 font-mono leading-relaxed">
             {error}
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isFixing) {
+    return (
+      <div className={`flex flex-col items-center justify-center p-12 ${className}`}>
+        <div className="bg-surface-container-low rounded-xl p-6 border border-outline-variant/20 flex flex-col items-center gap-4">
+           <div className="spinner w-8 h-8 border-t-primary" />
+           <p className="text-sm font-semibold text-primary tracking-tight">Debugging new code...</p>
         </div>
       </div>
     );
