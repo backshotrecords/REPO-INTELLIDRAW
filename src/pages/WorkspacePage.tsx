@@ -267,7 +267,7 @@ export default function WorkspacePage() {
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    setZoom((z) => Math.min(3, Math.max(0.2, z + delta)));
+    setZoom((z) => Math.min(16, Math.max(0.2, z + delta)));
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -290,7 +290,7 @@ export default function WorkspacePage() {
     setIsPanning(false);
   };
 
-  const handleZoomIn = () => setZoom((z) => Math.min(3, z + 0.2));
+  const handleZoomIn = () => setZoom((z) => Math.min(16, z + 0.2));
   const handleZoomOut = () => setZoom((z) => Math.max(0.2, z - 0.2));
   const handleResetView = () => {
     setZoom(1);
