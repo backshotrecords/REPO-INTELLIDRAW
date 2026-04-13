@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import MermaidRenderer from "../components/MermaidRenderer";
-import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiChat, apiUploadFile, apiChatFix } from "../lib/api";
+import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiChat, apiUploadFile, apiGetActiveRules } from "../lib/api";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -97,37 +97,42 @@ export default function WorkspacePage() {
     [canvasId]
   );
 
-  const handleSyntaxError = useCallback(async (errorMsg: string, code: string) => {
-    if (isFixing) return;
+  const handleSyntaxError = useCallback(async (errorMsg: string, brokenCode: string) => {
+    if (isFixing || chatLoading) return;
     setIsFixing(true);
+    setChatLoading(true);
 
     const helperMessage: ChatMessage = {
       role: "assistant",
       content: "⚡ Hold on, I noticed a syntax error in the flowchart. Debugging it right now...",
       timestamp: new Date().toISOString(),
     };
-
     setChatHistory((prev) => [...prev, helperMessage]);
-    
+
     try {
-      const result = await apiChatFix(code, errorMsg, chatHistory);
+      // Fetch admin sanitization rules
+      const rules = await apiGetActiveRules();
+      let fixMessage = "The mermaid code has syntax errors that are crashing the renderer. Please rewrite the entire mermaid code, fixing any syntax issues like unescaped parentheses, brackets, or special characters in node labels. Return the complete corrected mermaid code.";
+
+      if (rules.length > 0) {
+        fixMessage += "\n\nAlso apply these sanitization rules:\n" + rules.map((r, i) => `${i + 1}. ${r}`).join("\n");
+      }
+
+      const result = await apiChat(fixMessage, brokenCode, chatHistory);
+
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: result.updatedMermaidCode
+          ? "✅ Fixed! The flowchart has been repaired and updated."
+          : result.response,
+        timestamp: new Date().toISOString(),
+      };
+      setChatHistory((prev) => [...prev, assistantMessage]);
+
       if (result.updatedMermaidCode) {
+        // Apply directly to canvas — no pending button
         setMermaidCode(result.updatedMermaidCode);
         autoSave(result.updatedMermaidCode);
-
-        const successMsg: ChatMessage = {
-          role: "assistant",
-          content: "✅ Fixed! The flowchart has been repaired and updated.",
-          timestamp: new Date().toISOString(),
-        };
-        setChatHistory((prev) => [...prev, successMsg]);
-      } else {
-        const failMsg: ChatMessage = {
-          role: "assistant",
-          content: "⚠️ I attempted a fix but couldn't extract valid Mermaid code. You may want to try rephrasing your last request.",
-          timestamp: new Date().toISOString(),
-        };
-        setChatHistory((prev) => [...prev, failMsg]);
       }
     } catch (err) {
       console.error("Auto-fix failed:", err);
@@ -139,8 +144,9 @@ export default function WorkspacePage() {
       setChatHistory((prev) => [...prev, errMessage]);
     } finally {
       setIsFixing(false);
+      setChatLoading(false);
     }
-  }, [isFixing, chatHistory, autoSave]);
+  }, [isFixing, chatLoading, chatHistory, autoSave]);
 
   const handleMermaidCodeChange = (newCode: string) => {
     setMermaidCode(newCode);

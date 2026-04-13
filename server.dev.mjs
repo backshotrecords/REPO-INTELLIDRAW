@@ -548,6 +548,20 @@ app.put("/api/settings/models", requireAuth(async (req, res) => {
 }));
 
 // ============================================================
+// ACTIVE RULES (public for auto-fix)
+// ============================================================
+app.get("/api/rules_active", requireAuth(async (req, res) => {
+  try {
+    const { data, error } = await supabase.from("sanitization_rules").select("rule_description").eq("is_active", true);
+    if (error) return res.status(500).json({ error: "Failed to fetch rules" });
+    const descriptions = (data || []).map((r) => r.rule_description);
+    return res.status(200).json({ rules: descriptions });
+  } catch (err) {
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+// ============================================================
 // ADMIN RULES ROUTES
 // ============================================================
 app.get("/api/admin/rules", requireAuth(async (req, res) => {

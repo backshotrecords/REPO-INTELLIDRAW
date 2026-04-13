@@ -286,12 +286,15 @@ export async function apiDeleteRule(id: string) {
 
 // ===== Chat Fix =====
 
-export async function apiChatFix(mermaidCode: string, errorMsg: string, chatHistory: any[]) {
-  const res = await apiFetch("/chat_fix", {
-    method: "POST",
-    body: JSON.stringify({ mermaidCode, errorMsg, chatHistory }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Failed to fix code");
-  return data;
+// ===== Active Rules (for auto-fix) =====
+
+export async function apiGetActiveRules(): Promise<string[]> {
+  try {
+    const res = await apiFetch("/rules_active");
+    const data = await res.json();
+    if (!res.ok) return [];
+    return data.rules || [];
+  } catch {
+    return [];
+  }
 }
