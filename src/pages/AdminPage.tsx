@@ -11,7 +11,7 @@ interface Rule {
 }
 
 export default function AdminPage() {
-  const { user, isGlobalAdmin } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const [rules, setRules] = useState<Rule[]>([]);
