@@ -97,7 +97,7 @@ export default function WorkspacePage() {
     [canvasId]
   );
 
-  const handleSyntaxError = useCallback(async (errorMsg: string, brokenCode: string) => {
+  const handleSyntaxError = useCallback(async (_errorMsg: string, brokenCode: string) => {
     if (isFixing || chatLoading) return;
     setIsFixing(true);
     setChatLoading(true);
