@@ -445,9 +445,9 @@ export default function WorkspacePage() {
             </div>
           ) : (
             /* Code editor view */
-            <div className="flex-1 overflow-auto bg-surface-container-lowest p-4">
+            <div className="flex-1 flex flex-col bg-surface-container-lowest p-4">
               <textarea
-                className="w-full h-full min-h-[500px] bg-surface-container-high rounded-xl p-6 font-mono text-sm text-on-surface outline-none focus:ring-2 focus:ring-secondary/20 resize-none"
+                className="flex-1 w-full bg-surface-container-high rounded-xl p-6 font-mono text-sm text-on-surface outline-none focus:ring-2 focus:ring-secondary/20 resize-none"
                 value={"\n\n\n\n" + mermaidCode}
                 onChange={(e) => {
                   const raw = e.target.value;
