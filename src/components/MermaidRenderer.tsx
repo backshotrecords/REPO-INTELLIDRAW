@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import mermaid from "mermaid";
 
 interface MermaidRendererProps {
@@ -24,10 +24,39 @@ mermaid.initialize({
 
 let renderCounter = 0;
 
+/**
+ * Remove any orphaned mermaid error SVGs that get injected into document.body
+ * when mermaid.render() throws (the bomb icon / "Syntax error in text" elements).
+ */
+function cleanupMermaidErrors() {
+  // Mermaid injects elements with id starting with "d" or the render id into body
+  document.querySelectorAll("body > [id^='dmermaid'], body > svg[id^='mermaid'], body > [id^='mermaid-diagram']").forEach((el) => el.remove());
+  // Also clean up any stray mermaid error containers with the bomb icon
+  document.querySelectorAll("body > #d, body > svg[aria-roledescription='error']").forEach((el) => el.remove());
+  // Catch-all: remove any direct-child SVGs in body that contain the mermaid error class
+  document.querySelectorAll("body > svg").forEach((el) => {
+    if (el.querySelector(".error-icon") || el.textContent?.includes("Syntax error")) {
+      el.remove();
+    }
+  });
+  // Remove any div wrappers mermaid might create for errors
+  document.querySelectorAll("body > div[id^='dmermaid'], body > div[id^='d']").forEach((el) => {
+    if (el.querySelector("svg") || el.textContent?.includes("Syntax error")) {
+      el.remove();
+    }
+  });
+}
+
 export default function MermaidRenderer({ code, className = "", onSyntaxError, isFixing = false }: MermaidRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [svgHtml, setSvgHtml] = useState<string>("");
+  // Track whether auto-fix has already been triggered for this exact code
+  const fixTriggeredForRef = useRef<string | null>(null);
+
+  // Stable ref for the callback so useEffect doesn't re-run when callback identity changes
+  const onSyntaxErrorRef = useRef(onSyntaxError);
+  onSyntaxErrorRef.current = onSyntaxError;
 
   useEffect(() => {
     if (!code?.trim()) {
@@ -36,6 +65,9 @@ export default function MermaidRenderer({ code, className = "", onSyntaxError, i
       return;
     }
 
+    // If we're currently fixing, don't attempt to re-render
+    if (isFixing) return;
+
     const renderDiagram = async () => {
       try {
         renderCounter++;
@@ -43,13 +75,24 @@ export default function MermaidRenderer({ code, className = "", onSyntaxError, i
         const { svg } = await mermaid.render(id, code.trim());
         setSvgHtml(svg);
         setError(null);
+        // Successful render — reset the fix tracker
+        fixTriggeredForRef.current = null;
+        // Clean up any leftover error elements from prior failures
+        cleanupMermaidErrors();
       } catch (err) {
         console.error("Mermaid render error:", err);
         const errMsg = err instanceof Error ? err.message : "Failed to render diagram";
-        if (onSyntaxError) {
-          onSyntaxError(errMsg, code.trim());
+
+        // Clean up the bomb icons mermaid just injected
+        cleanupMermaidErrors();
+
+        // Only fire auto-fix once per unique code string
+        if (onSyntaxErrorRef.current && fixTriggeredForRef.current !== code.trim()) {
+          fixTriggeredForRef.current = code.trim();
+          onSyntaxErrorRef.current(errMsg, code.trim());
+          // Don't set error state — the parent will handle it silently
           setError(null);
-        } else {
+        } else if (!onSyntaxErrorRef.current) {
           setError(errMsg);
         }
         setSvgHtml("");
@@ -57,7 +100,12 @@ export default function MermaidRenderer({ code, className = "", onSyntaxError, i
     };
 
     renderDiagram();
-  }, [code]);
+  }, [code, isFixing]);
+
+  // Also clean up on unmount
+  useEffect(() => {
+    return () => cleanupMermaidErrors();
+  }, []);
 
   if (error) {
     return (

@@ -97,13 +97,13 @@ export default function WorkspacePage() {
     [canvasId]
   );
 
-  const handleSyntaxError = async (errorMsg: string, code: string) => {
+  const handleSyntaxError = useCallback(async (errorMsg: string, code: string) => {
     if (isFixing) return;
     setIsFixing(true);
 
     const helperMessage: ChatMessage = {
       role: "assistant",
-      content: "Hold on, I noticed a syntax error in the flowchart. Debugging it right now...",
+      content: "⚡ Hold on, I noticed a syntax error in the flowchart. Debugging it right now...",
       timestamp: new Date().toISOString(),
     };
 
@@ -114,13 +114,33 @@ export default function WorkspacePage() {
       if (result.updatedMermaidCode) {
         setMermaidCode(result.updatedMermaidCode);
         autoSave(result.updatedMermaidCode);
+
+        const successMsg: ChatMessage = {
+          role: "assistant",
+          content: "✅ Fixed! The flowchart has been repaired and updated.",
+          timestamp: new Date().toISOString(),
+        };
+        setChatHistory((prev) => [...prev, successMsg]);
+      } else {
+        const failMsg: ChatMessage = {
+          role: "assistant",
+          content: "⚠️ I attempted a fix but couldn't extract valid Mermaid code. You may want to try rephrasing your last request.",
+          timestamp: new Date().toISOString(),
+        };
+        setChatHistory((prev) => [...prev, failMsg]);
       }
     } catch (err) {
       console.error("Auto-fix failed:", err);
+      const errMessage: ChatMessage = {
+        role: "assistant",
+        content: "⚠️ The auto-fix attempt failed. Please try again or edit the code manually.",
+        timestamp: new Date().toISOString(),
+      };
+      setChatHistory((prev) => [...prev, errMessage]);
     } finally {
       setIsFixing(false);
     }
-  };
+  }, [isFixing, chatHistory, autoSave]);
 
   const handleMermaidCodeChange = (newCode: string) => {
     setMermaidCode(newCode);

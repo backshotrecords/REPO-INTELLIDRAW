@@ -670,7 +670,8 @@ ALSO: Check the rest of the code for any standard syntax issues that typically c
     });
 
     const aiResponse = completion.choices[0]?.message?.content || "";
-    const mermaidMatch = aiResponse.match(/```mermaid\n([\s\S]*?)```/);
+    const mermaidMatch = aiResponse.match(/```mermaid\s*\n([\s\S]*?)```/)
+      || aiResponse.match(/```\s*\n([\s\S]*?)```/);
     const updatedMermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
 
     return res.status(200).json({ response: aiResponse, updatedMermaidCode, model: modelId });
