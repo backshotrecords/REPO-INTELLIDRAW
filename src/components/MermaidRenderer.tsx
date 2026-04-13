@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
 
 interface MermaidRendererProps {
