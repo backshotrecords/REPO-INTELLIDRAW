@@ -357,19 +357,18 @@ export default function WorkspacePage() {
                 }
               }}
               disabled={publishing || !canvasId}
-              className={`hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition-all duration-200 active:scale-95 disabled:opacity-40 ${
-                isPublic
-                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60 hover:bg-emerald-100"
-                  : "bg-surface-container-high text-on-surface-variant border border-outline-variant/20 hover:bg-surface-container-low hover:text-on-surface"
+              className={`hidden sm:inline-flex items-center justify-center rounded-full text-xs font-bold transition-all duration-200 active:scale-95 disabled:opacity-40 bg-surface-container-high text-on-surface-variant border border-outline-variant/20 hover:bg-surface-container-low hover:text-on-surface ${
+                isPublic ? "w-8 h-8 outline outline-2 outline-emerald-800 outline-offset-[3px]" : "gap-1.5 px-3.5 py-2"
               }`}
+              title={isPublic ? "Published" : "Publish"}
             >
               <span
-                className={`material-symbols-outlined text-base transition-all duration-300 ${isPublic ? "text-emerald-600" : ""}`}
+                className={`material-symbols-outlined text-base transition-all duration-300 ${isPublic ? "text-emerald-700" : ""}`}
                 style={{ fontVariationSettings: isPublic ? "'FILL' 1" : "'FILL' 0" }}
               >
                 {isPublic ? "public" : "public_off"}
               </span>
-              {publishing ? "..." : isPublic ? "Published" : "Publish"}
+              {!isPublic && (publishing ? "..." : "Publish")}
             </button>
 
             {/* Share button */}

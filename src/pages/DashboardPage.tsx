@@ -232,9 +232,11 @@ export default function DashboardPage() {
                 <div className="aspect-video relative overflow-hidden bg-surface-container-high rounded-t-xl">
                   {/* Public badge */}
                   {canvas.is_public && (
-                    <div className="absolute top-3 left-3 z-20 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/90 backdrop-blur-sm shadow-sm">
-                      <span className="material-symbols-outlined text-[11px] text-white" style={{ fontVariationSettings: "'FILL' 1" }}>public</span>
-                      <span className="text-[9px] font-bold text-white uppercase tracking-wider">Public</span>
+                    <div 
+                      className="absolute top-3 left-3 z-20 inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500/90 backdrop-blur-sm shadow-sm"
+                      title="Public"
+                    >
+                      <span className="material-symbols-outlined text-[13px] text-white" style={{ fontVariationSettings: "'FILL' 1" }}>public</span>
                     </div>
                   )}
                   <div className="w-full h-full flex items-center justify-center bg-surface-container-low canvas-grid">
