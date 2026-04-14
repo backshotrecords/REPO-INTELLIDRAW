@@ -317,3 +317,31 @@ export async function apiGetPublicCanvas(id: string) {
   if (!res.ok) throw new Error(data.error || "Canvas not found");
   return data.canvas;
 }
+
+// ===== Voice Transcription =====
+
+/**
+ * Send an audio blob to the server for Whisper transcription.
+ * Bypasses apiFetch because FormData requires browser-set multipart boundary.
+ */
+export async function apiTranscribeAudio(audioBlob: Blob): Promise<string> {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append("audio", audioBlob, "recording.webm");
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}/transcribe`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Transcription failed");
+  return data.text;
+}
+

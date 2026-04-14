@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import MermaidRenderer from "../components/MermaidRenderer";
 import ProfileMenu from "../components/ProfileMenu";
+import VoiceMicButton from "../components/VoiceMicButton";
 import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas } from "../lib/api";
 
 interface ChatMessage {
@@ -597,6 +598,13 @@ export default function WorkspacePage() {
                   onChange={handleFileUpload}
                 />
               </label>
+
+              {/* Voice input */}
+              <VoiceMicButton
+                onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
+                disabled={chatLoading}
+              />
+
               <div className="flex-1 relative">
                 <input
                   className="w-full bg-surface-container-low border-none rounded-2xl px-5 py-4 text-sm font-medium placeholder:text-on-surface-variant/30 focus:ring-2 focus:ring-secondary/20 transition-all outline-none"

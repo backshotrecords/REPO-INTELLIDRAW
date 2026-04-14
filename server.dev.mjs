@@ -6,6 +6,10 @@ import { SignJWT, jwtVerify } from "jose";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
 import OpenAI from "openai";
 import dotenv from "dotenv";
+import multer from "multer";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 dotenv.config();
 
@@ -692,6 +696,60 @@ ALSO: Check the rest of the code for any standard syntax issues that typically c
   } catch (err) {
     console.error("Chat Fix error:", err);
     return res.status(500).json({ error: err.message || "Failed to fix code" });
+  }
+}));
+
+// ============================================================
+// VOICE TRANSCRIPTION (Whisper)
+// ============================================================
+const __vt_filename = fileURLToPath(import.meta.url);
+const __vt_dirname = path.dirname(__vt_filename);
+const uploadsDir = path.join(__vt_dirname, "uploads");
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
+
+const vtStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, _file, cb) => cb(null, `recording-${Date.now()}.webm`),
+});
+const upload = multer({ storage: vtStorage, limits: { fileSize: 25 * 1024 * 1024 } });
+
+app.post("/api/transcribe", upload.single("audio"), requireAuth(async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No audio file received." });
+  }
+
+  const filePath = req.file.path;
+
+  try {
+    // Get user's own API key
+    const { data: user } = await supabase
+      .from("users").select("api_key_encrypted")
+      .eq("id", req.auth.userId).single();
+
+    if (!user?.api_key_encrypted) {
+      fs.unlink(filePath, () => {});
+      return res.status(400).json({ error: "No API key configured. Please add your OpenAI API key in Settings." });
+    }
+
+    const apiKey = decrypt(user.api_key_encrypted);
+    const openai = new OpenAI({ apiKey });
+
+    const transcription = await openai.audio.transcriptions.create({
+      file: fs.createReadStream(filePath),
+      model: "whisper-1",
+    });
+
+    // Delete the audio file immediately after transcription
+    fs.unlink(filePath, (err) => {
+      if (err) console.error("Failed to delete audio file:", err);
+    });
+
+    return res.json({ text: transcription.text });
+  } catch (err) {
+    // Clean up on error too
+    fs.unlink(filePath, () => {});
+    console.error("Transcription error:", err);
+    return res.status(500).json({ error: err.message || "Transcription failed." });
   }
 }));
 
