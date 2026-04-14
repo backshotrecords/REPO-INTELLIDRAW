@@ -63,18 +63,25 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Background subtle gradient
-      const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
-      gradient.addColorStop(0, "rgba(99, 102, 241, 0.08)");
-      gradient.addColorStop(0.5, "rgba(129, 140, 248, 0.12)");
-      gradient.addColorStop(1, "rgba(99, 102, 241, 0.08)");
-      ctx.fillStyle = gradient;
+      // Dark background for contrast
+      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "#818cf8";
+      // Subtle grid lines
+      ctx.strokeStyle = "rgba(129, 140, 248, 0.1)";
+      ctx.lineWidth = 0.5;
+      for (let y = 0; y < canvas.height; y += 12) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      // Main waveform line — bright cyan/indigo
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = "#a5b4fc";
       ctx.shadowColor = "#818cf8";
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = 10;
       ctx.beginPath();
 
       const sliceWidth = canvas.width / bufferLength;
@@ -90,6 +97,13 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
 
       ctx.lineTo(canvas.width, canvas.height / 2);
       ctx.stroke();
+
+      // Second pass — glow layer
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(165, 180, 252, 0.4)";
+      ctx.shadowBlur = 20;
+      ctx.stroke();
+
       ctx.shadowBlur = 0;
     };
 
@@ -102,6 +116,18 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
       animFrameRef.current = null;
     }
   }, []);
+
+  // ── Start waveform AFTER canvas is rendered ──────────────────
+  useEffect(() => {
+    if (state === "recording" && analyserRef.current && canvasRef.current) {
+      drawWaveform();
+    }
+    return () => {
+      if (state !== "recording") {
+        stopWaveform();
+      }
+    };
+  }, [state, drawWaveform, stopWaveform]);
 
   // ── Start recording ──────────────────────────────────────────
   const startRecording = useCallback(async () => {
@@ -143,12 +169,12 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
         setSeconds((s) => s + 1);
       }, 1000);
 
-      drawWaveform();
+      // NOTE: waveform is started by the useEffect above once canvas renders
     } catch {
       setErrorMsg("Microphone access denied.");
       setTimeout(() => setErrorMsg(null), 3000);
     }
-  }, [drawWaveform]);
+  }, []);
 
   // ── Stop recording ───────────────────────────────────────────
   const stopRecording = useCallback(() => {
@@ -202,7 +228,7 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
 
   return (
     <div className="voice-mic-wrapper">
-      {/* ── Floating waveform panel (above input bar) ────────── */}
+      {/* ── Floating waveform panel ──────────────────────────── */}
       {(state === "recording") && (
         <div className="voice-waveform-panel">
           <div className="voice-waveform-inner">
@@ -214,8 +240,8 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
             <canvas
               ref={canvasRef}
               className="voice-waveform-canvas"
-              width={320}
-              height={48}
+              width={480}
+              height={64}
             />
           </div>
         </div>

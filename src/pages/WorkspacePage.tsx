@@ -33,6 +33,8 @@ export default function WorkspacePage() {
   const [publishing, setPublishing] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [shareExiting, setShareExiting] = useState(false);
+  const [isInputExpanded, setIsInputExpanded] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Canvas pan/zoom state
   const [zoom, setZoom] = useState(1);
@@ -573,63 +575,130 @@ export default function WorkspacePage() {
             </div>
           )}
 
+          {/* ── Expanded textarea overlay ────────────────────── */}
+          {isInputExpanded && (
+            <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm" onClick={() => setIsInputExpanded(false)} />
+          )}
+
           {/* Chat input bar (always visible at bottom) */}
-          <div className="bg-white border-t border-outline-variant/40 shadow-[0_-8px_30px_rgb(0,0,0,0.06)] z-30 relative">
-            <div className="p-4 pb-8 md:pb-4 flex items-center gap-3">
-              {/* Chat History Toggle (Mobile) */}
-              <button
-                onClick={() => setShowChat(!showChat)}
-                className={`md:hidden shrink-0 h-14 w-14 rounded-2xl flex items-center justify-center transition-all ${
-                  showChat ? "bg-primary text-white" : "bg-surface-container-high text-on-surface hover:text-primary active:scale-95"
-                }`}
-              >
-                <span className="material-symbols-outlined text-2xl">
-                  {showChat ? "keyboard_arrow_down" : "history"}
-                </span>
-              </button>
+          <div className={`bg-white border-t border-outline-variant/40 shadow-[0_-8px_30px_rgb(0,0,0,0.06)] relative transition-all duration-300 ${
+            isInputExpanded ? "fixed bottom-0 left-0 right-0 z-[70] rounded-t-3xl shadow-2xl" : "z-30"
+          }`}>
+            <div className={`p-4 flex gap-3 ${
+              isInputExpanded ? "pb-6 flex-col" : "pb-8 md:pb-4 items-end"
+            }`}>
 
-              {/* File upload */}
-              <label className="cursor-pointer shrink-0 p-2 text-on-surface-variant hover:text-primary transition-colors">
-                <span className="material-symbols-outlined text-xl">attach_file</span>
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="image/*,.pdf,.txt,.md,.doc,.docx"
-                  onChange={handleFileUpload}
-                />
-              </label>
-
-              {/* Voice input */}
-              <VoiceMicButton
-                onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
-                disabled={chatLoading}
-              />
-
-              <div className="flex-1 relative">
-                <input
-                  className="w-full bg-surface-container-low border-none rounded-2xl px-5 py-4 text-sm font-medium placeholder:text-on-surface-variant/30 focus:ring-2 focus:ring-secondary/20 transition-all outline-none"
-                  placeholder="Describe your flowchart..."
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
-                />
-              </div>
-              <button
-                onClick={handleSendMessage}
-                disabled={chatLoading || !chatInput.trim()}
-                className="h-14 w-14 bg-primary text-white rounded-2xl flex items-center justify-center active:scale-90 transition-all shadow-xl shadow-primary/20 disabled:opacity-40"
-              >
-                {chatLoading ? (
-                  <span className="spinner border-white/30 border-t-white" />
-                ) : (
-                  <span
-                    className="material-symbols-outlined text-2xl"
-                    style={{ fontVariationSettings: "'FILL' 1" }}
+              {/* ── Top row: history toggle (mobile) + textarea ── */}
+              <div className="flex items-end gap-3 flex-1 min-w-0">
+                {/* Chat History Toggle (Mobile) — only in normal mode */}
+                {!isInputExpanded && (
+                  <button
+                    onClick={() => setShowChat(!showChat)}
+                    className={`md:hidden shrink-0 h-12 w-12 rounded-2xl flex items-center justify-center transition-all ${
+                      showChat ? "bg-primary text-white" : "bg-surface-container-high text-on-surface hover:text-primary active:scale-95"
+                    }`}
                   >
-                    send
-                  </span>
+                    <span className="material-symbols-outlined text-xl">
+                      {showChat ? "keyboard_arrow_down" : "history"}
+                    </span>
+                  </button>
                 )}
-              </button>
+
+                {/* Textarea with expand button */}
+                <div className="flex-1 relative min-w-0">
+                  <textarea
+                    ref={textareaRef}
+                    className={`w-full bg-surface-container-low border-none rounded-2xl px-5 py-3 pr-12 text-sm font-medium placeholder:text-on-surface-variant/30 focus:ring-2 focus:ring-secondary/20 transition-all outline-none resize-none no-scrollbar ${
+                      isInputExpanded ? "min-h-[40vh] max-h-[60vh]" : "min-h-[48px] max-h-[120px]"
+                    }`}
+                    placeholder="Describe your flowchart..."
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey && !isInputExpanded) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                    rows={isInputExpanded ? 12 : 2}
+                  />
+                  {/* Expand / Collapse toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setIsInputExpanded(!isInputExpanded)}
+                    className="absolute top-2.5 right-2.5 w-7 h-7 rounded-lg flex items-center justify-center text-on-surface-variant/40 hover:text-on-surface-variant hover:bg-surface-container-high/60 transition-all"
+                    title={isInputExpanded ? "Collapse" : "Expand"}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">
+                      {isInputExpanded ? "close_fullscreen" : "open_in_full"}
+                    </span>
+                  </button>
+                </div>
+
+                {/* ── Action buttons: vertical on mobile, horizontal on desktop ── */}
+                <div className="flex flex-col-reverse md:flex-row items-center gap-2 shrink-0">
+                  {/* Send button — always at the bottom/end */}
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={chatLoading || !chatInput.trim()}
+                    className="h-12 w-12 bg-primary text-white rounded-2xl flex items-center justify-center active:scale-90 transition-all shadow-xl shadow-primary/20 disabled:opacity-40"
+                  >
+                    {chatLoading ? (
+                      <span className="spinner border-white/30 border-t-white" />
+                    ) : (
+                      <span
+                        className="material-symbols-outlined text-xl"
+                        style={{ fontVariationSettings: "'FILL' 1" }}
+                      >
+                        send
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Voice input */}
+                  <VoiceMicButton
+                    onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
+                    disabled={chatLoading}
+                  />
+
+                  {/* File upload */}
+                  <label className="cursor-pointer shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container-high/60 transition-all">
+                    <span className="material-symbols-outlined text-xl">attach_file</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*,.pdf,.txt,.md,.doc,.docx"
+                      onChange={handleFileUpload}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* ── Expanded mode: bottom action row ── */}
+              {isInputExpanded && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-on-surface-variant/50 font-medium">
+                    Shift + Enter for new line
+                  </span>
+                  <button
+                    onClick={() => {
+                      handleSendMessage();
+                      setIsInputExpanded(false);
+                    }}
+                    disabled={chatLoading || !chatInput.trim()}
+                    className="px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold flex items-center gap-2 active:scale-95 transition-all shadow-lg shadow-primary/20 disabled:opacity-40"
+                  >
+                    {chatLoading ? (
+                      <span className="spinner border-white/30 border-t-white" style={{ width: 16, height: 16 }} />
+                    ) : (
+                      <>
+                        <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>send</span>
+                        Send
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
