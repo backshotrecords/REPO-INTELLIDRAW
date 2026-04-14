@@ -298,3 +298,22 @@ export async function apiGetActiveRules(): Promise<string[]> {
     return [];
   }
 }
+
+// ===== Publish / Public View =====
+
+export async function apiPublishCanvas(id: string, isPublic: boolean) {
+  const res = await apiFetch(`/canvases/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ isPublic }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update publish state");
+  return data.canvas;
+}
+
+export async function apiGetPublicCanvas(id: string) {
+  const res = await fetch(`${API_BASE}/canvases/public/${id}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Canvas not found");
+  return data.canvas;
+}

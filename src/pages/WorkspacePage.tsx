@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import MermaidRenderer from "../components/MermaidRenderer";
-import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiChat, apiUploadFile, apiGetActiveRules } from "../lib/api";
+import ProfileMenu from "../components/ProfileMenu";
+import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas } from "../lib/api";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -27,6 +28,10 @@ export default function WorkspacePage() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [isFixing, setIsFixing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [shareExiting, setShareExiting] = useState(false);
 
   // Canvas pan/zoom state
   const [zoom, setZoom] = useState(1);
@@ -45,6 +50,7 @@ export default function WorkspacePage() {
       setTitle(canvas.title);
       setMermaidCode(canvas.mermaid_code);
       setChatHistory(canvas.chat_history || []);
+      setIsPublic(canvas.is_public || false);
     } catch (err) {
       console.error("Failed to load canvas:", err);
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -333,8 +339,74 @@ export default function WorkspacePage() {
               </h1>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 relative">
             {saving && <span className="text-xs text-on-surface-variant animate-pulse">Saving...</span>}
+
+            {/* Publish toggle */}
+            <button
+              onClick={async () => {
+                if (!canvasId || publishing) return;
+                setPublishing(true);
+                try {
+                  await apiPublishCanvas(canvasId, !isPublic);
+                  setIsPublic(!isPublic);
+                } catch (err) {
+                  console.error("Publish toggle failed:", err);
+                } finally {
+                  setPublishing(false);
+                }
+              }}
+              disabled={publishing || !canvasId}
+              className={`hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition-all duration-200 active:scale-95 disabled:opacity-40 ${
+                isPublic
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60 hover:bg-emerald-100"
+                  : "bg-surface-container-high text-on-surface-variant border border-outline-variant/20 hover:bg-surface-container-low hover:text-on-surface"
+              }`}
+            >
+              <span
+                className={`material-symbols-outlined text-base transition-all duration-300 ${isPublic ? "text-emerald-600" : ""}`}
+                style={{ fontVariationSettings: isPublic ? "'FILL' 1" : "'FILL' 0" }}
+              >
+                {isPublic ? "public" : "public_off"}
+              </span>
+              {publishing ? "..." : isPublic ? "Published" : "Publish"}
+            </button>
+
+            {/* Share button */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.href);
+                  setShareExiting(false);
+                  setShareCopied(true);
+                  setTimeout(() => {
+                    setShareExiting(true);
+                    setTimeout(() => {
+                      setShareCopied(false);
+                      setShareExiting(false);
+                    }, 250);
+                  }, 1400);
+                }}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold bg-surface-container-high text-on-surface-variant border border-outline-variant/20 hover:bg-surface-container-low hover:text-on-surface transition-all duration-200 active:scale-95"
+              >
+                <span className="material-symbols-outlined text-base">share</span>
+                Share
+              </button>
+
+              {/* Toast pill */}
+              {shareCopied && (
+                <div
+                  className={`absolute top-full mt-2 left-1/2 -translate-x-1/2 whitespace-nowrap px-3 py-1.5 rounded-full bg-slate-900 text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-xl z-50 ${
+                    shareExiting ? "toast-copied-exit" : "toast-copied"
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-sm text-emerald-400" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                  Link copied!
+                </div>
+              )}
+            </div>
+
+            <ProfileMenu />
           </div>
         </div>
       </header>

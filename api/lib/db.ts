@@ -54,6 +54,7 @@ export async function initDatabase() {
           title TEXT NOT NULL DEFAULT 'Untitled Canvas',
           mermaid_code TEXT NOT NULL DEFAULT 'flowchart TD\\n    A[Start]',
           chat_history JSONB DEFAULT '[]'::jsonb,
+          is_public BOOLEAN NOT NULL DEFAULT FALSE,
           created_at TIMESTAMPTZ DEFAULT NOW(),
           updated_at TIMESTAMPTZ DEFAULT NOW()
         );
@@ -61,5 +62,14 @@ export async function initDatabase() {
     });
   } catch {
     // Table may already exist
+  }
+
+  // Migration: add is_public column to existing canvases table
+  try {
+    await supabase.rpc("exec_sql", {
+      sql: `ALTER TABLE canvases ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE;`,
+    });
+  } catch {
+    // Column may already exist
   }
 }

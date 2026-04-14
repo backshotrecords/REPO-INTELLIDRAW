@@ -38,13 +38,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // PUT /api/canvases/[id] — Update a canvas
   if (req.method === "PUT") {
-    const { title, mermaidCode, chatHistory } = req.body || {};
+    const { title, mermaidCode, chatHistory, isPublic } = req.body || {};
 
     try {
       const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (title !== undefined) updateData.title = title;
       if (mermaidCode !== undefined) updateData.mermaid_code = mermaidCode;
       if (chatHistory !== undefined) updateData.chat_history = chatHistory;
+      if (isPublic !== undefined) updateData.is_public = isPublic;
 
       const { data, error } = await supabase
         .from("canvases")

@@ -6,6 +6,7 @@ import DashboardPage from "./pages/DashboardPage";
 import WorkspacePage from "./pages/WorkspacePage";
 import SettingsPage from "./pages/SettingsPage";
 import AdminPage from "./pages/AdminPage";
+import PublicViewPage from "./pages/PublicViewPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -94,6 +95,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/view/:id" element={<PublicViewPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
