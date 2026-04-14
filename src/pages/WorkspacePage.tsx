@@ -376,9 +376,14 @@ export default function WorkspacePage() {
             <div className="relative">
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(window.location.href);
                   setShareExiting(false);
                   setShareCopied(true);
+
+                  if (isPublic && canvasId) {
+                    const publicUrl = `${window.location.origin}/view/${canvasId}`;
+                    navigator.clipboard.writeText(publicUrl);
+                  }
+
                   setTimeout(() => {
                     setShareExiting(true);
                     setTimeout(() => {
@@ -396,12 +401,21 @@ export default function WorkspacePage() {
               {/* Toast pill */}
               {shareCopied && (
                 <div
-                  className={`absolute top-full mt-2 left-1/2 -translate-x-1/2 whitespace-nowrap px-3 py-1.5 rounded-full bg-slate-900 text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-xl z-50 ${
-                    shareExiting ? "toast-copied-exit" : "toast-copied"
-                  }`}
+                  className={`absolute top-full mt-2 left-1/2 -translate-x-1/2 whitespace-nowrap px-3 py-1.5 rounded-full text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-xl z-50 ${
+                    isPublic ? "bg-slate-900" : "bg-amber-600"
+                  } ${shareExiting ? "toast-copied-exit" : "toast-copied"}`}
                 >
-                  <span className="material-symbols-outlined text-sm text-emerald-400" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                  Link copied!
+                  {isPublic ? (
+                    <>
+                      <span className="material-symbols-outlined text-sm text-emerald-400" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                      Link copied!
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-sm text-amber-200" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
+                      Publish first to share
+                    </>
+                  )}
                 </div>
               )}
             </div>
