@@ -310,36 +310,38 @@
   }
 }
 
+/* Fixed position on both desktop and mobile to escape overflow-hidden */
 .voice-waveform-panel {
-  position: absolute;
-  bottom: calc(100% + 12px);
+  position: fixed;
+  bottom: 90px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 50;
+  z-index: 9999;
   animation: waveformSlideIn 250ms ease forwards;
+  max-width: 480px;
+  width: calc(100% - 32px);
 }
 
-/* On mobile: fixed-center the waveform panel so it doesn't get cut off */
 @media (max-width: 768px) {
   .voice-waveform-panel {
-    position: fixed;
     bottom: 140px;
     left: 16px;
     right: 16px;
     transform: none;
+    width: auto;
     max-width: 400px;
     margin: 0 auto;
   }
 }
 
 .voice-waveform-inner {
-  background: rgba(15, 23, 42, 0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(129, 140, 248, 0.2);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(196, 198, 205, 0.25);
   border-radius: 16px;
   padding: 12px 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25), 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
   min-width: 280px;
 }
 
@@ -362,14 +364,14 @@
 }
 
 .voice-rec-label {
-  color: #f87171;
+  color: #ef4444;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
 .voice-timer {
   margin-left: auto;
-  color: #94a3b8;
+  color: var(--md-sys-color-on-surface-variant, #46464f);
   font-variant-numeric: tabular-nums;
   font-weight: 500;
   font-size: 13px;
@@ -378,36 +380,51 @@
 
 .voice-waveform-canvas {
   width: 100%;
-  height: 64px;
+  height: 56px;
   border-radius: 10px;
   display: block;
-  background: rgba(15, 23, 42, 0.85);
+  background: var(--md-sys-color-surface-container-low, #f4f3f9);
 }
 
 /* ── Success toast ──────────────────────────────────────── */
 @keyframes voiceToastIn {
-  0% { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.9); }
-  100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  0% { opacity: 0; transform: scale(0.9); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
 .voice-success-toast {
-  position: absolute;
-  bottom: calc(100% + 12px);
+  position: fixed;
+  bottom: 90px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 50;
+  z-index: 9999;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  background: #0f172a;
-  color: #fff;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.25);
   border-radius: 10px;
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
   animation: voiceToastIn 200ms ease forwards;
+}
+
+/* Mobile: position to the left of the mic button */
+@media (max-width: 768px) {
+  .voice-success-toast {
+    position: absolute;
+    bottom: auto;
+    left: auto;
+    right: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
+  }
 }
 
 .voice-success-icon {
@@ -417,27 +434,41 @@
 
 /* ── Error toast ────────────────────────────────────────── */
 .voice-error-toast {
-  position: absolute;
-  bottom: calc(100% + 12px);
+  position: fixed;
+  bottom: 90px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 50;
+  z-index: 9999;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  background: #7f1d1d;
-  color: #fecaca;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: 10px;
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
   animation: voiceToastIn 200ms ease forwards;
+}
+
+@media (max-width: 768px) {
+  .voice-error-toast {
+    position: absolute;
+    bottom: auto;
+    left: auto;
+    right: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
+  }
 }
 
 .voice-error-icon {
   font-size: 16px;
-  color: #fca5a5;
+  color: #ef4444;
 }
 

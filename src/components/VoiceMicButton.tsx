@@ -63,12 +63,12 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Dark background for contrast
-      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+      // Light background to match app theme
+      ctx.fillStyle = "#f4f3f9";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Subtle grid lines
-      ctx.strokeStyle = "rgba(129, 140, 248, 0.1)";
+      ctx.strokeStyle = "rgba(70, 70, 79, 0.06)";
       ctx.lineWidth = 0.5;
       for (let y = 0; y < canvas.height; y += 12) {
         ctx.beginPath();
@@ -77,11 +77,11 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
         ctx.stroke();
       }
 
-      // Main waveform line — bright cyan/indigo
+      // Main waveform line — app primary/teal
       ctx.lineWidth = 2.5;
-      ctx.strokeStyle = "#a5b4fc";
-      ctx.shadowColor = "#818cf8";
-      ctx.shadowBlur = 10;
+      ctx.strokeStyle = "#00897b";
+      ctx.shadowColor = "rgba(0, 137, 123, 0.35)";
+      ctx.shadowBlur = 8;
       ctx.beginPath();
 
       const sliceWidth = canvas.width / bufferLength;
@@ -98,10 +98,10 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
       ctx.lineTo(canvas.width, canvas.height / 2);
       ctx.stroke();
 
-      // Second pass — glow layer
+      // Second pass — subtle glow
       ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(165, 180, 252, 0.4)";
-      ctx.shadowBlur = 20;
+      ctx.strokeStyle = "rgba(0, 137, 123, 0.2)";
+      ctx.shadowBlur = 14;
       ctx.stroke();
 
       ctx.shadowBlur = 0;
