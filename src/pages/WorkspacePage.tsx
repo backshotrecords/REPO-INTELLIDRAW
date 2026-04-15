@@ -33,7 +33,6 @@ export default function WorkspacePage() {
   const [publishing, setPublishing] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [shareExiting, setShareExiting] = useState(false);
-  const [isInputExpanded, setIsInputExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Canvas pan/zoom state
@@ -549,156 +548,142 @@ export default function WorkspacePage() {
             </div>
           )}
 
-          {/* Pending mermaid update banner */}
-          {pendingMermaid && (
-            <div className="bg-primary/5 px-4 py-2 border-t border-outline-variant/20 flex items-center justify-between">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="material-symbols-outlined text-secondary text-lg">psychology</span>
-                <p className="text-[11px] font-semibold text-on-surface-variant truncate">
-                  AI generated a new flowchart — review and apply
-                </p>
-              </div>
-              <div className="flex gap-2">
+          {/* ── Floating chat input bar ─────────────────────── */}
+          <div className="absolute bottom-3 md:bottom-5 left-3 right-3 md:left-1/2 md:-translate-x-1/2 md:w-[calc(100%-40px)] md:max-w-[700px] z-30">
+            <div className="bg-white/70 backdrop-blur-2xl border border-outline-variant/15 rounded-[22px] shadow-[0_4px_32px_rgba(0,0,0,0.08)] overflow-hidden">
+
+              {/* Pending mermaid update banner */}
+              {pendingMermaid && (
+                <div className="bg-primary/5 px-4 py-2 border-b border-outline-variant/15 flex items-center justify-between">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="material-symbols-outlined text-secondary text-lg">psychology</span>
+                    <p className="text-[11px] font-semibold text-on-surface-variant truncate">
+                      AI generated a new flowchart — review and apply
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setPendingMermaid(null)}
+                      className="text-on-surface-variant text-[10px] font-bold uppercase px-2 py-1"
+                    >
+                      Dismiss
+                    </button>
+                    <button
+                      onClick={handleApplyMermaid}
+                      className="bg-secondary text-white text-[10px] font-bold uppercase px-3 py-1 rounded-lg"
+                    >
+                      Update Flowchart
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Input row */}
+              <div className="p-2.5 md:p-3 flex items-end gap-2.5">
+
+                {/* Chat History Toggle (Mobile only) */}
                 <button
-                  onClick={() => setPendingMermaid(null)}
-                  className="text-on-surface-variant text-[10px] font-bold uppercase px-2 py-1"
+                  onClick={() => setShowChat(!showChat)}
+                  className={`md:hidden shrink-0 h-11 w-11 rounded-xl flex items-center justify-center transition-all ${
+                    showChat ? "bg-primary text-white" : "text-on-surface-variant hover:text-primary active:scale-95"
+                  }`}
                 >
-                  Dismiss
+                  <span className="material-symbols-outlined text-xl">
+                    {showChat ? "keyboard_arrow_down" : "history"}
+                  </span>
                 </button>
-                <button
-                  onClick={handleApplyMermaid}
-                  className="bg-secondary text-white text-[10px] font-bold uppercase px-3 py-1 rounded-lg"
-                >
-                  Update Flowchart
-                </button>
-              </div>
-            </div>
-          )}
 
-          {/* ── Expanded textarea overlay ────────────────────── */}
-          {isInputExpanded && (
-            <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm" onClick={() => setIsInputExpanded(false)} />
-          )}
+                {/* Paperclip — desktop inline (left side) */}
+                <label className="hidden md:flex cursor-pointer shrink-0 w-10 h-10 rounded-full items-center justify-center text-on-surface-variant/60 hover:text-primary hover:bg-surface-container-high/40 transition-all self-end">
+                  <span className="material-symbols-outlined text-xl">attach_file</span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*,.pdf,.txt,.md,.doc,.docx"
+                    onChange={handleFileUpload}
+                  />
+                </label>
 
-          {/* Chat input bar (always visible at bottom) */}
-          <div className={`bg-white border-t border-outline-variant/40 shadow-[0_-8px_30px_rgb(0,0,0,0.06)] relative transition-all duration-300 ${
-            isInputExpanded ? "fixed bottom-0 left-0 right-0 z-[70] rounded-t-3xl shadow-2xl" : "z-30"
-          }`}>
-            <div className={`p-4 flex gap-3 ${
-              isInputExpanded ? "pb-6 flex-col" : "pb-8 md:pb-4 items-end"
-            }`}>
-
-              {/* ── Top row: history toggle (mobile) + textarea ── */}
-              <div className="flex items-end gap-3 flex-1 min-w-0">
-                {/* Chat History Toggle (Mobile) — only in normal mode */}
-                {!isInputExpanded && (
-                  <button
-                    onClick={() => setShowChat(!showChat)}
-                    className={`md:hidden shrink-0 h-12 w-12 rounded-2xl flex items-center justify-center transition-all ${
-                      showChat ? "bg-primary text-white" : "bg-surface-container-high text-on-surface hover:text-primary active:scale-95"
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-xl">
-                      {showChat ? "keyboard_arrow_down" : "history"}
-                    </span>
-                  </button>
-                )}
-
-                {/* Textarea with expand button */}
-                <div className="flex-1 relative min-w-0">
+                {/* Auto-growing textarea */}
+                <div className="flex-1 min-w-0">
                   <textarea
                     ref={textareaRef}
-                    className={`w-full bg-surface-container-low border-none rounded-2xl px-5 py-3 pr-12 text-sm font-medium placeholder:text-on-surface-variant/30 focus:ring-2 focus:ring-secondary/20 transition-all outline-none resize-none no-scrollbar ${
-                      isInputExpanded ? "min-h-[40vh] max-h-[60vh]" : "min-h-[48px] max-h-[120px]"
-                    }`}
+                    className="w-full bg-transparent border-none rounded-xl px-3 py-2.5 text-sm font-medium placeholder:text-on-surface-variant/40 focus:ring-0 transition-all outline-none resize-none no-scrollbar"
                     placeholder="Describe your flowchart..."
                     value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
+                    onChange={(e) => {
+                      setChatInput(e.target.value);
+                      // Auto-resize up to 8 lines
+                      const ta = e.target;
+                      ta.style.height = 'auto';
+                      const maxH = 20 * 8; // ~8 lines
+                      ta.style.height = Math.min(ta.scrollHeight, maxH) + 'px';
+                      ta.style.overflowY = ta.scrollHeight > maxH ? 'auto' : 'hidden';
+                    }}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey && !isInputExpanded) {
+                      if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         handleSendMessage();
                       }
                     }}
-                    rows={isInputExpanded ? 12 : 2}
+                    rows={1}
+                    style={{ height: 'auto', overflowY: 'hidden' }}
                   />
-                  {/* Expand / Collapse toggle */}
-                  <button
-                    type="button"
-                    onClick={() => setIsInputExpanded(!isInputExpanded)}
-                    className="absolute top-2.5 right-2.5 w-7 h-7 rounded-lg flex items-center justify-center text-on-surface-variant/40 hover:text-on-surface-variant hover:bg-surface-container-high/60 transition-all"
-                    title={isInputExpanded ? "Collapse" : "Expand"}
-                  >
-                    <span className="material-symbols-outlined text-[18px]">
-                      {isInputExpanded ? "close_fullscreen" : "open_in_full"}
-                    </span>
-                  </button>
                 </div>
 
-                {/* ── Action buttons: vertical on mobile, horizontal on desktop ── */}
-                <div className="flex flex-col-reverse md:flex-row items-center gap-2 shrink-0">
-                  {/* Send button — always at the bottom/end */}
+                {/* Action buttons */}
+                <div className="relative shrink-0 flex items-end gap-1.5">
+
+                  {/* Mic + Paperclip: float above on mobile, inline on desktop */}
+                  <div className="absolute md:static bottom-full md:bottom-auto right-0 md:right-auto mb-2 md:mb-0 flex flex-col md:flex-row items-center gap-1.5 md:gap-1">
+                    <VoiceMicButton
+                      onTranscript={(text) => {
+                        setChatInput((prev) => prev ? `${prev} ${text}` : text);
+                        // Trigger auto-resize after transcript
+                        requestAnimationFrame(() => {
+                          const ta = textareaRef.current;
+                          if (ta) {
+                            ta.style.height = 'auto';
+                            const maxH = 20 * 8;
+                            ta.style.height = Math.min(ta.scrollHeight, maxH) + 'px';
+                            ta.style.overflowY = ta.scrollHeight > maxH ? 'auto' : 'hidden';
+                          }
+                        });
+                      }}
+                      disabled={chatLoading}
+                    />
+
+                    {/* Mobile-only paperclip (desktop one is left-side inline) */}
+                    <label className="md:hidden cursor-pointer shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all bg-white shadow-md border border-outline-variant/20">
+                      <span className="material-symbols-outlined text-xl">attach_file</span>
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="image/*,.pdf,.txt,.md,.doc,.docx"
+                        onChange={handleFileUpload}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Send button */}
                   <button
                     onClick={handleSendMessage}
                     disabled={chatLoading || !chatInput.trim()}
-                    className="h-12 w-12 bg-primary text-white rounded-2xl flex items-center justify-center active:scale-90 transition-all shadow-xl shadow-primary/20 disabled:opacity-40"
+                    className="h-10 w-10 md:h-10 md:w-10 bg-primary text-white rounded-xl flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-30"
                   >
                     {chatLoading ? (
-                      <span className="spinner border-white/30 border-t-white" />
+                      <span className="spinner border-white/30 border-t-white" style={{ width: 16, height: 16 }} />
                     ) : (
                       <span
-                        className="material-symbols-outlined text-xl"
+                        className="material-symbols-outlined text-lg"
                         style={{ fontVariationSettings: "'FILL' 1" }}
                       >
                         send
                       </span>
                     )}
                   </button>
-
-                  {/* Voice input */}
-                  <VoiceMicButton
-                    onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
-                    disabled={chatLoading}
-                  />
-
-                  {/* File upload */}
-                  <label className="cursor-pointer shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container-high/60 transition-all">
-                    <span className="material-symbols-outlined text-xl">attach_file</span>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*,.pdf,.txt,.md,.doc,.docx"
-                      onChange={handleFileUpload}
-                    />
-                  </label>
                 </div>
               </div>
-
-              {/* ── Expanded mode: bottom action row ── */}
-              {isInputExpanded && (
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-on-surface-variant/50 font-medium">
-                    Shift + Enter for new line
-                  </span>
-                  <button
-                    onClick={() => {
-                      handleSendMessage();
-                      setIsInputExpanded(false);
-                    }}
-                    disabled={chatLoading || !chatInput.trim()}
-                    className="px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold flex items-center gap-2 active:scale-95 transition-all shadow-lg shadow-primary/20 disabled:opacity-40"
-                  >
-                    {chatLoading ? (
-                      <span className="spinner border-white/30 border-t-white" style={{ width: 16, height: 16 }} />
-                    ) : (
-                      <>
-                        <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>send</span>
-                        Send
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         </div>
