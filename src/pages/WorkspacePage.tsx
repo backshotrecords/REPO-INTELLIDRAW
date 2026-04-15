@@ -3,14 +3,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import MermaidRenderer from "../components/MermaidRenderer";
 import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton from "../components/VoiceMicButton";
+import AgentGitLog from "../components/AgentGitLog";
 import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas } from "../lib/api";
-
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  timestamp: string;
-  causedCrash?: boolean;
-}
+import type { ChatMessage } from "../types";
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
@@ -23,7 +18,6 @@ export default function WorkspacePage() {
   const [activeView, setActiveView] = useState<"flowchart" | "code">("flowchart");
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
-  const [pendingMermaid, setPendingMermaid] = useState<string | null>(null);
   const [showChat, setShowChat] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -43,7 +37,7 @@ export default function WorkspacePage() {
   const [isPanning, setIsPanning] = useState(false);
   const lastPanPos = useRef({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const codeOnEnterRef = useRef("");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load canvas
@@ -83,10 +77,7 @@ export default function WorkspacePage() {
     }
   }, [id, loadCanvas, createNewCanvas]);
 
-  // Scroll chat to bottom
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatHistory, showChat]);
+
 
   // Track input bar height for dynamic floating button positioning
   useEffect(() => {
@@ -144,7 +135,7 @@ export default function WorkspacePage() {
     };
 
     // Flag the last user message as the culprit for analytics
-    let updatedHistoryForFix = [...chatHistory];
+    const updatedHistoryForFix = [...chatHistory];
     for (let i = updatedHistoryForFix.length - 1; i >= 0; i--) {
       if (updatedHistoryForFix[i].role === "user") {
         updatedHistoryForFix[i] = { ...updatedHistoryForFix[i], causedCrash: true };
@@ -174,6 +165,10 @@ export default function WorkspacePage() {
           ? "✅ Fixed! The flowchart has been repaired and updated."
           : result.response,
         timestamp: new Date().toISOString(),
+        ...(result.updatedMermaidCode && {
+          mermaidSnapshot: result.updatedMermaidCode,
+          versionSource: "auto_fix" as const,
+        }),
       };
       setChatHistory((prev) => [...prev, assistantMessage]);
 
@@ -211,6 +206,70 @@ export default function WorkspacePage() {
     }
   };
 
+  // Restore a version from the git log
+  const handleRestoreVersion = (snapshot: string) => {
+    setMermaidCode(snapshot);
+    const restoreMsg: ChatMessage = {
+      role: "assistant",
+      content: "↩️ Restored to a previous version",
+      timestamp: new Date().toISOString(),
+      mermaidSnapshot: snapshot,
+      versionSource: "restore",
+    };
+    const newHistory = [...chatHistory, restoreMsg];
+    setChatHistory(newHistory);
+    autoSave(snapshot, newHistory);
+  };
+
+  // Manual edit tracking on view switch
+  const handleViewSwitch = (view: "flowchart" | "code") => {
+    if (view === "code" && activeView !== "code") {
+      codeOnEnterRef.current = mermaidCode;
+    } else if (view === "flowchart" && activeView === "code") {
+      if (mermaidCode !== codeOnEnterRef.current) {
+        const lastMsg = chatHistory[chatHistory.length - 1];
+        const isRecentManual = lastMsg?.versionSource === "manual" &&
+          (Date.now() - new Date(lastMsg.timestamp).getTime()) < 30000;
+        if (isRecentManual) {
+          const updated = [...chatHistory];
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            mermaidSnapshot: mermaidCode,
+            timestamp: new Date().toISOString(),
+          };
+          setChatHistory(updated);
+          autoSave(mermaidCode, updated);
+        } else {
+          const manualMsg: ChatMessage = {
+            role: "assistant",
+            content: "✏️ Canvas updated via code editor",
+            timestamp: new Date().toISOString(),
+            mermaidSnapshot: mermaidCode,
+            versionSource: "manual",
+          };
+          const newHistory = [...chatHistory, manualMsg];
+          setChatHistory(newHistory);
+          autoSave(mermaidCode, newHistory);
+        }
+      }
+    }
+    setActiveView(view);
+  };
+
+  // Publish toggle (extracted for header + sidebar)
+  const handlePublishToggle = async () => {
+    if (!canvasId || publishing) return;
+    setPublishing(true);
+    try {
+      await apiPublishCanvas(canvasId, !isPublic);
+      setIsPublic(!isPublic);
+    } catch (err) {
+      console.error("Publish toggle failed:", err);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   // Chat
   const handleSendMessage = async () => {
     if (!chatInput.trim() || chatLoading) return;
@@ -233,16 +292,21 @@ export default function WorkspacePage() {
         role: "assistant",
         content: result.response,
         timestamp: new Date().toISOString(),
+        ...(result.updatedMermaidCode && {
+          mermaidSnapshot: result.updatedMermaidCode,
+          versionSource: "ai_chat" as const,
+        }),
       };
 
       const updatedHistory = [...newHistory, assistantMessage];
       setChatHistory(updatedHistory);
 
+      // Apply directly — version history is the safety net
       if (result.updatedMermaidCode) {
-        setPendingMermaid(result.updatedMermaidCode);
+        setMermaidCode(result.updatedMermaidCode);
       }
 
-      autoSave(mermaidCode, updatedHistory);
+      autoSave(result.updatedMermaidCode || mermaidCode, updatedHistory);
     } catch (err) {
       const errorMessage: ChatMessage = {
         role: "assistant",
@@ -255,13 +319,6 @@ export default function WorkspacePage() {
     }
   };
 
-  const handleApplyMermaid = () => {
-    if (pendingMermaid) {
-      setMermaidCode(pendingMermaid);
-      autoSave(pendingMermaid, chatHistory);
-      setPendingMermaid(null);
-    }
-  };
 
   // File upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -279,13 +336,19 @@ export default function WorkspacePage() {
           role: "assistant",
           content: result.response,
           timestamp: new Date().toISOString(),
+          ...(result.mermaidCode && {
+            mermaidSnapshot: result.mermaidCode,
+            versionSource: "upload" as const,
+          }),
         };
 
         const updatedHistory = [...chatHistory, assistantMessage];
         setChatHistory(updatedHistory);
 
+        // Apply directly — version history is the safety net
         if (result.mermaidCode) {
-          setPendingMermaid(result.mermaidCode);
+          setMermaidCode(result.mermaidCode);
+          autoSave(result.mermaidCode, updatedHistory);
         }
       } catch (err) {
         console.error("Upload failed:", err);
@@ -331,10 +394,7 @@ export default function WorkspacePage() {
     setPan({ x: 0, y: 0 });
   };
 
-  // Strip mermaid fences from AI response for display
-  const cleanMessageContent = (content: string) => {
-    return content.replace(/```mermaid\n[\s\S]*?```/g, "[Flowchart code generated — click 'Update Flowchart' to apply]");
-  };
+
 
   return (
     <div className="bg-background font-body text-on-surface overflow-hidden h-dvh flex flex-col">
@@ -371,18 +431,7 @@ export default function WorkspacePage() {
 
             {/* Publish toggle */}
             <button
-              onClick={async () => {
-                if (!canvasId || publishing) return;
-                setPublishing(true);
-                try {
-                  await apiPublishCanvas(canvasId, !isPublic);
-                  setIsPublic(!isPublic);
-                } catch (err) {
-                  console.error("Publish toggle failed:", err);
-                } finally {
-                  setPublishing(false);
-                }
-              }}
+              onClick={handlePublishToggle}
               disabled={publishing || !canvasId}
               className={`hidden sm:inline-flex items-center justify-center rounded-full text-xs font-bold transition-all duration-200 active:scale-95 disabled:opacity-40 bg-surface-container-high text-on-surface-variant border border-outline-variant/20 hover:bg-surface-container-low hover:text-on-surface ${
                 isPublic ? "w-8 h-8 outline outline-2 outline-emerald-800 outline-offset-[3px]" : "gap-1.5 px-3.5 py-2"
@@ -459,7 +508,7 @@ export default function WorkspacePage() {
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 pointer-events-auto">
             <div className="inline-flex items-center bg-white/80 backdrop-blur-xl rounded-full border border-outline-variant/20 px-1 py-1 gap-0.5 shadow-lg shadow-black/5">
               <button
-                onClick={() => setActiveView("flowchart")}
+                onClick={() => handleViewSwitch("flowchart")}
                 className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-full text-xs font-semibold transition-all duration-200 ${
                   activeView === "flowchart"
                     ? "bg-white text-on-surface shadow-sm"
@@ -473,7 +522,7 @@ export default function WorkspacePage() {
               <div className="w-px h-5 bg-outline-variant/20" />
 
               <button
-                onClick={() => setActiveView("code")}
+                onClick={() => handleViewSwitch("code")}
                 className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-full text-xs font-semibold transition-all duration-200 ${
                   activeView === "code"
                     ? "bg-white text-on-surface shadow-sm"
@@ -596,32 +645,6 @@ export default function WorkspacePage() {
           <div ref={inputBarRef} className="absolute bottom-3 md:bottom-5 left-3 right-3 md:left-1/2 md:-translate-x-1/2 md:w-[calc(100%-40px)] md:max-w-[700px] z-30">
             <div className="bg-white/70 backdrop-blur-2xl border border-outline-variant/15 rounded-[22px] shadow-[0_4px_32px_rgba(0,0,0,0.08)] overflow-hidden">
 
-              {/* Pending mermaid update banner */}
-              {pendingMermaid && (
-                <div className="bg-primary/5 px-4 py-2 border-b border-outline-variant/15 flex items-center justify-between">
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="material-symbols-outlined text-secondary text-lg">psychology</span>
-                    <p className="text-[11px] font-semibold text-on-surface-variant truncate">
-                      AI generated a new flowchart — review and apply
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setPendingMermaid(null)}
-                      className="text-on-surface-variant text-[10px] font-bold uppercase px-2 py-1"
-                    >
-                      Dismiss
-                    </button>
-                    <button
-                      onClick={handleApplyMermaid}
-                      className="bg-secondary text-white text-[10px] font-bold uppercase px-3 py-1 rounded-lg"
-                    >
-                      Update Flowchart
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {/* Input row */}
               <div className="p-2.5 md:p-3 flex items-end gap-2.5">
 
@@ -706,87 +729,19 @@ export default function WorkspacePage() {
             showChat ? "translate-y-0 opacity-100" : "translate-y-[20%] opacity-0 pointer-events-none md:translate-y-0 md:opacity-100 md:pointer-events-auto"
           }`}
         >
-          {/* Panel header */}
-          <div className="px-5 py-4 border-b border-outline-variant/10 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/15 to-secondary/15 flex items-center justify-center">
-                <span
-                  className="material-symbols-outlined text-lg text-primary"
-                  style={{ fontVariationSettings: "'FILL' 1, 'wght' 500" }}
-                >
-                  hub
-                </span>
-              </div>
-              <div>
-                <span className="font-bold text-sm text-on-surface tracking-tight">Agent Log</span>
-              </div>
-            </div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/50">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">Online</span>
-            </div>
-          </div>
+          <AgentGitLog
+            chatHistory={chatHistory}
+            chatLoading={chatLoading}
+            onRestore={handleRestoreVersion}
+            isPublic={isPublic}
+            canvasId={canvasId}
+            publishing={publishing}
+            onPublishToggle={handlePublishToggle}
+          />
 
-          {/* Chat messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-5 space-y-4 no-scrollbar">
-            {chatHistory.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full gap-4 text-on-surface-variant/40">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/8 to-secondary/8 flex items-center justify-center">
-                  <span
-                    className="material-symbols-outlined text-3xl text-primary/40"
-                    style={{ fontVariationSettings: "'FILL' 1" }}
-                  >
-                    psychology
-                  </span>
-                </div>
-                <div className="text-center space-y-1">
-                  <p className="text-sm font-semibold text-on-surface-variant/60">No active tasks</p>
-                  <p className="text-xs text-on-surface-variant/40 max-w-[200px]">
-                    Describe a flowchart to start generating or refining diagrams
-                  </p>
-                </div>
-              </div>
-            )}
 
-            {chatHistory.map((msg, i) => (
-              <div
-                key={i}
-                className={`chat-message-enter flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                {msg.role === "assistant" && (
-                  <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary/15 to-secondary/15 flex items-center justify-center mr-2 mt-1 shrink-0">
-                    <span className="material-symbols-outlined text-xs text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>hub</span>
-                  </div>
-                )}
-                <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-primary text-white rounded-br-md shadow-sm shadow-primary/10"
-                      : "bg-surface-container-low/80 text-on-surface rounded-bl-md border border-outline-variant/10"
-                  }`}
-                >
-                  <p className="whitespace-pre-wrap">{cleanMessageContent(msg.content)}</p>
-                </div>
-              </div>
-            ))}
 
-            {chatLoading && (
-              <div className="flex justify-start">
-                <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary/15 to-secondary/15 flex items-center justify-center mr-2 mt-1 shrink-0">
-                  <span className="material-symbols-outlined text-xs text-primary animate-spin" style={{ fontVariationSettings: "'FILL' 1" }}>progress_activity</span>
-                </div>
-                <div className="bg-surface-container-low/80 rounded-2xl rounded-bl-md px-4 py-3 border border-outline-variant/10">
-                  <div className="flex gap-1.5">
-                    <div className="w-1.5 h-1.5 bg-primary/30 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <div className="w-1.5 h-1.5 bg-primary/30 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <div className="w-1.5 h-1.5 bg-primary/30 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </div>
-                </div>
-              </div>
-            )}
 
-            <div ref={chatEndRef} />
-          </div>
         </div>
       </main>
     </div>

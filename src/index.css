@@ -480,3 +480,16 @@
   color: #ef4444;
 }
 
+/* ======================================
+   Agent Git Log Panel
+   ====================================== */
+
+/* Overflow dropdown slide-in */
+@keyframes dropdownIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.dropdown-enter {
+  animation: dropdownIn 200ms ease forwards;
+}
+
