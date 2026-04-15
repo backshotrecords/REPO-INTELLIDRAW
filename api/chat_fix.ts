@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
-import { authenticateRequest } from "../lib/auth.js";
-import { supabase } from "../lib/db.js";
-import { decrypt } from "../lib/crypto.js";
+import { authenticateRequest } from "./lib/auth.js";
+import { supabase } from "./lib/db.js";
+import { decrypt } from "./lib/crypto.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {

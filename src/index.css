@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Dynamic viewport height — adjusts when mobile browser chrome appears/disappears */
+@layer utilities {
+  .h-dvh {
+    height: 100vh; /* fallback */
+    height: 100dvh;
+  }
+}
+
 /* Fonts loaded via index.html <link> tags for faster initial paint */
 
 /* ======================================

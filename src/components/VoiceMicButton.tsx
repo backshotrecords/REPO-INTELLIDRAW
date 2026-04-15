@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { apiTranscribeAudio } from "../lib/api";
 
 /* ================================================================
@@ -228,8 +229,8 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
 
   return (
     <div className="voice-mic-wrapper">
-      {/* ── Floating waveform panel ──────────────────────────── */}
-      {(state === "recording") && (
+      {/* ── Floating waveform panel (portaled to body to escape parent transforms) ── */}
+      {(state === "recording") && createPortal(
         <div className="voice-waveform-panel">
           <div className="voice-waveform-inner">
             <div className="voice-waveform-status">
@@ -244,27 +245,30 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
               height={64}
             />
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* ── Success toast ────────────────────────────────────── */}
-      {state === "success" && (
+      {/* ── Success toast (portaled) ── */}
+      {state === "success" && createPortal(
         <div className="voice-success-toast">
           <span className="material-symbols-outlined voice-success-icon" style={{ fontVariationSettings: "'FILL' 1" }}>
             check_circle
           </span>
           <span>Transcribed</span>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* ── Error toast ──────────────────────────────────────── */}
-      {errorMsg && (
+      {/* ── Error toast (portaled) ── */}
+      {errorMsg && createPortal(
         <div className="voice-error-toast">
           <span className="material-symbols-outlined voice-error-icon" style={{ fontVariationSettings: "'FILL' 1" }}>
             error
           </span>
           <span>{errorMsg}</span>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ── Mic button ───────────────────────────────────────── */}

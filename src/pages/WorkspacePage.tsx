@@ -34,6 +34,8 @@ export default function WorkspacePage() {
   const [shareCopied, setShareCopied] = useState(false);
   const [shareExiting, setShareExiting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputBarRef = useRef<HTMLDivElement>(null);
+  const [inputBarHeight, setInputBarHeight] = useState(60);
 
   // Canvas pan/zoom state
   const [zoom, setZoom] = useState(1);
@@ -85,6 +87,19 @@ export default function WorkspacePage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, showChat]);
+
+  // Track input bar height for dynamic floating button positioning
+  useEffect(() => {
+    const el = inputBarRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setInputBarHeight(entry.contentRect.height);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Auto-save with 2-second debounce
   const autoSave = useCallback(
@@ -312,7 +327,7 @@ export default function WorkspacePage() {
   };
 
   return (
-    <div className="bg-background font-body text-on-surface overflow-hidden h-screen flex flex-col">
+    <div className="bg-background font-body text-on-surface overflow-hidden h-dvh flex flex-col">
       {/* Header */}
       <header className="bg-white/90 backdrop-blur-md border-b border-outline-variant/30 sticky top-0 z-50">
         <div className="flex justify-between items-center w-full px-4 py-3">
@@ -486,7 +501,7 @@ export default function WorkspacePage() {
               style={{ cursor: isPanning ? "grabbing" : "grab" }}
             >
               {/* Zoom controls */}
-              <div className="absolute left-4 bottom-20 md:bottom-4 flex flex-col gap-2 z-40">
+              <div className="absolute left-4 flex flex-col gap-2 z-40 transition-all duration-200" style={{ bottom: `${inputBarHeight + 16}px` }}>
                 <div className="flex flex-col bg-white shadow-xl border border-outline-variant/30 rounded-full overflow-hidden">
                   <button
                     onClick={handleZoomIn}
@@ -514,7 +529,7 @@ export default function WorkspacePage() {
               </div>
 
               {/* Mobile floating action buttons (mic + paperclip) — right side, same layer as zoom */}
-              <div className="md:hidden absolute right-4 bottom-20 flex flex-col items-center gap-2 z-40">
+              <div className="md:hidden absolute right-4 flex flex-col items-center gap-2 z-40 transition-all duration-200" style={{ bottom: `${inputBarHeight + 16}px` }}>
                 <label className="cursor-pointer shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all bg-white shadow-xl border border-outline-variant/30">
                   <span className="material-symbols-outlined text-xl">attach_file</span>
                   <input
@@ -579,7 +594,7 @@ export default function WorkspacePage() {
           )}
 
           {/* ── Floating chat input bar ─────────────────────── */}
-          <div className="absolute bottom-3 md:bottom-5 left-3 right-3 md:left-1/2 md:-translate-x-1/2 md:w-[calc(100%-40px)] md:max-w-[700px] z-30">
+          <div ref={inputBarRef} className="absolute bottom-3 md:bottom-5 left-3 right-3 md:left-1/2 md:-translate-x-1/2 md:w-[calc(100%-40px)] md:max-w-[700px] z-30">
             <div className="bg-white/70 backdrop-blur-2xl border border-outline-variant/15 rounded-[22px] shadow-[0_4px_32px_rgba(0,0,0,0.08)] overflow-hidden">
 
               {/* Pending mermaid update banner */}
