@@ -486,7 +486,7 @@ export default function WorkspacePage() {
               style={{ cursor: isPanning ? "grabbing" : "grab" }}
             >
               {/* Zoom controls */}
-              <div className="absolute left-4 bottom-4 flex flex-col gap-2 z-40">
+              <div className="absolute left-4 bottom-20 md:bottom-4 flex flex-col gap-2 z-40">
                 <div className="flex flex-col bg-white shadow-xl border border-outline-variant/30 rounded-full overflow-hidden">
                   <button
                     onClick={handleZoomIn}
@@ -510,6 +510,36 @@ export default function WorkspacePage() {
                 </button>
                 <div className="text-[10px] font-bold text-on-surface-variant/50 text-center">
                   {Math.round(zoom * 100)}%
+                </div>
+              </div>
+
+              {/* Mobile floating action buttons (mic + paperclip) — right side, same layer as zoom */}
+              <div className="md:hidden absolute right-4 bottom-20 flex flex-col items-center gap-2 z-40">
+                <label className="cursor-pointer shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all bg-white shadow-xl border border-outline-variant/30">
+                  <span className="material-symbols-outlined text-xl">attach_file</span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*,.pdf,.txt,.md,.doc,.docx"
+                    onChange={handleFileUpload}
+                  />
+                </label>
+                <div className="voice-mic-mobile-float">
+                  <VoiceMicButton
+                    onTranscript={(text) => {
+                      setChatInput((prev) => prev ? `${prev} ${text}` : text);
+                      requestAnimationFrame(() => {
+                        const ta = textareaRef.current;
+                        if (ta) {
+                          ta.style.height = 'auto';
+                          const maxH = 20 * 8;
+                          ta.style.height = Math.min(ta.scrollHeight, maxH) + 'px';
+                          ta.style.overflowY = ta.scrollHeight > maxH ? 'auto' : 'hidden';
+                        }
+                      });
+                    }}
+                    disabled={chatLoading}
+                  />
                 </div>
               </div>
 
@@ -632,14 +662,13 @@ export default function WorkspacePage() {
                 </div>
 
                 {/* Action buttons */}
-                <div className="relative shrink-0 flex items-end gap-1.5">
+                <div className="shrink-0 flex items-end gap-1.5">
 
-                  {/* Mic + Paperclip: float above on mobile, inline on desktop */}
-                  <div className="absolute md:static bottom-full md:bottom-auto right-0 md:right-auto mb-2 md:mb-0 flex flex-col md:flex-row items-center gap-1.5 md:gap-1">
+                  {/* Desktop-only: mic inline */}
+                  <div className="hidden md:block">
                     <VoiceMicButton
                       onTranscript={(text) => {
                         setChatInput((prev) => prev ? `${prev} ${text}` : text);
-                        // Trigger auto-resize after transcript
                         requestAnimationFrame(() => {
                           const ta = textareaRef.current;
                           if (ta) {
@@ -652,24 +681,13 @@ export default function WorkspacePage() {
                       }}
                       disabled={chatLoading}
                     />
-
-                    {/* Mobile-only paperclip (desktop one is left-side inline) */}
-                    <label className="md:hidden cursor-pointer shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all bg-white shadow-md border border-outline-variant/20">
-                      <span className="material-symbols-outlined text-xl">attach_file</span>
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept="image/*,.pdf,.txt,.md,.doc,.docx"
-                        onChange={handleFileUpload}
-                      />
-                    </label>
                   </div>
 
                   {/* Send button */}
                   <button
                     onClick={handleSendMessage}
                     disabled={chatLoading || !chatInput.trim()}
-                    className="h-10 w-10 md:h-10 md:w-10 bg-primary text-white rounded-xl flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-30"
+                    className="h-10 w-10 bg-primary text-white rounded-xl flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-30"
                   >
                     {chatLoading ? (
                       <span className="spinner border-white/30 border-t-white" style={{ width: 16, height: 16 }} />
