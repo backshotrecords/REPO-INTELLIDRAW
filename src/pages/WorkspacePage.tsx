@@ -101,6 +101,16 @@ export default function WorkspacePage() {
     return () => ro.disconnect();
   }, []);
 
+  // Auto-resize textarea whenever chatInput changes (from any source)
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    const maxH = 20 * 8; // ~8 lines
+    ta.style.height = Math.min(ta.scrollHeight, maxH) + 'px';
+    ta.style.overflowY = ta.scrollHeight > maxH ? 'auto' : 'hidden';
+  }, [chatInput]);
+
   // Auto-save with 2-second debounce
   const autoSave = useCallback(
     (code: string, history?: ChatMessage[]) => {
@@ -541,18 +551,7 @@ export default function WorkspacePage() {
                 </label>
                 <div className="voice-mic-mobile-float">
                   <VoiceMicButton
-                    onTranscript={(text) => {
-                      setChatInput((prev) => prev ? `${prev} ${text}` : text);
-                      requestAnimationFrame(() => {
-                        const ta = textareaRef.current;
-                        if (ta) {
-                          ta.style.height = 'auto';
-                          const maxH = 20 * 8;
-                          ta.style.height = Math.min(ta.scrollHeight, maxH) + 'px';
-                          ta.style.overflowY = ta.scrollHeight > maxH ? 'auto' : 'hidden';
-                        }
-                      });
-                    }}
+                    onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
                     disabled={chatLoading}
                   />
                 </div>
@@ -656,15 +655,7 @@ export default function WorkspacePage() {
                     className="w-full bg-transparent border-none rounded-xl px-3 py-2.5 text-sm font-medium placeholder:text-on-surface-variant/40 focus:ring-0 transition-all outline-none resize-none no-scrollbar"
                     placeholder="Describe your flowchart..."
                     value={chatInput}
-                    onChange={(e) => {
-                      setChatInput(e.target.value);
-                      // Auto-resize up to 8 lines
-                      const ta = e.target;
-                      ta.style.height = 'auto';
-                      const maxH = 20 * 8; // ~8 lines
-                      ta.style.height = Math.min(ta.scrollHeight, maxH) + 'px';
-                      ta.style.overflowY = ta.scrollHeight > maxH ? 'auto' : 'hidden';
-                    }}
+                    onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
@@ -672,7 +663,6 @@ export default function WorkspacePage() {
                       }
                     }}
                     rows={1}
-                    style={{ height: 'auto', overflowY: 'hidden' }}
                   />
                 </div>
 
@@ -682,18 +672,7 @@ export default function WorkspacePage() {
                   {/* Desktop-only: mic inline */}
                   <div className="hidden md:block">
                     <VoiceMicButton
-                      onTranscript={(text) => {
-                        setChatInput((prev) => prev ? `${prev} ${text}` : text);
-                        requestAnimationFrame(() => {
-                          const ta = textareaRef.current;
-                          if (ta) {
-                            ta.style.height = 'auto';
-                            const maxH = 20 * 8;
-                            ta.style.height = Math.min(ta.scrollHeight, maxH) + 'px';
-                            ta.style.overflowY = ta.scrollHeight > maxH ? 'auto' : 'hidden';
-                          }
-                        });
-                      }}
+                      onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
                       disabled={chatLoading}
                     />
                   </div>
