@@ -5,6 +5,7 @@ import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
 import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas } from "../lib/api";
+import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import type { ChatMessage } from "../types";
 
 export default function WorkspacePage() {
@@ -39,6 +40,22 @@ export default function WorkspacePage() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const codeOnEnterRef = useRef("");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fetch global sound config from server on mount (populates in-memory cache)
+  useEffect(() => {
+    fetchSoundSettings();
+  }, []);
+
+  // Sound notification for canvas updates — reads from cached server config
+  const playCanvasSound = useCallback(() => {
+    const settings = getSoundSettings();
+    if (!settings.enabled || settings.volume === 0) return;
+    try {
+      const audio = new Audio(settings.soundUrl);
+      audio.volume = settings.volume;
+      audio.play().catch(() => { /* browser autoplay policy */ });
+    } catch { /* invalid URL or audio */ }
+  }, []);
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
 
   // Load canvas
@@ -176,6 +193,7 @@ export default function WorkspacePage() {
       if (result.updatedMermaidCode) {
         // Apply directly to canvas — no pending button
         setMermaidCode(result.updatedMermaidCode);
+        playCanvasSound();
         autoSave(result.updatedMermaidCode);
       }
     } catch (err) {
@@ -210,6 +228,7 @@ export default function WorkspacePage() {
   // Restore a version from the git log
   const handleRestoreVersion = (snapshot: string) => {
     setMermaidCode(snapshot);
+    playCanvasSound();
     const restoreMsg: ChatMessage = {
       role: "assistant",
       content: "↩️ Restored to a previous version",
@@ -305,6 +324,7 @@ export default function WorkspacePage() {
       // Apply directly — version history is the safety net
       if (result.updatedMermaidCode) {
         setMermaidCode(result.updatedMermaidCode);
+        playCanvasSound();
       }
 
       autoSave(result.updatedMermaidCode || mermaidCode, updatedHistory);
@@ -349,6 +369,7 @@ export default function WorkspacePage() {
         // Apply directly — version history is the safety net
         if (result.mermaidCode) {
           setMermaidCode(result.mermaidCode);
+          playCanvasSound();
           autoSave(result.mermaidCode, updatedHistory);
         }
       } catch (err) {

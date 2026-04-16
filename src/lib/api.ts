@@ -345,3 +345,44 @@ export async function apiTranscribeAudio(audioBlob: Blob): Promise<string> {
   return data.text;
 }
 
+// ===== Admin Sound Config =====
+
+export async function apiGetSoundConfig() {
+  const res = await apiFetch("/admin/sound-config");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch sound config");
+  return data;
+}
+
+/**
+ * Update sound config (admin-only).
+ * Uses FormData to support optional sound file upload.
+ */
+export async function apiUpdateSoundConfig(opts: {
+  volume?: number;
+  enabled?: boolean;
+  resetToDefault?: boolean;
+  soundFile?: File;
+}) {
+  const token = getToken();
+  const formData = new FormData();
+
+  if (opts.volume !== undefined) formData.append("volume", String(opts.volume));
+  if (opts.enabled !== undefined) formData.append("enabled", String(opts.enabled));
+  if (opts.resetToDefault) formData.append("resetToDefault", "true");
+  if (opts.soundFile) formData.append("soundFile", opts.soundFile);
+
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/admin/sound-config`, {
+    method: "PUT",
+    headers,
+    body: formData,
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update sound config");
+  return data;
+}
+

@@ -627,6 +627,124 @@ app.delete("/api/admin/rules/:id", requireAuth(async (req, res) => {
 }));
 
 // ============================================================
+// ADMIN SOUND CONFIG (Supabase-backed)
+// ============================================================
+
+// Multer — memory storage (buffer) so we can upload to Supabase Storage
+const soundUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("audio/")) cb(null, true);
+    else cb(new Error("Only audio files are allowed"));
+  },
+});
+
+// Helper: read a config value from admin_config table
+async function getAdminConfig(key, fallback = null) {
+  const { data } = await supabase.from("admin_config").select("value").eq("key", key).single();
+  return data ? data.value : fallback;
+}
+
+// Helper: upsert a config value
+async function setAdminConfig(key, value) {
+  await supabase.from("admin_config").upsert({ key, value: String(value) }, { onConflict: "key" });
+}
+
+// GET — any authenticated user can read the sound config
+app.get("/api/admin/sound-config", requireAuth(async (_req, res) => {
+  try {
+    const { data: rows } = await supabase.from("admin_config").select("key, value").in("key", [
+      "sound_volume", "sound_enabled", "sound_url", "sound_file_name"
+    ]);
+
+    const cfg = {};
+    for (const row of (rows || [])) cfg[row.key] = row.value;
+
+    return res.json({
+      volume: parseFloat(cfg.sound_volume ?? "0.5"),
+      enabled: (cfg.sound_enabled ?? "true") === "true",
+      soundUrl: cfg.sound_url ?? "/intellidraw-v2.mp3",
+      soundFileName: cfg.sound_file_name || null,
+    });
+  } catch (err) {
+    console.error("Sound config GET error:", err);
+    return res.status(500).json({ error: "Failed to load sound config" });
+  }
+}));
+
+// PUT — admin-only: update volume / enabled / upload new sound
+app.put("/api/admin/sound-config", soundUpload.single("soundFile"), requireAuth(async (req, res) => {
+  try {
+    // Admin check
+    const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();
+    if (!user?.is_global_admin) return res.status(403).json({ error: "Forbidden" });
+
+    const { volume, enabled, resetToDefault } = req.body || {};
+
+    if (volume !== undefined) await setAdminConfig("sound_volume", volume);
+    if (enabled !== undefined) await setAdminConfig("sound_enabled", enabled);
+
+    // Handle uploaded sound file → Supabase Storage
+    if (req.file) {
+      // Delete old custom sound from Storage if it exists
+      const oldUrl = await getAdminConfig("sound_url", "/intellidraw-v2.mp3");
+      if (oldUrl && oldUrl.includes("/sound-effects/")) {
+        const oldFileName = oldUrl.split("/sound-effects/").pop();
+        if (oldFileName) await supabase.storage.from("sound-effects").remove([oldFileName]);
+      }
+
+      const ext = path.extname(req.file.originalname) || ".mp3";
+      const storagePath = `custom-sound-${Date.now()}${ext}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from("sound-effects")
+        .upload(storagePath, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true,
+        });
+
+      if (uploadErr) {
+        console.error("Storage upload error:", uploadErr);
+        return res.status(500).json({ error: "Failed to upload sound file" });
+      }
+
+      const { data: publicUrlData } = supabase.storage.from("sound-effects").getPublicUrl(storagePath);
+      await setAdminConfig("sound_url", publicUrlData.publicUrl);
+      await setAdminConfig("sound_file_name", req.file.originalname);
+    }
+
+    // Reset to bundled default
+    if (resetToDefault === "true" || resetToDefault === true) {
+      const oldUrl = await getAdminConfig("sound_url", "/intellidraw-v2.mp3");
+      if (oldUrl && oldUrl.includes("/sound-effects/")) {
+        const oldFileName = oldUrl.split("/sound-effects/").pop();
+        if (oldFileName) await supabase.storage.from("sound-effects").remove([oldFileName]);
+      }
+      await setAdminConfig("sound_url", "/intellidraw-v2.mp3");
+      await setAdminConfig("sound_file_name", "");
+    }
+
+    // Return updated config
+    const { data: rows } = await supabase.from("admin_config").select("key, value").in("key", [
+      "sound_volume", "sound_enabled", "sound_url", "sound_file_name"
+    ]);
+    const cfg = {};
+    for (const row of (rows || [])) cfg[row.key] = row.value;
+
+    return res.json({
+      volume: parseFloat(cfg.sound_volume ?? "0.5"),
+      enabled: (cfg.sound_enabled ?? "true") === "true",
+      soundUrl: cfg.sound_url ?? "/intellidraw-v2.mp3",
+      soundFileName: cfg.sound_file_name || null,
+    });
+  } catch (err) {
+    console.error("Sound config PUT error:", err);
+    return res.status(500).json({ error: "Failed to update sound config" });
+  }
+}));
+
+// ============================================================
 // CHAT FIX ROUTE
 // ============================================================
 app.post("/api/chat_fix", requireAuth(async (req, res) => {
