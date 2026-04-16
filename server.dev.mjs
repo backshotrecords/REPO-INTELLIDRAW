@@ -182,6 +182,70 @@ app.get("/api/auth/me", requireAuth(async (req, res) => {
 }));
 
 // ============================================================
+// PREVIEW ROUTE
+// ============================================================
+app.get("/api/preview", async (req, res) => {
+  const { id } = req.query;
+
+  let htmlPath = path.join(process.cwd(), "dist", "index.html");
+  if (!fs.existsSync(htmlPath)) {
+    htmlPath = path.join(process.cwd(), "index.html");
+  }
+
+  if (!fs.existsSync(htmlPath)) {
+    return res.status(500).send("Index HTML not found");
+  }
+
+  let html = fs.readFileSync(htmlPath, "utf-8");
+
+  if (!id || typeof id !== "string") {
+    res.setHeader("Content-Type", "text/html");
+    return res.status(200).send(html);
+  }
+
+  let protocol = req.protocol || "http";
+  const host = req.get("host") || "localhost:3001";
+
+  let title = "IntelliDraw Canvas";
+  let imageUrl = `${protocol}://${host}/favicon.svg`; 
+  let description = "View this flowchart created with IntelliDraw, the AI flowchart generator.";
+
+  try {
+    const { data: canvas } = await supabase
+      .from("canvases")
+      .select("title, mermaid_code, is_public")
+      .eq("id", id)
+      .eq("is_public", true)
+      .single();
+
+    if (canvas) {
+      title = `${canvas.title} - IntelliDraw`;
+      const state = { code: canvas.mermaid_code, mermaid: { theme: "default" } };
+      const base64 = Buffer.from(JSON.stringify(state)).toString("base64");
+      imageUrl = `https://mermaid.ink/img/${base64}`;
+    }
+  } catch (err) {
+    console.error("Local preview fetching error:", err);
+  }
+
+  const tagsToInject = `
+  <meta property="og:title" content="${title.replace(/"/g, '&quot;')}" />
+  <meta property="og:description" content="${description.replace(/"/g, '&quot;')}" />
+  <meta property="og:image" content="${imageUrl}" />
+  <meta property="og:type" content="website" />
+  <meta property="twitter:card" content="summary_large_image" />
+  <meta property="twitter:title" content="${title.replace(/"/g, '&quot;')}" />
+  <meta property="twitter:description" content="${description.replace(/"/g, '&quot;')}" />
+  <meta property="twitter:image" content="${imageUrl}" />
+`;
+
+  html = html.replace("</head>", `${tagsToInject}\n</head>`);
+
+  res.setHeader("Content-Type", "text/html");
+  return res.status(200).send(html);
+});
+
+// ============================================================
 // CANVAS ROUTES
 // ============================================================
 app.get("/api/canvases", requireAuth(async (req, res) => {

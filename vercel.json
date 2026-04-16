@@ -1,5 +1,7 @@
 {
   "rewrites": [
+    { "source": "/view/:id", "destination": "/api/preview?id=$id" },
+    { "source": "/canvas/:id", "destination": "/api/preview?id=$id" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
