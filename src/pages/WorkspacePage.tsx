@@ -39,7 +39,7 @@ export default function WorkspacePage() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const codeOnEnterRef = useRef("");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastPinchDist = useRef<number | null>(null);
+  const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
 
   // Load canvas
   const loadCanvas = useCallback(async (canvasId: string) => {
@@ -368,69 +368,63 @@ export default function WorkspacePage() {
     setZoom((z) => Math.min(16, Math.max(0.2, z + delta)));
   };
 
+  // Unified pointer tracking for pan (1 finger) + pinch-zoom (2 fingers)
+  const getPointerDist = (): number | null => {
+    const pts = Array.from(activePointers.current.values());
+    if (pts.length < 2) return null;
+    const dx = pts[0].x - pts[1].x;
+    const dy = pts[0].y - pts[1].y;
+    return Math.hypot(dx, dy);
+  };
+
+  const lastPinchDist = useRef<number | null>(null);
+
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.pointerType === "touch" && lastPinchDist.current !== null) return;
-    if (e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area")) {
+    if (!(e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area"))) return;
+
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointers.current.size === 1) {
+      // Single pointer — start panning
       setIsPanning(true);
       lastPanPos.current = { x: e.clientX, y: e.clientY };
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } else if (activePointers.current.size === 2) {
+      // Second pointer — switch to pinch, cancel pan
+      setIsPanning(false);
+      lastPinchDist.current = getPointerDist();
     }
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isPanning) return;
-    const dx = e.clientX - lastPanPos.current.x;
-    const dy = e.clientY - lastPanPos.current.y;
-    lastPanPos.current = { x: e.clientX, y: e.clientY };
-    setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
-  };
+    if (!activePointers.current.has(e.pointerId)) return;
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-  const handlePointerUp = () => {
-    setIsPanning(false);
-  };
-
-  // Pinch-to-zoom — native touch listeners (bypass pointer capture interference)
-  useEffect(() => {
-    const el = canvasRef.current;
-    if (!el) return;
-
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        e.preventDefault();
-        setIsPanning(false);
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        lastPinchDist.current = Math.hypot(dx, dy);
-      }
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2 && lastPinchDist.current !== null) {
-        e.preventDefault();
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const dist = Math.hypot(dx, dy);
+    if (activePointers.current.size === 2) {
+      // Pinch zoom
+      const dist = getPointerDist();
+      if (dist !== null && lastPinchDist.current !== null) {
         const delta = (dist - lastPinchDist.current) * 0.005;
         setZoom((z) => Math.min(16, Math.max(0.2, z + delta)));
         lastPinchDist.current = dist;
       }
-    };
+    } else if (activePointers.current.size === 1 && isPanning) {
+      // Single-pointer pan
+      const dx = e.clientX - lastPanPos.current.x;
+      const dy = e.clientY - lastPanPos.current.y;
+      lastPanPos.current = { x: e.clientX, y: e.clientY };
+      setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+    }
+  };
 
-    const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) {
-        lastPinchDist.current = null;
-      }
-    };
-
-    el.addEventListener("touchstart", onTouchStart, { passive: false });
-    el.addEventListener("touchmove", onTouchMove, { passive: false });
-    el.addEventListener("touchend", onTouchEnd);
-    return () => {
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("touchend", onTouchEnd);
-    };
-  }, []);
+  const handlePointerUp = (e: React.PointerEvent) => {
+    activePointers.current.delete(e.pointerId);
+    if (activePointers.current.size < 2) {
+      lastPinchDist.current = null;
+    }
+    if (activePointers.current.size === 0) {
+      setIsPanning(false);
+    }
+  };
 
   const handleZoomIn = () => setZoom((z) => Math.min(16, z + 0.2));
   const handleZoomOut = () => setZoom((z) => Math.max(0.2, z - 0.2));
@@ -602,6 +596,7 @@ export default function WorkspacePage() {
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
               style={{ cursor: isPanning ? "grabbing" : "grab" }}
             >
               {/* Zoom controls */}
