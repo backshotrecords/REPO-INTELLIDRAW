@@ -719,7 +719,9 @@ async function setAdminConfig(key, value) {
 app.get("/api/admin/sound-config", requireAuth(async (_req, res) => {
   try {
     const { data: rows } = await supabase.from("admin_config").select("key, value").in("key", [
-      "sound_volume", "sound_enabled", "sound_url", "sound_file_name"
+      "sound_volume", "sound_enabled",
+      "sound_url", "sound_file_name",
+      "voice_sound_url", "voice_sound_file_name"
     ]);
 
     const cfg = {};
@@ -730,6 +732,8 @@ app.get("/api/admin/sound-config", requireAuth(async (_req, res) => {
       enabled: (cfg.sound_enabled ?? "true") === "true",
       soundUrl: cfg.sound_url ?? "/intellidraw-v2.mp3",
       soundFileName: cfg.sound_file_name || null,
+      voiceSoundUrl: cfg.voice_sound_url ?? "/intellisend_v2.mp3",
+      voiceSoundFileName: cfg.voice_sound_file_name || null,
     });
   } catch (err) {
     console.error("Sound config GET error:", err);
@@ -738,13 +742,18 @@ app.get("/api/admin/sound-config", requireAuth(async (_req, res) => {
 }));
 
 // PUT — admin-only: update volume / enabled / upload new sound
+// Accepts `soundType` field: "canvas" (default) or "voice"
 app.put("/api/admin/sound-config", soundUpload.single("soundFile"), requireAuth(async (req, res) => {
   try {
     // Admin check
     const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();
     if (!user?.is_global_admin) return res.status(403).json({ error: "Forbidden" });
 
-    const { volume, enabled, resetToDefault } = req.body || {};
+    const { volume, enabled, resetToDefault, soundType } = req.body || {};
+    const isVoice = soundType === "voice";
+    const urlKey = isVoice ? "voice_sound_url" : "sound_url";
+    const nameKey = isVoice ? "voice_sound_file_name" : "sound_file_name";
+    const defaultUrl = isVoice ? "/intellisend_v2.mp3" : "/intellidraw-v2.mp3";
 
     if (volume !== undefined) await setAdminConfig("sound_volume", volume);
     if (enabled !== undefined) await setAdminConfig("sound_enabled", enabled);
@@ -752,14 +761,14 @@ app.put("/api/admin/sound-config", soundUpload.single("soundFile"), requireAuth(
     // Handle uploaded sound file → Supabase Storage
     if (req.file) {
       // Delete old custom sound from Storage if it exists
-      const oldUrl = await getAdminConfig("sound_url", "/intellidraw-v2.mp3");
+      const oldUrl = await getAdminConfig(urlKey, defaultUrl);
       if (oldUrl && oldUrl.includes("/sound-effects/")) {
         const oldFileName = oldUrl.split("/sound-effects/").pop();
         if (oldFileName) await supabase.storage.from("sound-effects").remove([oldFileName]);
       }
 
       const ext = path.extname(req.file.originalname) || ".mp3";
-      const storagePath = `custom-sound-${Date.now()}${ext}`;
+      const storagePath = `custom-${isVoice ? "voice" : "canvas"}-${Date.now()}${ext}`;
 
       const { error: uploadErr } = await supabase.storage
         .from("sound-effects")
@@ -774,24 +783,26 @@ app.put("/api/admin/sound-config", soundUpload.single("soundFile"), requireAuth(
       }
 
       const { data: publicUrlData } = supabase.storage.from("sound-effects").getPublicUrl(storagePath);
-      await setAdminConfig("sound_url", publicUrlData.publicUrl);
-      await setAdminConfig("sound_file_name", req.file.originalname);
+      await setAdminConfig(urlKey, publicUrlData.publicUrl);
+      await setAdminConfig(nameKey, req.file.originalname);
     }
 
     // Reset to bundled default
     if (resetToDefault === "true" || resetToDefault === true) {
-      const oldUrl = await getAdminConfig("sound_url", "/intellidraw-v2.mp3");
+      const oldUrl = await getAdminConfig(urlKey, defaultUrl);
       if (oldUrl && oldUrl.includes("/sound-effects/")) {
         const oldFileName = oldUrl.split("/sound-effects/").pop();
         if (oldFileName) await supabase.storage.from("sound-effects").remove([oldFileName]);
       }
-      await setAdminConfig("sound_url", "/intellidraw-v2.mp3");
-      await setAdminConfig("sound_file_name", "");
+      await setAdminConfig(urlKey, defaultUrl);
+      await setAdminConfig(nameKey, "");
     }
 
-    // Return updated config
+    // Return updated config (all keys)
     const { data: rows } = await supabase.from("admin_config").select("key, value").in("key", [
-      "sound_volume", "sound_enabled", "sound_url", "sound_file_name"
+      "sound_volume", "sound_enabled",
+      "sound_url", "sound_file_name",
+      "voice_sound_url", "voice_sound_file_name"
     ]);
     const cfg = {};
     for (const row of (rows || [])) cfg[row.key] = row.value;
@@ -801,6 +812,8 @@ app.put("/api/admin/sound-config", soundUpload.single("soundFile"), requireAuth(
       enabled: (cfg.sound_enabled ?? "true") === "true",
       soundUrl: cfg.sound_url ?? "/intellidraw-v2.mp3",
       soundFileName: cfg.sound_file_name || null,
+      voiceSoundUrl: cfg.voice_sound_url ?? "/intellisend_v2.mp3",
+      voiceSoundFileName: cfg.voice_sound_file_name || null,
     });
   } catch (err) {
     console.error("Sound config PUT error:", err);

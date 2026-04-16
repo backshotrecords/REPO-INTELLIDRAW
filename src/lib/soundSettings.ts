@@ -1,26 +1,32 @@
 /**
- * Sound settings — fetched from the server (SQLite-backed global admin config).
- * Cached in memory so WorkspacePage doesn't need an extra fetch on every play.
+ * Sound settings — fetched from the server (Supabase-backed global admin config).
+ * Cached in memory so WorkspacePage/VoiceMicButton don't need an extra fetch on every play.
  */
 
 import { apiGetSoundConfig } from "./api";
 
 export interface SoundSettings {
-  /** Volume from 0 to 1 */
+  /** Global volume from 0 to 1 */
   volume: number;
-  /** URL of the notification sound (defaults to bundled file) */
-  soundUrl: string;
-  /** Whether sound is enabled */
+  /** Whether sound is enabled globally */
   enabled: boolean;
-  /** Original filename if a custom sound was uploaded */
+  /** URL of the canvas-update notification sound */
+  soundUrl: string;
+  /** Original filename if a custom canvas sound was uploaded */
   soundFileName?: string | null;
+  /** URL of the voice-transcription notification sound */
+  voiceSoundUrl: string;
+  /** Original filename if a custom voice sound was uploaded */
+  voiceSoundFileName?: string | null;
 }
 
 const DEFAULTS: SoundSettings = {
   volume: 0.5,
-  soundUrl: "/intellidraw-v2.mp3",
   enabled: true,
+  soundUrl: "/intellidraw-v2.mp3",
   soundFileName: null,
+  voiceSoundUrl: "/intellisend_v2.mp3",
+  voiceSoundFileName: null,
 };
 
 /** In-memory cache so playCanvasSound() can be synchronous */
@@ -36,9 +42,11 @@ export async function fetchSoundSettings(): Promise<SoundSettings> {
     const data = await apiGetSoundConfig();
     cachedSettings = {
       volume: data.volume ?? DEFAULTS.volume,
-      soundUrl: data.soundUrl ?? DEFAULTS.soundUrl,
       enabled: data.enabled ?? DEFAULTS.enabled,
+      soundUrl: data.soundUrl ?? DEFAULTS.soundUrl,
       soundFileName: data.soundFileName ?? null,
+      voiceSoundUrl: data.voiceSoundUrl ?? DEFAULTS.voiceSoundUrl,
+      voiceSoundFileName: data.voiceSoundFileName ?? null,
     };
     hasFetched = true;
   } catch {

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { apiTranscribeAudio } from "../lib/api";
+import { getSoundSettings } from "../lib/soundSettings";
 
 /* ================================================================
    VoiceMicButton — Voice-to-text input for the chat bar
@@ -196,6 +197,15 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
     try {
       const text = await apiTranscribeAudio(blob);
       onTranscript(text);
+      
+      // Play voice transcription sound, respecting master settings
+      const settings = getSoundSettings();
+      if (settings.enabled && settings.volume > 0) {
+        const audio = new Audio(settings.voiceSoundUrl);
+        audio.volume = settings.volume;
+        audio.play().catch(() => {});
+      }
+
       setState("success");
       setTimeout(() => setState("idle"), 1800);
     } catch (err) {

@@ -363,6 +363,7 @@ export async function apiUpdateSoundConfig(opts: {
   enabled?: boolean;
   resetToDefault?: boolean;
   soundFile?: File;
+  soundType?: "canvas" | "voice";
 }) {
   const token = getToken();
   const formData = new FormData();
@@ -371,6 +372,7 @@ export async function apiUpdateSoundConfig(opts: {
   if (opts.enabled !== undefined) formData.append("enabled", String(opts.enabled));
   if (opts.resetToDefault) formData.append("resetToDefault", "true");
   if (opts.soundFile) formData.append("soundFile", opts.soundFile);
+  if (opts.soundType) formData.append("soundType", opts.soundType);
 
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
