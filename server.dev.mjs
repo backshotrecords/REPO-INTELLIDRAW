@@ -712,7 +712,11 @@ async function getAdminConfig(key, fallback = null) {
 
 // Helper: upsert a config value
 async function setAdminConfig(key, value) {
-  await supabase.from("admin_config").upsert({ key, value: String(value) }, { onConflict: "key" });
+  const { error } = await supabase.from("admin_config").upsert({ key, value: String(value) }, { onConflict: "key" });
+  if (error) {
+    console.error(`setAdminConfig("${key}") failed:`, error.message);
+    throw new Error(`Config save failed: ${error.message}`);
+  }
 }
 
 // GET — any authenticated user can read the sound config

@@ -142,7 +142,7 @@ export default function AdminPage() {
     setSoundSettings((prev) => ({ ...prev, volume }));
     if (volumeDebounceRef.current) clearTimeout(volumeDebounceRef.current);
     volumeDebounceRef.current = setTimeout(async () => {
-      try { await apiUpdateSoundConfig({ volume }); } catch { /* silent */ }
+      try { await apiUpdateSoundConfig({ volume }); } catch (err) { console.error("Failed to save volume:", err); }
     }, 400);
   };
 
