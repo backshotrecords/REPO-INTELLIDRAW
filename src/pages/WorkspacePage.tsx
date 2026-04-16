@@ -39,6 +39,7 @@ export default function WorkspacePage() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const codeOnEnterRef = useRef("");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPinchDist = useRef<number | null>(null);
 
   // Load canvas
   const loadCanvas = useCallback(async (canvasId: string) => {
@@ -387,6 +388,30 @@ export default function WorkspacePage() {
     setIsPanning(false);
   };
 
+  // Pinch-to-zoom touch gestures
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastPinchDist.current = Math.hypot(dx, dy);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && lastPinchDist.current !== null) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const delta = (dist - lastPinchDist.current) * 0.005;
+      setZoom((z) => Math.min(16, Math.max(0.2, z + delta)));
+      lastPinchDist.current = dist;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    lastPinchDist.current = null;
+  };
+
   const handleZoomIn = () => setZoom((z) => Math.min(16, z + 0.2));
   const handleZoomOut = () => setZoom((z) => Math.max(0.2, z - 0.2));
   const handleResetView = () => {
@@ -557,10 +582,13 @@ export default function WorkspacePage() {
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
               style={{ cursor: isPanning ? "grabbing" : "grab" }}
             >
               {/* Zoom controls */}
-              <div className="absolute left-4 flex flex-col gap-2 z-40 transition-all duration-200" style={{ bottom: `${inputBarHeight + 16}px` }}>
+              <div className={`absolute left-4 flex flex-col gap-2 z-40 transition-all duration-300 ${showChat ? "md:opacity-100 md:pointer-events-auto opacity-0 pointer-events-none" : "opacity-100"}`} style={{ bottom: `${inputBarHeight + 16}px` }}>
                 <div className="flex flex-col bg-white shadow-xl border border-outline-variant/30 rounded-full overflow-hidden">
                   <button
                     onClick={handleZoomIn}
@@ -588,7 +616,7 @@ export default function WorkspacePage() {
               </div>
 
               {/* Mobile floating action buttons (mic + paperclip) — right side, same layer as zoom */}
-              <div className="md:hidden absolute right-4 flex flex-col items-center gap-2 z-40 transition-all duration-200" style={{ bottom: `${inputBarHeight + 16}px` }}>
+              <div className={`md:hidden absolute right-4 flex flex-col items-center gap-2 z-40 transition-all duration-300 ${showChat ? "opacity-0 pointer-events-none" : "opacity-100"}`} style={{ bottom: `${inputBarHeight + 16}px` }}>
                 <label className="cursor-pointer shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all bg-white shadow-xl border border-outline-variant/30">
                   <span className="material-symbols-outlined text-xl">attach_file</span>
                   <input
