@@ -130,12 +130,6 @@ export default function PublicViewPage() {
               {title}
             </h1>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/50">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">Public</span>
-            </div>
-          </div>
         </div>
       </header>
 

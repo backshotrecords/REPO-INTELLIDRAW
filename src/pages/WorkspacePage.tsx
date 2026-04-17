@@ -595,7 +595,7 @@ export default function WorkspacePage() {
               {/* Toast pill */}
               {shareCopied && (
                 <div
-                  className={`absolute top-full mt-2 left-1/2 -translate-x-1/2 whitespace-nowrap px-3 py-1.5 rounded-full text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-xl z-50 ${
+                  className={`absolute top-full mt-2 right-0 whitespace-nowrap px-3 py-1.5 rounded-full text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-xl z-50 ${
                     isPublic ? "bg-slate-900" : "bg-amber-600"
                   } ${shareExiting ? "toast-copied-exit" : "toast-copied"}`}
                 >
