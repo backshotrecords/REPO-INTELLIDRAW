@@ -11,6 +11,7 @@ export default function PublicViewPage() {
   const [mermaidCode, setMermaidCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Pan/zoom state
   const [zoom, setZoom] = useState(1);
@@ -117,18 +118,34 @@ export default function PublicViewPage() {
     <div className="bg-background font-body text-on-surface overflow-hidden h-screen flex flex-col">
       {/* Header */}
       <header className="bg-white/90 backdrop-blur-md border-b border-outline-variant/30 sticky top-0 z-50">
-        <div className="flex justify-between items-center w-full px-4 py-3">
-          <div className="flex items-center gap-3">
+        <div className="flex justify-between items-center w-full px-4 py-3 gap-2 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <span
-              className="text-lg font-extrabold text-primary font-manrope tracking-tight cursor-pointer"
+              className="text-base sm:text-lg font-extrabold text-primary font-manrope tracking-tight cursor-pointer shrink-0"
               onClick={() => navigate("/")}
             >
               IntelliDraw
             </span>
-            <div className="w-px h-5 bg-outline-variant/30" />
-            <h1 className="font-manrope font-extrabold text-lg tracking-tight text-on-surface truncate max-w-[200px] sm:max-w-md">
+            <div className="w-px h-4 sm:h-5 bg-outline-variant/30 shrink-0" />
+            <h1 className="font-manrope font-extrabold text-base sm:text-lg tracking-tight text-on-surface truncate min-w-0">
               {title}
             </h1>
+          </div>
+          <div className="flex items-center shrink-0">
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(mermaidCode);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 sm:px-3.5 rounded-full text-xs font-bold bg-surface-container-high text-on-surface-variant border border-outline-variant/20 hover:bg-surface-container-low hover:text-on-surface transition-all duration-200 active:scale-95"
+              title="Copy Mermaid code"
+            >
+              <span className="material-symbols-outlined text-base">
+                {copied ? "check" : "content_copy"}
+              </span>
+              <span className="hidden sm:inline">{copied ? "Copied" : "Copy Code"}</span>
+            </button>
           </div>
         </div>
       </header>
