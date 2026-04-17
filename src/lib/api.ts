@@ -356,7 +356,7 @@ export async function apiGetSoundConfig() {
 
 /**
  * Update sound config (admin-only).
- * Uses FormData to support optional sound file upload.
+ * Uses JSON body with base64-encoded file data for Vercel compatibility.
  */
 export async function apiUpdateSoundConfig(opts: {
   volume?: number;
@@ -365,22 +365,27 @@ export async function apiUpdateSoundConfig(opts: {
   soundFile?: File;
   soundType?: "canvas" | "voice";
 }) {
-  const token = getToken();
-  const formData = new FormData();
+  // Build JSON body — convert file to base64 if present
+  const body: Record<string, unknown> = {};
 
-  if (opts.volume !== undefined) formData.append("volume", String(opts.volume));
-  if (opts.enabled !== undefined) formData.append("enabled", String(opts.enabled));
-  if (opts.resetToDefault) formData.append("resetToDefault", "true");
-  if (opts.soundFile) formData.append("soundFile", opts.soundFile);
-  if (opts.soundType) formData.append("soundType", opts.soundType);
+  if (opts.volume !== undefined) body.volume = opts.volume;
+  if (opts.enabled !== undefined) body.enabled = opts.enabled;
+  if (opts.resetToDefault) body.resetToDefault = true;
+  if (opts.soundType) body.soundType = opts.soundType;
 
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (opts.soundFile) {
+    const arrayBuffer = await opts.soundFile.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    body.soundFileData = btoa(binary);
+    body.soundFileName = opts.soundFile.name;
+    body.soundFileMime = opts.soundFile.type;
+  }
 
-  const res = await fetch(`${API_BASE}/admin/sound-config`, {
+  const res = await apiFetch("/admin/sound-config", {
     method: "PUT",
-    headers,
-    body: formData,
+    body: JSON.stringify(body),
   });
 
   const data = await res.json();

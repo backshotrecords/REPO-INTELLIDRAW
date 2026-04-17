@@ -694,15 +694,6 @@ app.delete("/api/admin/rules/:id", requireAuth(async (req, res) => {
 // ADMIN SOUND CONFIG (Supabase-backed)
 // ============================================================
 
-// Multer — memory storage (buffer) so we can upload to Supabase Storage
-const soundUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith("audio/")) cb(null, true);
-    else cb(new Error("Only audio files are allowed"));
-  },
-});
 
 // Helper: read a config value from admin_config table
 async function getAdminConfig(key, fallback = null) {
@@ -746,14 +737,14 @@ app.get("/api/admin/sound-config", requireAuth(async (_req, res) => {
 }));
 
 // PUT — admin-only: update volume / enabled / upload new sound
-// Accepts `soundType` field: "canvas" (default) or "voice"
-app.put("/api/admin/sound-config", soundUpload.single("soundFile"), requireAuth(async (req, res) => {
+// Accepts JSON body with optional base64-encoded sound file
+app.put("/api/admin/sound-config", requireAuth(async (req, res) => {
   try {
     // Admin check
     const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();
     if (!user?.is_global_admin) return res.status(403).json({ error: "Forbidden" });
 
-    const { volume, enabled, resetToDefault, soundType } = req.body || {};
+    const { volume, enabled, resetToDefault, soundType, soundFileData, soundFileName, soundFileMime } = req.body || {};
     const isVoice = soundType === "voice";
     const urlKey = isVoice ? "voice_sound_url" : "sound_url";
     const nameKey = isVoice ? "voice_sound_file_name" : "sound_file_name";
@@ -762,22 +753,22 @@ app.put("/api/admin/sound-config", soundUpload.single("soundFile"), requireAuth(
     if (volume !== undefined) await setAdminConfig("sound_volume", volume);
     if (enabled !== undefined) await setAdminConfig("sound_enabled", enabled);
 
-    // Handle uploaded sound file → Supabase Storage
-    if (req.file) {
-      // Delete old custom sound from Storage if it exists
+    // Handle uploaded sound file (base64) → Supabase Storage
+    if (soundFileData) {
       const oldUrl = await getAdminConfig(urlKey, defaultUrl);
       if (oldUrl && oldUrl.includes("/sound-effects/")) {
         const oldFileName = oldUrl.split("/sound-effects/").pop();
         if (oldFileName) await supabase.storage.from("sound-effects").remove([oldFileName]);
       }
 
-      const ext = path.extname(req.file.originalname) || ".mp3";
+      const ext = soundFileName?.match(/\.[^.]+$/)?.[0] || ".mp3";
       const storagePath = `custom-${isVoice ? "voice" : "canvas"}-${Date.now()}${ext}`;
+      const buffer = Buffer.from(soundFileData, "base64");
 
       const { error: uploadErr } = await supabase.storage
         .from("sound-effects")
-        .upload(storagePath, req.file.buffer, {
-          contentType: req.file.mimetype,
+        .upload(storagePath, buffer, {
+          contentType: soundFileMime || "audio/mpeg",
           upsert: true,
         });
 
@@ -788,7 +779,7 @@ app.put("/api/admin/sound-config", soundUpload.single("soundFile"), requireAuth(
 
       const { data: publicUrlData } = supabase.storage.from("sound-effects").getPublicUrl(storagePath);
       await setAdminConfig(urlKey, publicUrlData.publicUrl);
-      await setAdminConfig(nameKey, req.file.originalname);
+      await setAdminConfig(nameKey, soundFileName || "Custom Sound");
     }
 
     // Reset to bundled default
