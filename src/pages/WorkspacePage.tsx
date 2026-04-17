@@ -4,9 +4,11 @@ import MermaidRenderer from "../components/MermaidRenderer";
 import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
-import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas } from "../lib/api";
+import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName } from "../lib/api";
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import type { ChatMessage } from "../types";
+
+const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
@@ -14,7 +16,8 @@ export default function WorkspacePage() {
 
   const [canvasId, setCanvasId] = useState<string | null>(id === "new" ? null : id || null);
   const [title, setTitle] = useState("Untitled Canvas");
-  const [mermaidCode, setMermaidCode] = useState("flowchart TD\n    A[Start] --> B[Next Step]");
+  const [mermaidCode, setMermaidCode] = useState(DEFAULT_MERMAID_CODE);
+  const [isNaming, setIsNaming] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [activeView, setActiveView] = useState<"flowchart" | "code">("flowchart");
   const [chatInput, setChatInput] = useState("");
@@ -290,6 +293,45 @@ export default function WorkspacePage() {
     }
   };
 
+  // Navigate back to dashboard with intelligent naming / blank-canvas cleanup
+  const handleNavigateBack = useCallback(async () => {
+    if (!canvasId) {
+      navigate("/dashboard");
+      return;
+    }
+
+    const hasChanges = mermaidCode.trim() !== DEFAULT_MERMAID_CODE.trim();
+
+    if (!hasChanges) {
+      // No edits — delete the blank canvas silently
+      try {
+        await apiDeleteCanvas(canvasId);
+      } catch (err) {
+        console.error("Failed to delete blank canvas:", err);
+      }
+      navigate("/dashboard");
+      return;
+    }
+
+    // Canvas has changes — check if it still has the default name
+    if (title === "Untitled Canvas") {
+      setIsNaming(true);
+      try {
+        const suggestedName = await apiSuggestCanvasName(mermaidCode);
+        if (suggestedName && suggestedName !== "Untitled Canvas") {
+          await apiUpdateCanvas(canvasId, { title: suggestedName });
+        }
+      } catch (err) {
+        console.error("Auto-naming failed:", err);
+        // Not critical — canvas keeps 'Untitled Canvas' name
+      } finally {
+        setIsNaming(false);
+      }
+    }
+
+    navigate("/dashboard");
+  }, [canvasId, mermaidCode, title, navigate]);
+
   // Chat
   const handleSendMessage = async () => {
     if (!chatInput.trim() || chatLoading) return;
@@ -458,13 +500,30 @@ export default function WorkspacePage() {
 
   return (
     <div className="bg-background font-body text-on-surface overflow-hidden h-dvh flex flex-col">
+      {/* Naming overlay */}
+      {isNaming && (
+        <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-white/90 backdrop-blur-xl rounded-2xl px-8 py-6 shadow-2xl flex flex-col items-center gap-3 animate-in fade-in zoom-in-95 duration-200">
+            <span
+              className="material-symbols-outlined text-3xl text-primary animate-pulse"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              auto_awesome
+            </span>
+            <span className="text-sm font-semibold text-on-surface">Naming your canvas…</span>
+            <div className="spinner w-5 h-5" />
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white/90 backdrop-blur-md border-b border-outline-variant/30 sticky top-0 z-50">
         <div className="flex justify-between items-center w-full px-4 py-3">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate("/dashboard")}
-              className="material-symbols-outlined text-on-surface p-2 -ml-2 rounded-full active:bg-surface-container-high transition-colors"
+              onClick={handleNavigateBack}
+              disabled={isNaming}
+              className="material-symbols-outlined text-on-surface p-2 -ml-2 rounded-full active:bg-surface-container-high transition-colors disabled:opacity-40"
             >
               arrow_back
             </button>

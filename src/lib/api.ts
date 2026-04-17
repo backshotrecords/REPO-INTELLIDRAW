@@ -135,6 +135,18 @@ export async function apiDeleteCanvas(id: string) {
   return data;
 }
 
+// ===== Canvas Auto-Naming =====
+
+export async function apiSuggestCanvasName(mermaidCode: string): Promise<string> {
+  const res = await apiFetch("/canvases/suggest-name", {
+    method: "POST",
+    body: JSON.stringify({ mermaidCode }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to suggest name");
+  return data.suggestedName;
+}
+
 // ===== Chat =====
 
 export async function apiChat(

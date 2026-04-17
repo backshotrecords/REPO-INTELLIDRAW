@@ -331,6 +331,57 @@ app.delete("/api/canvases/:id", requireAuth(async (req, res) => {
 }));
 
 // ============================================================
+// CANVAS SUGGEST NAME (AI auto-naming)
+// ============================================================
+app.post("/api/canvases/suggest-name", requireAuth(async (req, res) => {
+  const { mermaidCode } = req.body || {};
+  if (!mermaidCode) return res.status(400).json({ error: "mermaidCode is required" });
+
+  try {
+    const { data: user } = await supabase
+      .from("users").select("api_key_encrypted, active_model_id")
+      .eq("id", req.auth.userId).single();
+
+    if (!user?.api_key_encrypted) {
+      return res.status(400).json({ error: "No API key configured." });
+    }
+
+    const apiKey = decrypt(user.api_key_encrypted);
+    let modelId = "gpt-4o";
+    if (user.active_model_id) {
+      const { data: model } = await supabase.from("ai_models").select("model_id").eq("id", user.active_model_id).single();
+      if (model) modelId = model.model_id;
+    }
+
+    const openai = new OpenAI({ apiKey });
+
+    const completion = await openai.chat.completions.create({
+      model: modelId,
+      messages: [
+        {
+          role: "system",
+          content: "You are a naming assistant. Given a Mermaid flowchart, suggest a short, descriptive title (3–6 words max). Reply with ONLY the title text — no quotes, no punctuation, no explanation.",
+        },
+        {
+          role: "user",
+          content: `Suggest a title for this flowchart:\n\n\`\`\`mermaid\n${mermaidCode}\n\`\`\``,
+        },
+      ],
+      max_tokens: 100,
+      temperature: 0.5,
+    });
+
+    const raw = completion.choices[0]?.message?.content || "Untitled Canvas";
+    const suggestedName = raw.replace(/^["']+|["']+$/g, "").trim() || "Untitled Canvas";
+
+    return res.status(200).json({ suggestedName });
+  } catch (err) {
+    console.error("Suggest name error:", err);
+    return res.status(500).json({ error: err.message || "Failed to suggest name" });
+  }
+}));
+
+// ============================================================
 // CHAT ROUTE
 // ============================================================
 app.post("/api/chat", requireAuth(async (req, res) => {
