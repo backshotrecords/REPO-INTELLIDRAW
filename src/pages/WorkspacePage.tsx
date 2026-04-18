@@ -748,12 +748,14 @@ export default function WorkspacePage() {
             <div className="flex-1 flex flex-col bg-surface-container-lowest p-4">
               <textarea
                 className="flex-1 w-full bg-surface-container-high rounded-xl p-6 font-mono text-sm text-on-surface outline-none focus:ring-2 focus:ring-secondary/20 resize-none"
-                value={"\n\n\n\n" + mermaidCode}
+                value={"\n\n\n\n" + mermaidCode + "\n\n\n\n\n\n\n"}
                 onChange={(e) => {
-                  const raw = e.target.value;
+                  let raw = e.target.value;
                   // Strip the 4 leading newlines we inject for visual padding
-                  const stripped = raw.startsWith("\n\n\n\n") ? raw.slice(4) : raw.trimStart();
-                  handleMermaidCodeChange(stripped);
+                  raw = raw.startsWith("\n\n\n\n") ? raw.slice(4) : raw.trimStart();
+                  // Strip the 7 trailing newlines we inject for visual padding
+                  raw = raw.endsWith("\n\n\n\n\n\n\n") ? raw.slice(0, -7) : raw.trimEnd();
+                  handleMermaidCodeChange(raw);
                 }}
                 spellCheck={false}
                 placeholder="Enter Mermaid code here..."
