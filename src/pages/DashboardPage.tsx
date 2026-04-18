@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
 import { apiListCanvases, apiCreateCanvas, apiDeleteCanvas } from "../lib/api";
-import { exportAsMarkdown, exportAsZip } from "../utils/export";
+import { exportAsMarkdown, exportAsZip, exportAsImage } from "../utils/export";
 import { useMermaidThumbnails } from "../hooks/useMermaidThumbnails";
 
 interface Canvas {
@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const [search, setSearch] = useState("");
   const [selectedForExport, setSelectedForExport] = useState<Set<string>>(new Set());
   const [exportMode, setExportMode] = useState(false);
+  const [exportOptions, setExportOptions] = useState({ markdown: true, png: false });
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -75,11 +76,15 @@ export default function DashboardPage() {
   const handleExport = () => {
     const selected = canvases.filter((c) => selectedForExport.has(c.id));
     if (selected.length === 0) return;
+    
     if (selected.length === 1) {
-      exportAsMarkdown(selected[0]);
+      if (exportOptions.markdown && !exportOptions.png) exportAsMarkdown(selected[0]);
+      else if (!exportOptions.markdown && exportOptions.png) exportAsImage(selected[0]);
+      else exportAsZip(selected, exportOptions);
     } else {
-      exportAsZip(selected);
+      exportAsZip(selected, exportOptions);
     }
+    
     setExportMode(false);
     setSelectedForExport(new Set());
   };
@@ -160,11 +165,34 @@ export default function DashboardPage() {
 
         {/* Export bar */}
         {exportMode && (
-          <div className="mb-6 flex items-center justify-between bg-secondary-fixed/30 rounded-xl px-6 py-3">
-            <span className="text-sm font-semibold text-on-surface">
-              {selectedForExport.size} selected
-            </span>
-            <div className="flex gap-3">
+          <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between bg-secondary-fixed/30 rounded-xl px-6 py-4 gap-4">
+            <div className="flex items-center gap-4">
+              <span className="text-sm font-semibold text-on-surface">
+                {selectedForExport.size} selected
+              </span>
+              <div className="h-4 w-[1px] bg-outline-variant/30 hidden md:block"></div>
+              <div className="flex items-center gap-4 text-sm font-medium">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportOptions.markdown}
+                    onChange={(e) => setExportOptions(prev => ({ ...prev, markdown: e.target.checked }))}
+                    className="accent-secondary w-4 h-4 rounded"
+                  />
+                  Markdown (.md)
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportOptions.png}
+                    onChange={(e) => setExportOptions(prev => ({ ...prev, png: e.target.checked }))}
+                    className="accent-secondary w-4 h-4 rounded"
+                  />
+                  Image (.png)
+                </label>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 w-full md:w-auto">
               <button
                 onClick={() => { setExportMode(false); setSelectedForExport(new Set()); }}
                 className="text-sm font-bold text-on-surface-variant hover:text-on-surface"
@@ -173,10 +201,10 @@ export default function DashboardPage() {
               </button>
               <button
                 onClick={handleExport}
-                disabled={selectedForExport.size === 0}
+                disabled={selectedForExport.size === 0 || (!exportOptions.markdown && !exportOptions.png)}
                 className="px-4 py-2 editorial-gradient text-white text-sm font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-40"
               >
-                Export {selectedForExport.size === 1 ? ".md" : ".zip"}
+                Export
               </button>
             </div>
           </div>
@@ -299,8 +327,19 @@ export default function DashboardPage() {
                             }}
                             className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3"
                           >
-                            <span className="material-symbols-outlined text-lg">download</span>
+                            <span className="material-symbols-outlined text-lg">description</span>
                             Export .md
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              exportAsImage(canvas);
+                              setMenuOpenId(null);
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3"
+                          >
+                            <span className="material-symbols-outlined text-lg">image</span>
+                            Export .png
                           </button>
                           <button
                             onClick={(e) => {
