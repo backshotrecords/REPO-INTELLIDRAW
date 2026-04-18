@@ -39,11 +39,22 @@ export async function convertToImageBlob(canvasInfo: CanvasData, background = "#
   const finalHeight = nativeHeight * scale;
 
   // We explicitly inject the high-resolution dimensions into the <svg> tag.
-  // If the browser renders SVGs without explicit dims, it defaults to ~300x150, 
-  // causing `drawImage` to stretch a blurry low-res raster onto a large canvas.
-  const modifiedSvg = svg
-    .replace(/<svg\s+/, `<svg width="${finalWidth}px" height="${finalHeight}px" `)
-    .replace(/max-width:\s*[\d\.]+px;?/ig, ''); // Strip restricting max-widths
+  // Using DOMParser ensures we overwrite existing width/height attributes rather than duplicating them (which would crash the Image loader)
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svg, "image/svg+xml");
+  const svgEl = doc.documentElement;
+  
+  svgEl.setAttribute("width", `${finalWidth}px`);
+  svgEl.setAttribute("height", `${finalHeight}px`);
+  
+  // Remove max-width restrictions from inline styles if present
+  const styleAttr = svgEl.getAttribute("style");
+  if (styleAttr) {
+    svgEl.setAttribute("style", styleAttr.replace(/max-width:\s*[^;]+;?/gi, ""));
+  }
+
+  const serializer = new XMLSerializer();
+  const modifiedSvg = serializer.serializeToString(svgEl);
   
   return new Promise((resolve, reject) => {
     const img = new Image();
