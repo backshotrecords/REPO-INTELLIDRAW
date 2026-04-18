@@ -17,23 +17,43 @@ let renderCounter = 1000;
 
 /**
  * Converts a Mermaid code string to a PNG Image Blob.
- * This can be used generically anywhere in the app to grab raster captures.
+ * Parses the diagram viewBox to enforce a high-resolution canvas size.
  */
-export async function convertToImageBlob(canvasInfo: CanvasData, background = "#ffffff", scale = 2): Promise<Blob> {
+export async function convertToImageBlob(canvasInfo: CanvasData, background = "#ffffff", scale = 3): Promise<Blob> {
   const id = `${SVG_RENDER_ID_PREFIX}${renderCounter++}`;
   
   // Render SVG using mermaid
   const { svg } = await mermaid.render(id, canvasInfo.mermaid_code.trim());
   
+  // Try to extract native width/height from viewBox to prevent blurry default sizes
+  let nativeWidth = 800;
+  let nativeHeight = 600;
+  const viewBoxMatch = svg.match(/viewBox=["']\s*[\d\.-]+\s+[\d\.-]+\s+([\d\.-]+)\s+([\d\.-]+)\s*["']/i);
+  if (viewBoxMatch) {
+    nativeWidth = parseFloat(viewBoxMatch[1]);
+    nativeHeight = parseFloat(viewBoxMatch[2]);
+  }
+
+  // Scale the dimensions up to achieve high-resolution
+  const finalWidth = nativeWidth * scale;
+  const finalHeight = nativeHeight * scale;
+
+  // We explicitly inject the high-resolution dimensions into the <svg> tag.
+  // If the browser renders SVGs without explicit dims, it defaults to ~300x150, 
+  // causing `drawImage` to stretch a blurry low-res raster onto a large canvas.
+  const modifiedSvg = svg
+    .replace(/<svg\s+/, `<svg width="${finalWidth}px" height="${finalHeight}px" `)
+    .replace(/max-width:\s*[\d\.]+px;?/ig, ''); // Strip restricting max-widths
+  
   return new Promise((resolve, reject) => {
     const img = new Image();
     // Use encodeURIComponent to handle special characters effectively
-    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(modifiedSvg)}`;
     
     img.onload = () => {
       const canvas = document.createElement("canvas");
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
+      canvas.width = finalWidth;
+      canvas.height = finalHeight;
       
       const ctx = canvas.getContext("2d");
       if (!ctx) {
