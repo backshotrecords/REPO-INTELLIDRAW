@@ -86,7 +86,7 @@ INSTRUCTIONS:
     const completion = await openai.chat.completions.create({
       model: modelId,
       messages,
-      max_tokens: 4096,
+      //max_tokens: 4096, // lets get rid of this for the time being to allow later models to be loaded
       temperature: 0.7,
     });
 

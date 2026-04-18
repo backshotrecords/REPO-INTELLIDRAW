@@ -49,7 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     let rulesText = "";
     if (rules && rules.length > 0) {
-      rulesText = "\n\nAdditionally, you MUST adhere to these global sanitization rules:\n" + 
+      rulesText = "\n\nAdditionally, you MUST adhere to these global sanitization rules:\n" +
         rules.map((r, i) => `${i + 1}. ${r.rule_description}`).join("\n");
     }
 
@@ -87,13 +87,13 @@ ALSO: Check the rest of the code for any standard syntax issues that typically c
     const completion = await openai.chat.completions.create({
       model: modelId,
       messages,
-      max_tokens: 4096,
+      //max_tokens: 4096, // lets get rid of this for the time being to allow later models to be loaded
       temperature: 0.2,
     });
 
     const aiResponse = completion.choices[0]?.message?.content || "";
     // Try multiple regex patterns — AI sometimes formats the block differently
-    const mermaidMatch = aiResponse.match(/```mermaid\s*\n([\s\S]*?)```/) 
+    const mermaidMatch = aiResponse.match(/```mermaid\s*\n([\s\S]*?)```/)
       || aiResponse.match(/```\s*\n([\s\S]*?)```/);
     const updatedMermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
 
