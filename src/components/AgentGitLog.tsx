@@ -345,9 +345,7 @@ export default function AgentGitLog({
                           className="relative flex items-start justify-between border border-outline-variant/20 rounded-2xl px-3 py-2.5 bg-surface-container-high/80 cursor-pointer hover:bg-surface-container-high transition-colors duration-200"
                         >
                           <div className="flex items-start gap-3 w-full max-w-[calc(100%-24px)]">
-                            <div className="w-[22px] h-[22px] bg-primary rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                              <span className="material-symbols-outlined text-white text-xs" style={{ fontVariationSettings: "'FILL' 1, 'opsz' 20" }}>person</span>
-                            </div>
+                            <span className="material-symbols-outlined text-[22px] text-slate-700 shrink-0 mt-0.5" style={{ fontVariationSettings: "'FILL' 1, 'opsz' 20" }}>account_circle</span>
                             <div
                               ref={el => { textContainerRefs.current[interaction.id] = el; }}
                               className={`relative flex-1 min-w-0 transition-[max-height] duration-500 ease-in-out ${
