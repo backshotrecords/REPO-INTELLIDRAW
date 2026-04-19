@@ -7,19 +7,31 @@ import { getSoundSettings } from "../lib/soundSettings";
    VoiceMicButton — Voice-to-text input for the chat bar
    ================================================================
    State machine: idle → recording → processing → success → idle
+                                   ↘ cancelled → idle
+
+   Interaction modes:
+   • Tap-to-record: tap to start, tap to stop → text lands in input
+   • Push-to-talk:  hold ≥300ms to start, release to stop → auto-send
+   • Cancel:        X button on waveform, or slide-left during PTT
    ================================================================ */
 
 interface VoiceMicButtonProps {
   onTranscript: (text: string) => void;
+  onAutoSendTranscript?: (text: string) => void;
   disabled?: boolean;
 }
 
-type VoiceState = "idle" | "recording" | "processing" | "success";
+type VoiceState = "idle" | "recording" | "processing" | "success" | "cancelled";
 
-export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButtonProps) {
+const HOLD_THRESHOLD_MS = 300;
+const SLIDE_CANCEL_PX = 100;
+
+export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, disabled }: VoiceMicButtonProps) {
   const [state, setState] = useState<VoiceState>("idle");
   const [seconds, setSeconds] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isPushToTalk, setIsPushToTalk] = useState(false);
+  const [slideOffset, setSlideOffset] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -30,11 +42,27 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
 
+  // Push-to-talk refs (used in async/timer callbacks to get latest values)
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
+  const isPushToTalkRef = useRef(false);
+  const cancelledRef = useRef(false);
+  const autoSendRef = useRef(false);
+  const isHoldingRef = useRef(false);
+  const slideOffsetRef = useRef(0);
+  const stateRef = useRef<VoiceState>("idle");
+
+  // Keep stateRef in sync with state
+  useEffect(() => { stateRef.current = state; }, [state]);
+
+  const isCancelZone = slideOffset < -SLIDE_CANCEL_PX;
+
   // ── Cleanup on unmount ───────────────────────────────────────
   useEffect(() => {
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
       audioStreamRef.current?.getTracks().forEach((t) => t.stop());
       audioCtxRef.current?.close();
     };
@@ -134,6 +162,7 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
   // ── Start recording ──────────────────────────────────────────
   const startRecording = useCallback(async () => {
     setErrorMsg(null);
+    cancelledRef.current = false;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
@@ -158,8 +187,15 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
 
       mediaRecorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
+
+        if (cancelledRef.current) {
+          cancelledRef.current = false;
+          return; // Cancelled — don't transcribe
+        }
+
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        sendForTranscription(blob);
+        sendForTranscription(blob, autoSendRef.current);
+        autoSendRef.current = false;
       };
 
       mediaRecorder.start();
@@ -179,7 +215,9 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
   }, []);
 
   // ── Stop recording ───────────────────────────────────────────
-  const stopRecording = useCallback(() => {
+  const stopRecording = useCallback((autoSend = false) => {
+    autoSendRef.current = autoSend;
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
@@ -189,15 +227,58 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
       timerRef.current = null;
     }
     stopWaveform();
+    setIsPushToTalk(false);
+    isPushToTalkRef.current = false;
+    setSlideOffset(0);
+    slideOffsetRef.current = 0;
     setState("processing");
   }, [stopWaveform]);
 
+  // ── Cancel recording (discard — no API call) ─────────────────
+  const cancelRecording = useCallback(() => {
+    cancelledRef.current = true;
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+
+    // Stop mic stream
+    audioStreamRef.current?.getTracks().forEach((t) => t.stop());
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    stopWaveform();
+
+    // Close audio context
+    audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+
+    // Reset
+    audioChunksRef.current = [];
+    setIsPushToTalk(false);
+    isPushToTalkRef.current = false;
+    setSlideOffset(0);
+    slideOffsetRef.current = 0;
+
+    // Show cancelled state with trash animation, then return to idle
+    setState("cancelled");
+    setTimeout(() => setState("idle"), 1200);
+  }, [stopWaveform]);
+
   // ── Send for transcription ───────────────────────────────────
-  const sendForTranscription = async (blob: Blob) => {
+  const sendForTranscription = async (blob: Blob, autoSend = false) => {
     try {
       const text = await apiTranscribeAudio(blob);
-      onTranscript(text);
-      
+
+      if (autoSend && onAutoSendTranscript) {
+        onAutoSendTranscript(text);
+      } else {
+        onTranscript(text);
+      }
+
       // Play voice transcription sound, respecting master settings
       const settings = getSoundSettings();
       if (settings.enabled && settings.volume > 0) {
@@ -216,15 +297,95 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
     }
   };
 
-  // ── Toggle handler ───────────────────────────────────────────
-  const handleClick = () => {
-    if (disabled || state === "processing") return;
-    if (state === "recording") {
-      stopRecording();
-    } else if (state === "idle" || state === "success") {
+  // ── Pointer handlers (tap vs. hold detection) ────────────────
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (disabled && stateRef.current !== "recording") return;
+    if (stateRef.current === "processing" || stateRef.current === "cancelled") return;
+
+    e.preventDefault();
+    isHoldingRef.current = true;
+    pointerStartRef.current = { x: e.clientX, y: e.clientY };
+    slideOffsetRef.current = 0;
+    setSlideOffset(0);
+
+    // Capture pointer so we get move/up events even outside the button
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+
+    if (stateRef.current === "recording") {
+      // Already recording in tap mode — pointer up will stop it
+      return;
+    }
+
+    // Start hold detection timer
+    holdTimerRef.current = setTimeout(async () => {
+      if (!isHoldingRef.current) return; // User released before threshold
+      // Hold threshold reached → push-to-talk mode
+      isPushToTalkRef.current = true;
+      setIsPushToTalk(true);
+      await startRecording();
+      // If user released during getUserMedia, cancel silently
+      if (!isHoldingRef.current && stateRef.current === "recording") {
+        cancelRecording();
+      }
+    }, HOLD_THRESHOLD_MS);
+  }, [disabled, startRecording, cancelRecording]);
+
+  const handlePointerUp = useCallback(() => {
+    isHoldingRef.current = false;
+
+    // Clear hold timer if it hasn't fired yet (tap was < 300ms)
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+
+    // ── Push-to-talk release ──
+    if (isPushToTalkRef.current) {
+      if (stateRef.current === "recording") {
+        if (slideOffsetRef.current < -SLIDE_CANCEL_PX) {
+          cancelRecording();
+        } else {
+          stopRecording(true); // autoSend = true
+        }
+      }
+      // If state isn't "recording" yet (getUserMedia pending),
+      // the async check in handlePointerDown will handle it
+      isPushToTalkRef.current = false;
+      setIsPushToTalk(false);
+      return;
+    }
+
+    // ── Tap mode ──
+    if (stateRef.current === "recording") {
+      stopRecording(false);
+    } else if (stateRef.current === "idle" || stateRef.current === "success") {
       startRecording();
     }
-  };
+  }, [startRecording, stopRecording, cancelRecording]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isPushToTalkRef.current || stateRef.current !== "recording") return;
+    if (!pointerStartRef.current) return;
+
+    const deltaX = e.clientX - pointerStartRef.current.x;
+    slideOffsetRef.current = deltaX;
+    setSlideOffset(deltaX);
+  }, []);
+
+  // ── Keyboard accessibility ──────────────────────────────────
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    if (disabled && stateRef.current !== "recording") return;
+    if (stateRef.current === "processing" || stateRef.current === "cancelled") return;
+
+    // Keyboard always uses tap mode
+    if (stateRef.current === "recording") {
+      stopRecording(false);
+    } else if (stateRef.current === "idle" || stateRef.current === "success") {
+      startRecording();
+    }
+  }, [disabled, startRecording, stopRecording]);
 
   // ── Button class ─────────────────────────────────────────────
   const btnClass = [
@@ -232,6 +393,7 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
     state === "recording" && "voice-recording",
     state === "processing" && "voice-processing",
     state === "success" && "voice-success",
+    state === "cancelled" && "voice-cancelled-state",
     disabled && "voice-disabled",
   ]
     .filter(Boolean)
@@ -241,12 +403,34 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
     <div className="voice-mic-wrapper">
       {/* ── Floating waveform panel (portaled to body to escape parent transforms) ── */}
       {(state === "recording") && createPortal(
-        <div className="voice-waveform-panel">
-          <div className="voice-waveform-inner">
+        <div className={`voice-waveform-panel ${isPushToTalk ? "voice-ptt-mode" : ""}`}>
+          <div
+            className={`voice-waveform-inner ${isCancelZone ? "voice-waveform-cancel" : ""}`}
+            style={isPushToTalk && slideOffset < 0 ? {
+              transform: `translateX(${Math.max(slideOffset * 0.15, -20)}px)`,
+              transition: "transform 0.05s ease-out",
+            } : undefined}
+          >
             <div className="voice-waveform-status">
               <div className="voice-rec-dot" />
-              <span className="voice-rec-label">Recording</span>
+              <span className="voice-rec-label">
+                {isPushToTalk ? "Push to talk" : "Recording"}
+              </span>
               <span className="voice-timer">{formatTime(seconds)}</span>
+              {/* Cancel X button */}
+              <button
+                type="button"
+                className="voice-cancel-btn"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cancelRecording();
+                }}
+                aria-label="Cancel recording"
+                title="Cancel recording"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+              </button>
             </div>
             <canvas
               ref={canvasRef}
@@ -254,6 +438,27 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
               width={480}
               height={64}
             />
+            {/* Slide to cancel hint (PTT only) */}
+            {isPushToTalk && (
+              <div className={`voice-slide-hint ${isCancelZone ? "voice-slide-cancel-active" : ""}`}>
+                {isCancelZone ? (
+                  <>
+                    <span
+                      className="material-symbols-outlined voice-slide-trash-icon"
+                      style={{ fontSize: 14, fontVariationSettings: "'FILL' 1" }}
+                    >
+                      delete
+                    </span>
+                    <span>Release to cancel</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="voice-slide-chevron">‹</span>
+                    <span>Slide to cancel</span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>,
         document.body
@@ -266,6 +471,20 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
             check_circle
           </span>
           <span>Transcribed</span>
+        </div>,
+        document.body
+      )}
+
+      {/* ── Cancelled toast (portaled) — trash can animation ── */}
+      {state === "cancelled" && createPortal(
+        <div className="voice-cancelled-toast">
+          <span
+            className="material-symbols-outlined voice-trash-icon"
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            delete
+          </span>
+          <span>Cancelled</span>
         </div>,
         document.body
       )}
@@ -284,18 +503,25 @@ export default function VoiceMicButton({ onTranscript, disabled }: VoiceMicButto
       {/* ── Mic button ───────────────────────────────────────── */}
       <button
         type="button"
-        onClick={handleClick}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerMove={handlePointerMove}
+        onKeyDown={handleKeyDown}
         className={btnClass}
         aria-label={
           state === "recording" ? "Stop recording" : state === "processing" ? "Transcribing..." : "Start voice input"
         }
         title={
-          state === "recording" ? "Tap to stop" : state === "processing" ? "Transcribing..." : "Voice input"
+          state === "recording"
+            ? (isPushToTalk ? "Release to send" : "Tap to stop")
+            : state === "processing"
+              ? "Transcribing..."
+              : "Voice input"
         }
         disabled={disabled && state !== "recording"}
       >
-        {/* Mic icon (idle / success) */}
-        {(state === "idle" || state === "success") && (
+        {/* Mic icon (idle / success / cancelled) */}
+        {(state === "idle" || state === "success" || state === "cancelled") && (
           <svg className="voice-icon" viewBox="0 0 24 24" fill="none">
             <path
               d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4Z"

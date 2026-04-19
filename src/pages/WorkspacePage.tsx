@@ -333,12 +333,13 @@ export default function WorkspacePage() {
   }, [canvasId, mermaidCode, title, navigate]);
 
   // Chat
-  const handleSendMessage = async () => {
-    if (!chatInput.trim() || chatLoading) return;
+  const handleSendMessage = async (directText?: string) => {
+    const messageText = directText || chatInput;
+    if (!messageText.trim() || chatLoading) return;
 
     const userMessage: ChatMessage = {
       role: "user",
-      content: chatInput.trim(),
+      content: messageText.trim(),
       timestamp: new Date().toISOString(),
     };
 
@@ -348,7 +349,7 @@ export default function WorkspacePage() {
     setChatLoading(true);
 
     try {
-      const result = await apiChat(chatInput.trim(), mermaidCode, newHistory);
+      const result = await apiChat(messageText.trim(), mermaidCode, newHistory);
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
@@ -721,6 +722,7 @@ export default function WorkspacePage() {
                 <div className="voice-mic-mobile-float">
                   <VoiceMicButton
                     onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
+                    onAutoSendTranscript={(text) => handleSendMessage(text)}
                     disabled={chatLoading}
                   />
                 </div>
@@ -818,6 +820,7 @@ export default function WorkspacePage() {
                   <div className="hidden md:block">
                     <VoiceMicButton
                       onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
+                      onAutoSendTranscript={(text) => handleSendMessage(text)}
                       disabled={chatLoading}
                     />
                   </div>
