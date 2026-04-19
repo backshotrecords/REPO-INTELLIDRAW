@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import ReactMarkdown from "react-markdown";
 import type { ChatMessage } from "../types";
 import ModelPicker from "./ModelPicker";
 
@@ -390,11 +391,11 @@ export default function AgentGitLog({
                       </div>
 
                       {/* Assistant responses */}
-                      <div className="text-on-surface text-sm leading-relaxed">
+                      <div className="text-on-surface text-sm leading-relaxed agent-markdown">
                         {interaction.assistantMessages.map((msg, mIdx) => (
-                          <p key={mIdx} className={mIdx !== interaction.assistantMessages.length - 1 ? "mb-4" : ""}>
-                            {cleanMessageContent(msg.content)}
-                          </p>
+                          <div key={mIdx} className={mIdx !== interaction.assistantMessages.length - 1 ? "mb-4" : ""}>
+                            <ReactMarkdown>{cleanMessageContent(msg.content)}</ReactMarkdown>
+                          </div>
                         ))}
                       </div>
                     </>
