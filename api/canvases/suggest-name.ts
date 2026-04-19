@@ -62,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           content: `Suggest a title for this flowchart:\n\n\`\`\`mermaid\n${mermaidCode}\n\`\`\``,
         },
       ],
-      max_tokens: 100,
+      //max_tokens: 100, // Removed to allow more models to be used
       temperature: 0.5,
     });
 
