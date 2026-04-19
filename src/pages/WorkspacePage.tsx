@@ -827,7 +827,7 @@ export default function WorkspacePage() {
 
                   {/* Send button */}
                   <button
-                    onClick={handleSendMessage}
+                    onClick={() => handleSendMessage()}
                     disabled={chatLoading || !chatInput.trim()}
                     className="h-10 w-10 bg-primary text-white rounded-xl flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-30"
                   >
