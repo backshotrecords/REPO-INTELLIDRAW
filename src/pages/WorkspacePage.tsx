@@ -765,7 +765,7 @@ export default function WorkspacePage() {
 
           {/* ── Floating chat input bar ─────────────────────── */}
           <div ref={inputBarRef} className="absolute bottom-3 md:bottom-5 left-3 right-3 md:left-1/2 md:-translate-x-1/2 md:w-[calc(100%-40px)] md:max-w-[700px] z-30">
-            <div className="bg-white/70 backdrop-blur-2xl border border-outline-variant/15 rounded-[22px] shadow-[0_4px_32px_rgba(0,0,0,0.08)] overflow-hidden">
+            <div className="bg-white/70 backdrop-blur-2xl border border-[#c4c4c4] rounded-[22px] shadow-[0_4px_32px_rgba(0,0,0,0.08)] overflow-hidden">
 
               {/* Input row */}
               <div className="p-2.5 md:p-3 flex items-end gap-2.5">
@@ -847,7 +847,7 @@ export default function WorkspacePage() {
 
         {/* Agent Manager panel (desktop sidebar / mobile bottom sheet) */}
         <div
-          className={`fixed md:relative left-0 md:left-auto right-0 bottom-[104px] md:bottom-auto top-auto md:top-0 h-[50vh] md:h-full w-full md:w-[380px] bg-white/80 backdrop-blur-2xl md:bg-white/90 md:backdrop-blur-xl border-t md:border-t-0 md:border-l border-outline-variant/15 z-20 md:z-auto transition-all duration-300 flex flex-col shadow-[0_-10px_40px_rgb(0,0,0,0.08)] md:shadow-none ${
+          className={`fixed md:relative left-0 md:left-auto right-0 bottom-[104px] md:bottom-auto top-auto md:top-0 h-[50vh] md:h-full w-full md:w-[380px] bg-white/80 backdrop-blur-2xl md:bg-white/90 md:backdrop-blur-xl border-t md:border-t-0 md:border-l md:border-l-[#c4c4c4] border-outline-variant/15 z-20 md:z-auto transition-all duration-300 flex flex-col shadow-[0_-10px_40px_rgb(0,0,0,0.08)] md:shadow-none ${
             showChat ? "translate-y-0 opacity-100" : "translate-y-[20%] opacity-0 pointer-events-none md:translate-y-0 md:opacity-100 md:pointer-events-auto"
           }`}
         >
