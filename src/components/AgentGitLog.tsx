@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { ChatMessage } from "../types";
+import ModelPicker from "./ModelPicker";
 
 interface AgentGitLogProps {
   chatHistory: ChatMessage[];
@@ -530,6 +531,9 @@ export default function AgentGitLog({
           </div>
         )}
       </div>
+
+      {/* Model picker — always visible at bottom */}
+      <ModelPicker />
     </>
   );
 }
