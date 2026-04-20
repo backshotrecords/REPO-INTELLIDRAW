@@ -162,6 +162,33 @@ export default function WorkspacePage() {
     [canvasId]
   );
 
+  // ── Create a commit (fire-and-forget, appends locally + to DB) ──
+  const createCommit = useCallback(async (
+    code: string,
+    source: string,
+    commitMessage: string
+  ) => {
+    if (!canvasId) return;
+
+    // Optimistic: append locally immediately so Git Tree updates instantly
+    const optimistic: CanvasCommit = {
+      id: crypto.randomUUID(),
+      canvas_id: canvasId,
+      mermaid_code: code,
+      source,
+      commit_message: commitMessage,
+      created_at: new Date().toISOString(),
+    };
+    setCommits(prev => [...prev, optimistic]);
+
+    // Persist to DB (fire-and-forget — don't block the UI)
+    try {
+      await apiCreateCommit(canvasId, code, source, commitMessage);
+    } catch (err) {
+      console.error("Failed to persist commit:", err);
+    }
+  }, [canvasId]);
+
   const handleSyntaxError = useCallback(async (_errorMsg: string, brokenCode: string) => {
     if (isFixing || chatLoading) return;
     setIsFixing(true);
@@ -331,32 +358,6 @@ export default function WorkspacePage() {
     navigate("/dashboard");
   }, [canvasId, mermaidCode, title, navigate]);
 
-  // ── Create a commit (fire-and-forget, appends locally + to DB) ──
-  const createCommit = useCallback(async (
-    code: string,
-    source: string,
-    commitMessage: string
-  ) => {
-    if (!canvasId) return;
-
-    // Optimistic: append locally immediately so Git Tree updates instantly
-    const optimistic: CanvasCommit = {
-      id: crypto.randomUUID(),
-      canvas_id: canvasId,
-      mermaid_code: code,
-      source,
-      commit_message: commitMessage,
-      created_at: new Date().toISOString(),
-    };
-    setCommits(prev => [...prev, optimistic]);
-
-    // Persist to DB (fire-and-forget — don't block the UI)
-    try {
-      await apiCreateCommit(canvasId, code, source, commitMessage);
-    } catch (err) {
-      console.error("Failed to persist commit:", err);
-    }
-  }, [canvasId]);
 
   // ── Unified send message (ref-backed, closure-proof) ──
   const sendMessage = useCallback(async (text: string) => {
