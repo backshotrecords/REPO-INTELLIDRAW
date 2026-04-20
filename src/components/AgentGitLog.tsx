@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, CanvasCommit } from "../types";
 import ModelPicker from "./ModelPicker";
 
 interface AgentGitLogProps {
   chatHistory: ChatMessage[];
   chatLoading: boolean;
+  commits: CanvasCommit[];
   onRestore: (mermaidSnapshot: string) => void;
   isPublic: boolean;
   canvasId: string | null;
@@ -48,6 +49,7 @@ interface Interaction {
 export default function AgentGitLog({
   chatHistory,
   chatLoading,
+  commits,
   onRestore,
   isPublic,
   canvasId,
@@ -97,13 +99,17 @@ export default function AgentGitLog({
     return groups;
   }, [chatHistory]);
 
-  // Version list for tree view
+  // Version list for tree view — now reads from commits, NOT chatHistory
   const versions = useMemo(() => {
-    return chatHistory
-      .map((msg, idx) => ({ msg, idx }))
-      .filter(({ msg }) => msg.mermaidSnapshot)
-      .map((entry, vIdx) => ({ ...entry, versionNumber: vIdx + 1 }));
-  }, [chatHistory]);
+    return commits.map((commit, idx) => ({
+      id: commit.id,
+      versionNumber: idx + 1,
+      mermaidCode: commit.mermaid_code,
+      source: commit.source,
+      commitMessage: commit.commit_message,
+      timestamp: commit.created_at,
+    }));
+  }, [commits]);
 
   // Get the LATEST mermaidSnapshot from an interaction
   const getInteractionSnapshot = (interaction: Interaction): string | undefined => {
@@ -458,21 +464,12 @@ export default function AgentGitLog({
               ) : (
                 versions.map((v, idx) => {
                   const isCurrent = idx === versions.length - 1;
-                  let label = v.msg.content;
-                  if (v.msg.role === "assistant") {
-                    for (let i = v.idx - 1; i >= 0; i--) {
-                      if (chatHistory[i].role === "user") {
-                        label = chatHistory[i].content;
-                        break;
-                      }
-                    }
-                  }
-                  const truncLabel = label.length > 50 ? label.slice(0, 50) + "..." : label;
+                  const truncLabel = v.commitMessage.length > 50 ? v.commitMessage.slice(0, 50) + "..." : v.commitMessage;
 
                   return (
                     <button
-                      key={v.idx}
-                      onClick={() => onRestore(v.msg.mermaidSnapshot!)}
+                      key={v.id}
+                      onClick={() => onRestore(v.mermaidCode)}
                       className={`group w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-colors ${
                         isCurrent ? "bg-primary/5 border border-primary/15" : "hover:bg-surface-container-high/60"
                       }`}
@@ -493,8 +490,8 @@ export default function AgentGitLog({
                         <p className="text-xs text-on-surface-variant truncate mt-0.5">{truncLabel}</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="material-symbols-outlined text-sm text-on-surface-variant/40">{sourceIcon(v.msg.versionSource)}</span>
-                        <span className="text-[10px] text-on-surface-variant/40 whitespace-nowrap">{relativeTime(v.msg.timestamp)}</span>
+                        <span className="material-symbols-outlined text-sm text-on-surface-variant/40">{sourceIcon(v.source)}</span>
+                        <span className="text-[10px] text-on-surface-variant/40 whitespace-nowrap">{relativeTime(v.timestamp)}</span>
                       </div>
                     </button>
                   );

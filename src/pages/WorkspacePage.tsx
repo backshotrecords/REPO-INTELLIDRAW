@@ -4,9 +4,9 @@ import MermaidRenderer from "../components/MermaidRenderer";
 import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
-import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName } from "../lib/api";
+import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit } from "../lib/api";
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, CanvasCommit } from "../types";
 
 const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
 
@@ -19,9 +19,19 @@ export default function WorkspacePage() {
   const [mermaidCode, setMermaidCode] = useState(DEFAULT_MERMAID_CODE);
   const [isNaming, setIsNaming] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [commits, setCommits] = useState<CanvasCommit[]>([]);
   const [activeView, setActiveView] = useState<"flowchart" | "code">("flowchart");
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+
+  // Ref mirrors — sendMessage reads these instead of closures (closure-proof)
+  const chatHistoryRef = useRef<ChatMessage[]>([]);
+  const mermaidCodeRef = useRef(DEFAULT_MERMAID_CODE);
+  const chatLoadingRef = useRef(false);
+
+  useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
+  useEffect(() => { mermaidCodeRef.current = mermaidCode; }, [mermaidCode]);
+  useEffect(() => { chatLoadingRef.current = chatLoading; }, [chatLoading]);
   const [showChat, setShowChat] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -70,6 +80,14 @@ export default function WorkspacePage() {
       setMermaidCode(canvas.mermaid_code);
       setChatHistory(canvas.chat_history || []);
       setIsPublic(canvas.is_public || false);
+
+      // Load commits for the Git Tree (independent of chat history)
+      try {
+        const commitsList = await apiGetCommits(canvas.id);
+        setCommits(commitsList || []);
+      } catch (commitErr) {
+        console.error("Failed to load commits:", commitErr);
+      }
     } catch (err) {
       console.error("Failed to load canvas:", err);
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -186,10 +204,6 @@ export default function WorkspacePage() {
           ? "✅ Fixed! The flowchart has been repaired and updated."
           : result.response,
         timestamp: new Date().toISOString(),
-        ...(result.updatedMermaidCode && {
-          mermaidSnapshot: result.updatedMermaidCode,
-          versionSource: "auto_fix" as const,
-        }),
       };
       setChatHistory((prev) => [...prev, assistantMessage]);
 
@@ -198,6 +212,7 @@ export default function WorkspacePage() {
         setMermaidCode(result.updatedMermaidCode);
         playCanvasSound();
         autoSave(result.updatedMermaidCode);
+        createCommit(result.updatedMermaidCode, "auto_fix", "Auto-fixed syntax error");
       }
     } catch (err) {
       console.error("Auto-fix failed:", err);
@@ -211,7 +226,7 @@ export default function WorkspacePage() {
       setIsFixing(false);
       setChatLoading(false);
     }
-  }, [isFixing, chatLoading, chatHistory, autoSave]);
+  }, [isFixing, chatLoading, chatHistory, autoSave, createCommit]);
 
   const handleMermaidCodeChange = (newCode: string) => {
     setMermaidCode(newCode);
@@ -236,12 +251,11 @@ export default function WorkspacePage() {
       role: "assistant",
       content: "↩️ Restored to a previous version",
       timestamp: new Date().toISOString(),
-      mermaidSnapshot: snapshot,
-      versionSource: "restore",
     };
     const newHistory = [...chatHistory, restoreMsg];
     setChatHistory(newHistory);
     autoSave(snapshot, newHistory);
+    createCommit(snapshot, "restore", "Restored previous version");
   };
 
   // Manual edit tracking on view switch
@@ -250,30 +264,15 @@ export default function WorkspacePage() {
       codeOnEnterRef.current = mermaidCode;
     } else if (view === "flowchart" && activeView === "code") {
       if (mermaidCode !== codeOnEnterRef.current) {
-        const lastMsg = chatHistory[chatHistory.length - 1];
-        const isRecentManual = lastMsg?.versionSource === "manual" &&
-          (Date.now() - new Date(lastMsg.timestamp).getTime()) < 30000;
-        if (isRecentManual) {
-          const updated = [...chatHistory];
-          updated[updated.length - 1] = {
-            ...lastMsg,
-            mermaidSnapshot: mermaidCode,
-            timestamp: new Date().toISOString(),
-          };
-          setChatHistory(updated);
-          autoSave(mermaidCode, updated);
-        } else {
-          const manualMsg: ChatMessage = {
-            role: "assistant",
-            content: "✏️ Canvas updated via code editor",
-            timestamp: new Date().toISOString(),
-            mermaidSnapshot: mermaidCode,
-            versionSource: "manual",
-          };
-          const newHistory = [...chatHistory, manualMsg];
-          setChatHistory(newHistory);
-          autoSave(mermaidCode, newHistory);
-        }
+        const manualMsg: ChatMessage = {
+          role: "assistant",
+          content: "✏️ Canvas updated via code editor",
+          timestamp: new Date().toISOString(),
+        };
+        const newHistory = [...chatHistory, manualMsg];
+        setChatHistory(newHistory);
+        autoSave(mermaidCode, newHistory);
+        createCommit(mermaidCode, "manual", "Manual code edit");
       }
     }
     setActiveView(view);
@@ -332,33 +331,55 @@ export default function WorkspacePage() {
     navigate("/dashboard");
   }, [canvasId, mermaidCode, title, navigate]);
 
-  // Chat
-  const handleSendMessage = async (directText?: string) => {
-    const messageText = directText || chatInput;
-    if (!messageText.trim() || chatLoading) return;
+  // ── Create a commit (fire-and-forget, appends locally + to DB) ──
+  const createCommit = useCallback(async (
+    code: string,
+    source: string,
+    commitMessage: string
+  ) => {
+    if (!canvasId) return;
+
+    // Optimistic: append locally immediately so Git Tree updates instantly
+    const optimistic: CanvasCommit = {
+      id: crypto.randomUUID(),
+      canvas_id: canvasId,
+      mermaid_code: code,
+      source,
+      commit_message: commitMessage,
+      created_at: new Date().toISOString(),
+    };
+    setCommits(prev => [...prev, optimistic]);
+
+    // Persist to DB (fire-and-forget — don't block the UI)
+    try {
+      await apiCreateCommit(canvasId, code, source, commitMessage);
+    } catch (err) {
+      console.error("Failed to persist commit:", err);
+    }
+  }, [canvasId]);
+
+  // ── Unified send message (ref-backed, closure-proof) ──
+  const sendMessage = useCallback(async (text: string) => {
+    if (!text.trim() || chatLoadingRef.current) return;
 
     const userMessage: ChatMessage = {
       role: "user",
-      content: messageText.trim(),
+      content: text.trim(),
       timestamp: new Date().toISOString(),
     };
 
-    const newHistory = [...chatHistory, userMessage];
+    const newHistory = [...chatHistoryRef.current, userMessage];
     setChatHistory(newHistory);
     setChatInput("");
     setChatLoading(true);
 
     try {
-      const result = await apiChat(messageText.trim(), mermaidCode, newHistory);
+      const result = await apiChat(text.trim(), mermaidCodeRef.current, newHistory);
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
         content: result.response,
         timestamp: new Date().toISOString(),
-        ...(result.updatedMermaidCode && {
-          mermaidSnapshot: result.updatedMermaidCode,
-          versionSource: "ai_chat" as const,
-        }),
       };
 
       const updatedHistory = [...newHistory, assistantMessage];
@@ -368,9 +389,10 @@ export default function WorkspacePage() {
       if (result.updatedMermaidCode) {
         setMermaidCode(result.updatedMermaidCode);
         playCanvasSound();
+        createCommit(result.updatedMermaidCode, "ai_chat", text.trim());
       }
 
-      autoSave(result.updatedMermaidCode || mermaidCode, updatedHistory);
+      autoSave(result.updatedMermaidCode || mermaidCodeRef.current, updatedHistory);
     } catch (err) {
       const errorMessage: ChatMessage = {
         role: "assistant",
@@ -381,7 +403,7 @@ export default function WorkspacePage() {
     } finally {
       setChatLoading(false);
     }
-  };
+  }, [autoSave, playCanvasSound, createCommit]);
 
 
   // File upload
@@ -400,10 +422,6 @@ export default function WorkspacePage() {
           role: "assistant",
           content: result.response,
           timestamp: new Date().toISOString(),
-          ...(result.mermaidCode && {
-            mermaidSnapshot: result.mermaidCode,
-            versionSource: "upload" as const,
-          }),
         };
 
         const updatedHistory = [...chatHistory, assistantMessage];
@@ -414,6 +432,7 @@ export default function WorkspacePage() {
           setMermaidCode(result.mermaidCode);
           playCanvasSound();
           autoSave(result.mermaidCode, updatedHistory);
+          createCommit(result.mermaidCode, "upload", file.name);
         }
       } catch (err) {
         console.error("Upload failed:", err);
@@ -722,7 +741,7 @@ export default function WorkspacePage() {
                 <div className="voice-mic-mobile-float">
                   <VoiceMicButton
                     onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
-                    onAutoSendTranscript={(text) => handleSendMessage(text)}
+                    onAutoSendTranscript={sendMessage}
                     disabled={chatLoading}
                   />
                 </div>
@@ -806,7 +825,7 @@ export default function WorkspacePage() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
-                        handleSendMessage();
+                        sendMessage(chatInput);
                       }
                     }}
                     rows={1}
@@ -820,14 +839,14 @@ export default function WorkspacePage() {
                   <div className="hidden md:block">
                     <VoiceMicButton
                       onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
-                      onAutoSendTranscript={(text) => handleSendMessage(text)}
+                      onAutoSendTranscript={sendMessage}
                       disabled={chatLoading}
                     />
                   </div>
 
                   {/* Send button */}
                   <button
-                    onClick={() => handleSendMessage()}
+                    onClick={() => sendMessage(chatInput)}
                     disabled={chatLoading || !chatInput.trim()}
                     className="h-10 w-10 bg-primary text-white rounded-xl flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-30"
                   >
@@ -857,6 +876,7 @@ export default function WorkspacePage() {
           <AgentGitLog
             chatHistory={chatHistory}
             chatLoading={chatLoading}
+            commits={commits}
             onRestore={handleRestoreVersion}
             isPublic={isPublic}
             canvasId={canvasId}

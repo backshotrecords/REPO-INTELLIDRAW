@@ -147,6 +147,30 @@ export async function apiSuggestCanvasName(mermaidCode: string): Promise<string>
   return data.suggestedName;
 }
 
+// ===== Canvas Commits =====
+
+export async function apiGetCommits(canvasId: string) {
+  const res = await apiFetch(`/canvases/commits?canvasId=${canvasId}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch commits");
+  return data.commits;
+}
+
+export async function apiCreateCommit(
+  canvasId: string,
+  mermaidCode: string,
+  source: string,
+  commitMessage: string
+) {
+  const res = await apiFetch("/canvases/commits", {
+    method: "POST",
+    body: JSON.stringify({ canvasId, mermaidCode, source, commitMessage }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to create commit");
+  return data.commit;
+}
+
 // ===== Chat =====
 
 export async function apiChat(

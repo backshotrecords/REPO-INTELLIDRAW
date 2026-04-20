@@ -1,7 +1,14 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig } from "../lib/api";
+
+// ─── Config Module Registry ─────────────────────────────
+// Add new config modules here — the sidebar auto-populates from this array.
+const CONFIG_MODULES: { key: string; label: string; icon: string }[] = [
+  { key: "sound",  label: "Sound Effects",       icon: "volume_up" },
+  { key: "rules",  label: "Sanitization Rules",  icon: "rule" },
+];
 
 interface SoundConfig {
   volume: number;
@@ -42,6 +49,48 @@ export default function AdminPage() {
   const canvasFileRef = useRef<HTMLInputElement | null>(null);
   const voiceFileRef = useRef<HTMLInputElement | null>(null);
   const volumeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ─── Sidebar active-section tracking ───────────────────
+  const [activeSection, setActiveSection] = useState<string>(CONFIG_MODULES[0].key);
+  const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
+  const isScrollingRef = useRef(false);
+
+  // Observe which section is currently in view
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (isScrollingRef.current) return;
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActiveSection(entry.target.id);
+          }
+        }
+      },
+      { rootMargin: "-20% 0px -60% 0px", threshold: 0 }
+    );
+
+    // Observe all registered section elements
+    for (const mod of CONFIG_MODULES) {
+      const el = sectionRefs.current[mod.key];
+      if (el) observer.observe(el);
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
+  const scrollToSection = useCallback((key: string) => {
+    const el = sectionRefs.current[key];
+    if (!el) return;
+
+    // Also expand the section when clicking sidebar
+    setExpandedSection(key);
+    setActiveSection(key);
+
+    // Briefly disable observer to prevent flicker
+    isScrollingRef.current = true;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    setTimeout(() => { isScrollingRef.current = false; }, 800);
+  }, []);
 
   useEffect(() => {
     if (user && !user.isGlobalAdmin) {
@@ -295,188 +344,283 @@ export default function AdminPage() {
   );
 
   return (
-    <div className="bg-surface min-h-screen text-on-surface font-body p-6">
-      <div className="max-w-4xl mx-auto space-y-5">
-        <header className="flex items-center gap-4 border-b border-outline-variant/30 pb-6">
+    <div className="bg-surface min-h-screen text-on-surface font-body">
+      {/* ─── Top header bar ────────────────────────────────── */}
+      <header className="sticky top-0 z-30 bg-surface/80 backdrop-blur-lg border-b border-outline-variant/20">
+        <div className="max-w-7xl mx-auto flex items-center gap-4 px-6 py-4">
           <button
             onClick={() => navigate("/dashboard")}
             className="material-symbols-outlined p-2 rounded-full hover:bg-surface-container transition-colors"
           >
             arrow_back
           </button>
-          <div>
-            <h1 className="text-2xl font-bold font-manrope tracking-tight text-primary">Global Admin Dashboard</h1>
-            <p className="text-sm text-on-surface-variant">Configure global sound effects and sanitization rules</p>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold font-manrope tracking-tight text-primary">Global Admin Dashboard</h1>
+            <p className="text-xs text-on-surface-variant hidden sm:block">Configure global sound effects and sanitization rules</p>
           </div>
-        </header>
+        </div>
+      </header>
 
-        {/* ═══ Sound Effects (collapsible) ═══════════════════ */}
-        <section className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden">
-          {renderAccordionHeader("sound", "volume_up", "Sound Effects", "Notification sounds for canvas updates and voice transcription")}
+      {/* ─── Two-column layout: sidebar + content ─────────── */}
+      <div className="max-w-7xl mx-auto flex">
 
-          <div
-            className="transition-all duration-300 ease-in-out overflow-hidden"
-            style={{
-              maxHeight: expandedSection === "sound" ? "1000px" : "0",
-              opacity: expandedSection === "sound" ? 1 : 0,
-            }}
-          >
-            <div className="px-5 pb-5 space-y-6 border-t border-outline-variant/10">
-              {/* Global controls row */}
-              <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-4">
-                {/* Enable / disable toggle */}
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleToggleSound}
-                    className={`relative w-12 h-7 rounded-full transition-colors duration-200 ${
-                      soundSettings.enabled ? "bg-primary" : "bg-outline-variant/40"
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform duration-200 ${
-                        soundSettings.enabled ? "translate-x-5" : ""
-                      }`}
-                    />
-                  </button>
-                  <span className="text-sm font-medium text-on-surface">
-                    {soundSettings.enabled ? "Sounds Enabled" : "Sounds Disabled"}
-                  </span>
-                </div>
-
-                {/* Volume slider */}
-                <div className={`flex-1 flex items-center gap-3 transition-opacity duration-200 ${soundSettings.enabled ? "opacity-100" : "opacity-30 pointer-events-none"}`}>
-                  <span className="material-symbols-outlined text-base text-on-surface-variant/50">volume_mute</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={soundSettings.volume}
-                    onChange={handleVolumeChange}
-                    className="flex-1 h-2 rounded-full appearance-none cursor-pointer accent-primary"
-                    style={{
-                      background: `linear-gradient(to right, var(--md-sys-color-primary, #6750A4) 0%, var(--md-sys-color-primary, #6750A4) ${soundSettings.volume * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) ${soundSettings.volume * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) 100%)`,
-                    }}
-                  />
-                  <span className="material-symbols-outlined text-base text-on-surface-variant/50">volume_up</span>
-                  <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full min-w-[3rem] text-center">
-                    {Math.round(soundSettings.volume * 100)}%
-                  </span>
-                </div>
-              </div>
-
-              {/* Individual sound cards */}
-              <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 transition-opacity duration-200 ${soundSettings.enabled ? "opacity-100" : "opacity-30 pointer-events-none"}`}>
-                {renderSoundCard({
-                  type: "canvas",
-                  label: "Canvas Update",
-                  description: "Plays when AI updates the flowchart",
-                  icon: "auto_awesome",
-                  currentUrl: soundSettings.soundUrl,
-                  fileName: soundSettings.soundFileName,
-                  defaultLabel: "IntelliDraw v2 (Default)",
-                  isCustom: isCanvasCustom,
-                  fileRef: canvasFileRef,
-                })}
-                {renderSoundCard({
-                  type: "voice",
-                  label: "Voice Transcription",
-                  description: "Plays when transcribed text returns",
-                  icon: "mic",
-                  currentUrl: soundSettings.voiceSoundUrl,
-                  fileName: soundSettings.voiceSoundFileName,
-                  defaultLabel: "IntelliSend v2 (Default)",
-                  isCustom: isVoiceCustom,
-                  fileRef: voiceFileRef,
-                })}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ═══ Sanitization Rules (collapsible) ════════════════ */}
-        <section className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden">
-          {renderAccordionHeader("rules", "rule", "Sanitization Rules", `${rules.length} rule${rules.length !== 1 ? "s" : ""} — enforced during Auto-Fix`)}
-
-          <div
-            className="transition-all duration-300 ease-in-out overflow-hidden"
-            style={{
-              maxHeight: expandedSection === "rules" ? "2000px" : "0",
-              opacity: expandedSection === "rules" ? 1 : 0,
-            }}
-          >
-            <div className="px-5 pb-5 space-y-4 border-t border-outline-variant/10">
-              {/* Add rule form */}
-              <form onSubmit={handleAddRule} className="flex gap-3 pt-4">
-                <input
-                  type="text"
-                  value={newRule}
-                  onChange={(e) => setNewRule(e.target.value)}
-                  placeholder="e.g. Ensure all parentheses in node labels are replaced with text"
-                  className="flex-1 bg-surface-container-lowest border border-outline-variant/50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                  disabled={adding}
+        {/* ── Sidebar ──────────────────────────────────────── */}
+        <aside className="hidden lg:flex flex-col w-64 shrink-0 sticky top-[73px] self-start h-[calc(100vh-73px)] border-r border-outline-variant/15 py-6 px-4 gap-1">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/50 px-3 mb-2">
+            Configuration
+          </p>
+          {CONFIG_MODULES.map((mod) => {
+            const isActive = activeSection === mod.key;
+            return (
+              <button
+                key={mod.key}
+                onClick={() => scrollToSection(mod.key)}
+                className={`
+                  group flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-left text-sm font-medium
+                  transition-all duration-200 relative
+                  ${isActive
+                    ? "bg-primary/8 text-primary font-semibold"
+                    : "text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+                  }
+                `}
+              >
+                {/* Active indicator bar */}
+                <span
+                  className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-full transition-all duration-300 ${
+                    isActive ? "h-5 bg-primary" : "h-0 bg-transparent"
+                  }`}
                 />
-                <button
-                  type="submit"
-                  disabled={adding || !newRule.trim()}
-                  className="bg-primary text-white font-semibold px-6 py-3 rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center gap-2"
+                <span
+                  className={`material-symbols-outlined text-lg transition-colors duration-200 ${
+                    isActive ? "text-primary" : "text-on-surface-variant/60 group-hover:text-on-surface-variant"
+                  }`}
+                  style={{ fontVariationSettings: isActive ? "'FILL' 1" : "'FILL' 0" }}
                 >
-                  <span className="material-symbols-outlined text-sm">add</span>
-                  {adding ? "Adding..." : "Add Rule"}
-                </button>
-              </form>
+                  {mod.icon}
+                </span>
+                {mod.label}
+              </button>
+            );
+          })}
 
-              {/* Rules list */}
-              {loading ? (
-                <div className="flex justify-center p-12">
-                  <span className="material-symbols-outlined animate-spin text-3xl text-primary">progress_activity</span>
-                </div>
-              ) : rules.length === 0 ? (
-                <div className="bg-surface-container-lowest rounded-2xl p-12 text-center border border-outline-variant/20 border-dashed">
-                  <span className="material-symbols-outlined text-4xl text-on-surface-variant/40 mb-2">rule</span>
-                  <p className="text-on-surface-variant font-medium">No rules defined yet.</p>
-                  <p className="text-sm text-on-surface-variant/60">Add a rule above to enforce conditions during Auto-Fix.</p>
-                </div>
-              ) : (
-                <div className="grid gap-3">
-                  {rules.map((rule) => (
-                    <div
-                      key={rule.id}
-                      className={`flex items-center justify-between p-4 rounded-xl border transition-colors ${
-                        rule.is_active
-                          ? "bg-white border-outline-variant/30 shadow-sm"
-                          : "bg-surface-container-lowest border-outline-variant/20 opacity-70"
+          {/* Bottom spacer + decorative divider */}
+          <div className="mt-auto border-t border-outline-variant/10 pt-4 px-3">
+            <p className="text-[11px] text-on-surface-variant/40 leading-relaxed">
+              {CONFIG_MODULES.length} module{CONFIG_MODULES.length !== 1 ? "s" : ""} configured
+            </p>
+          </div>
+        </aside>
+
+        {/* ── Mobile sidebar (horizontal scroll strip) ────── */}
+        <div className="lg:hidden sticky top-[73px] z-20 bg-surface/90 backdrop-blur-md border-b border-outline-variant/15 w-full">
+          <div className="flex gap-1 px-4 py-2 overflow-x-auto no-scrollbar">
+            {CONFIG_MODULES.map((mod) => {
+              const isActive = activeSection === mod.key;
+              return (
+                <button
+                  key={mod.key}
+                  onClick={() => scrollToSection(mod.key)}
+                  className={`
+                    flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap
+                    transition-all duration-200
+                    ${isActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-on-surface-variant hover:bg-surface-container-high"
+                    }
+                  `}
+                >
+                  <span
+                    className="material-symbols-outlined text-base"
+                    style={{ fontVariationSettings: isActive ? "'FILL' 1" : "'FILL' 0" }}
+                  >
+                    {mod.icon}
+                  </span>
+                  {mod.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Main content ─────────────────────────────────── */}
+        <main className="flex-1 min-w-0 px-6 py-6 space-y-6">
+
+          {/* ═══ Sound Effects (collapsible) ═══════════════════ */}
+          <section
+            id="sound"
+            ref={(el) => { sectionRefs.current["sound"] = el; }}
+            className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden scroll-mt-24"
+          >
+            {renderAccordionHeader("sound", "volume_up", "Sound Effects", "Notification sounds for canvas updates and voice transcription")}
+
+            <div
+              className="transition-all duration-300 ease-in-out overflow-hidden"
+              style={{
+                maxHeight: expandedSection === "sound" ? "1000px" : "0",
+                opacity: expandedSection === "sound" ? 1 : 0,
+              }}
+            >
+              <div className="px-5 pb-5 space-y-6 border-t border-outline-variant/10">
+                {/* Global controls row */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-4">
+                  {/* Enable / disable toggle */}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleToggleSound}
+                      className={`relative w-12 h-7 rounded-full transition-colors duration-200 ${
+                        soundSettings.enabled ? "bg-primary" : "bg-outline-variant/40"
                       }`}
                     >
-                      <div className="flex items-center gap-4">
-                        <button
-                          onClick={() => handleToggleRule(rule.id, rule.is_active)}
-                          className={`w-6 h-6 rounded-md flex items-center justify-center border transition-colors ${
-                            rule.is_active
-                              ? "bg-primary border-primary text-white"
-                              : "bg-transparent border-on-surface-variant/30 text-transparent"
-                          }`}
-                        >
-                          <span className="material-symbols-outlined text-[16px] font-bold">check</span>
-                        </button>
-                        <span className={`text-sm font-medium ${!rule.is_active && "line-through text-on-surface-variant"}`}>
-                          {rule.rule_description}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteRule(rule.id)}
-                        className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container/30 rounded-lg transition-colors"
-                        title="Delete rule"
-                      >
-                        <span className="material-symbols-outlined text-[20px]">delete</span>
-                      </button>
-                    </div>
-                  ))}
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform duration-200 ${
+                          soundSettings.enabled ? "translate-x-5" : ""
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm font-medium text-on-surface">
+                      {soundSettings.enabled ? "Sounds Enabled" : "Sounds Disabled"}
+                    </span>
+                  </div>
+
+                  {/* Volume slider */}
+                  <div className={`flex-1 flex items-center gap-3 transition-opacity duration-200 ${soundSettings.enabled ? "opacity-100" : "opacity-30 pointer-events-none"}`}>
+                    <span className="material-symbols-outlined text-base text-on-surface-variant/50">volume_mute</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={soundSettings.volume}
+                      onChange={handleVolumeChange}
+                      className="flex-1 h-2 rounded-full appearance-none cursor-pointer accent-primary"
+                      style={{
+                        background: `linear-gradient(to right, var(--md-sys-color-primary, #6750A4) 0%, var(--md-sys-color-primary, #6750A4) ${soundSettings.volume * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) ${soundSettings.volume * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) 100%)`,
+                      }}
+                    />
+                    <span className="material-symbols-outlined text-base text-on-surface-variant/50">volume_up</span>
+                    <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full min-w-[3rem] text-center">
+                      {Math.round(soundSettings.volume * 100)}%
+                    </span>
+                  </div>
                 </div>
-              )}
+
+                {/* Individual sound cards */}
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 transition-opacity duration-200 ${soundSettings.enabled ? "opacity-100" : "opacity-30 pointer-events-none"}`}>
+                  {renderSoundCard({
+                    type: "canvas",
+                    label: "Canvas Update",
+                    description: "Plays when AI updates the flowchart",
+                    icon: "auto_awesome",
+                    currentUrl: soundSettings.soundUrl,
+                    fileName: soundSettings.soundFileName,
+                    defaultLabel: "IntelliDraw v2 (Default)",
+                    isCustom: isCanvasCustom,
+                    fileRef: canvasFileRef,
+                  })}
+                  {renderSoundCard({
+                    type: "voice",
+                    label: "Voice Transcription",
+                    description: "Plays when transcribed text returns",
+                    icon: "mic",
+                    currentUrl: soundSettings.voiceSoundUrl,
+                    fileName: soundSettings.voiceSoundFileName,
+                    defaultLabel: "IntelliSend v2 (Default)",
+                    isCustom: isVoiceCustom,
+                    fileRef: voiceFileRef,
+                  })}
+                </div>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+
+          {/* ═══ Sanitization Rules (collapsible) ════════════════ */}
+          <section
+            id="rules"
+            ref={(el) => { sectionRefs.current["rules"] = el; }}
+            className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden scroll-mt-24"
+          >
+            {renderAccordionHeader("rules", "rule", "Sanitization Rules", `${rules.length} rule${rules.length !== 1 ? "s" : ""} — enforced during Auto-Fix`)}
+
+            <div
+              className="transition-all duration-300 ease-in-out overflow-hidden"
+              style={{
+                maxHeight: expandedSection === "rules" ? "2000px" : "0",
+                opacity: expandedSection === "rules" ? 1 : 0,
+              }}
+            >
+              <div className="px-5 pb-5 space-y-4 border-t border-outline-variant/10">
+                {/* Add rule form */}
+                <form onSubmit={handleAddRule} className="flex gap-3 pt-4">
+                  <input
+                    type="text"
+                    value={newRule}
+                    onChange={(e) => setNewRule(e.target.value)}
+                    placeholder="e.g. Ensure all parentheses in node labels are replaced with text"
+                    className="flex-1 bg-surface-container-lowest border border-outline-variant/50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+                    disabled={adding}
+                  />
+                  <button
+                    type="submit"
+                    disabled={adding || !newRule.trim()}
+                    className="bg-primary text-white font-semibold px-6 py-3 rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center gap-2"
+                  >
+                    <span className="material-symbols-outlined text-sm">add</span>
+                    {adding ? "Adding..." : "Add Rule"}
+                  </button>
+                </form>
+
+                {/* Rules list */}
+                {loading ? (
+                  <div className="flex justify-center p-12">
+                    <span className="material-symbols-outlined animate-spin text-3xl text-primary">progress_activity</span>
+                  </div>
+                ) : rules.length === 0 ? (
+                  <div className="bg-surface-container-lowest rounded-2xl p-12 text-center border border-outline-variant/20 border-dashed">
+                    <span className="material-symbols-outlined text-4xl text-on-surface-variant/40 mb-2">rule</span>
+                    <p className="text-on-surface-variant font-medium">No rules defined yet.</p>
+                    <p className="text-sm text-on-surface-variant/60">Add a rule above to enforce conditions during Auto-Fix.</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {rules.map((rule) => (
+                      <div
+                        key={rule.id}
+                        className={`flex items-center justify-between p-4 rounded-xl border transition-colors ${
+                          rule.is_active
+                            ? "bg-white border-outline-variant/30 shadow-sm"
+                            : "bg-surface-container-lowest border-outline-variant/20 opacity-70"
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <button
+                            onClick={() => handleToggleRule(rule.id, rule.is_active)}
+                            className={`w-6 h-6 rounded-md flex items-center justify-center border transition-colors ${
+                              rule.is_active
+                                ? "bg-primary border-primary text-white"
+                                : "bg-transparent border-on-surface-variant/30 text-transparent"
+                            }`}
+                          >
+                            <span className="material-symbols-outlined text-[16px] font-bold">check</span>
+                          </button>
+                          <span className={`text-sm font-medium ${!rule.is_active && "line-through text-on-surface-variant"}`}>
+                            {rule.rule_description}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteRule(rule.id)}
+                          className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container/30 rounded-lg transition-colors"
+                          title="Delete rule"
+                        >
+                          <span className="material-symbols-outlined text-[20px]">delete</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        </main>
       </div>
     </div>
   );
