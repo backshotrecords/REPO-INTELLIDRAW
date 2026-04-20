@@ -52,8 +52,18 @@ export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, dis
   const slideOffsetRef = useRef(0);
   const stateRef = useRef<VoiceState>("idle");
 
-  // Keep stateRef in sync with state
+  // Callback refs — keeps latest prop callbacks accessible from stale closures
+  // (startRecording's useCallback has [] deps, so its onstop handler captures
+  //  sendForTranscription from render #1. These refs let it call the latest version.)
+  const onTranscriptRef = useRef(onTranscript);
+  const onAutoSendRef = useRef(onAutoSendTranscript);
+
+  // Keep refs in sync every render
   useEffect(() => { stateRef.current = state; }, [state]);
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript;
+    onAutoSendRef.current = onAutoSendTranscript;
+  }, [onTranscript, onAutoSendTranscript]);
 
   const isCancelZone = slideOffset < -SLIDE_CANCEL_PX;
 
@@ -273,10 +283,10 @@ export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, dis
     try {
       const text = await apiTranscribeAudio(blob);
 
-      if (autoSend && onAutoSendTranscript) {
-        onAutoSendTranscript(text);
+      if (autoSend && onAutoSendRef.current) {
+        onAutoSendRef.current(text);
       } else {
-        onTranscript(text);
+        onTranscriptRef.current(text);
       }
 
       // Play voice transcription sound, respecting master settings
