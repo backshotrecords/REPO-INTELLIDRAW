@@ -16,7 +16,8 @@ export default function PublicViewPage() {
   // Pan/zoom state
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
+  const isPanningRef = useRef(false);
+  const [isPanningVisual, setIsPanningVisual] = useState(false);
   const lastPanPos = useRef({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -47,22 +48,26 @@ export default function PublicViewPage() {
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area")) {
-      setIsPanning(true);
-      lastPanPos.current = { x: e.clientX, y: e.clientY };
+      e.preventDefault();
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      isPanningRef.current = true;
+      setIsPanningVisual(true);
+      lastPanPos.current = { x: e.clientX, y: e.clientY };
     }
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isPanning) return;
+    if (!isPanningRef.current) return;
     const dx = e.clientX - lastPanPos.current.x;
     const dy = e.clientY - lastPanPos.current.y;
     lastPanPos.current = { x: e.clientX, y: e.clientY };
     setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
   };
 
-  const handlePointerUp = () => {
-    setIsPanning(false);
+  const handlePointerUp = (e: React.PointerEvent) => {
+    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    isPanningRef.current = false;
+    setIsPanningVisual(false);
   };
 
   const handleZoomIn = () => setZoom((z) => Math.min(16, z + 0.2));
@@ -155,12 +160,13 @@ export default function PublicViewPage() {
         <div className="flex-1 flex flex-col overflow-hidden relative">
           <div
             ref={canvasRef}
-            className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area"
+            className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area select-none"
             onWheel={handleWheel}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            style={{ cursor: isPanning ? "grabbing" : "grab" }}
+            onPointerCancel={handlePointerUp}
+            style={{ cursor: isPanningVisual ? "grabbing" : "grab" }}
           >
             {/* Zoom controls */}
             <div className="absolute left-4 bottom-4 flex flex-col gap-2 z-40">
@@ -196,7 +202,7 @@ export default function PublicViewPage() {
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 transformOrigin: "center center",
-                transition: isPanning ? "none" : "transform 0.1s ease-out",
+                transition: isPanningVisual ? "none" : "transform 0.1s ease-out",
               }}
             >
               <MermaidRenderer

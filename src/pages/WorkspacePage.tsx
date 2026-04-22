@@ -48,7 +48,8 @@ export default function WorkspacePage() {
   // Canvas pan/zoom state
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
+  const isPanningRef = useRef(false);
+  const [isPanningVisual, setIsPanningVisual] = useState(false); // drives cursor style only
   const lastPanPos = useRef({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
   const codeOnEnterRef = useRef("");
@@ -466,15 +467,23 @@ export default function WorkspacePage() {
   const handlePointerDown = (e: React.PointerEvent) => {
     if (!(e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area"))) return;
 
+    // Prevent text selection while dragging
+    e.preventDefault();
+
+    // Capture this pointer so we receive move/up even if it leaves the canvas or window
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (activePointers.current.size === 1) {
       // Single pointer — start panning
-      setIsPanning(true);
+      isPanningRef.current = true;
+      setIsPanningVisual(true);
       lastPanPos.current = { x: e.clientX, y: e.clientY };
     } else if (activePointers.current.size === 2) {
       // Second pointer — switch to pinch, cancel pan
-      setIsPanning(false);
+      isPanningRef.current = false;
+      setIsPanningVisual(false);
       lastPinchDist.current = getPointerDist();
     }
   };
@@ -491,8 +500,8 @@ export default function WorkspacePage() {
         setZoom((z) => Math.min(16, Math.max(0.2, z + delta)));
         lastPinchDist.current = dist;
       }
-    } else if (activePointers.current.size === 1 && isPanning) {
-      // Single-pointer pan
+    } else if (activePointers.current.size === 1 && isPanningRef.current) {
+      // Single-pointer pan (reads ref — always synchronous, no stale closure)
       const dx = e.clientX - lastPanPos.current.x;
       const dy = e.clientY - lastPanPos.current.y;
       lastPanPos.current = { x: e.clientX, y: e.clientY };
@@ -501,12 +510,16 @@ export default function WorkspacePage() {
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    // Release capture (safe to call even if not captured)
+    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* already released */ }
+
     activePointers.current.delete(e.pointerId);
     if (activePointers.current.size < 2) {
       lastPinchDist.current = null;
     }
     if (activePointers.current.size === 0) {
-      setIsPanning(false);
+      isPanningRef.current = false;
+      setIsPanningVisual(false);
     }
   };
 
@@ -692,13 +705,13 @@ export default function WorkspacePage() {
             /* Infinite canvas */
             <div
               ref={canvasRef}
-              className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area"
+              className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area select-none"
               onWheel={handleWheel}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerUp}
-              style={{ cursor: isPanning ? "grabbing" : "grab" }}
+              style={{ cursor: isPanningVisual ? "grabbing" : "grab" }}
             >
               {/* Zoom controls */}
               <div className={`absolute left-4 flex flex-col gap-2 z-40 transition-all duration-300 ${showChat ? "md:opacity-100 md:pointer-events-auto opacity-0 pointer-events-none" : "opacity-100"}`} style={{ bottom: `${inputBarHeight + 16}px` }}>
@@ -754,7 +767,7 @@ export default function WorkspacePage() {
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                   transformOrigin: "center center",
-                  transition: isPanning ? "none" : "transform 0.1s ease-out",
+                  transition: isPanningVisual ? "none" : "transform 0.1s ease-out",
                 }}
               >
                 <MermaidRenderer 
