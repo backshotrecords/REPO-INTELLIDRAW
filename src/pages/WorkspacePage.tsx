@@ -470,8 +470,9 @@ export default function WorkspacePage() {
     // Prevent text selection while dragging
     e.preventDefault();
 
-    // Capture this pointer so we receive move/up even if it leaves the canvas or window
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    // Capture on the stable canvas div (not e.target which may be an SVG child
+    // that React re-creates on re-render, silently dropping the capture)
+    canvasRef.current?.setPointerCapture(e.pointerId);
 
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -510,8 +511,8 @@ export default function WorkspacePage() {
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    // Release capture (safe to call even if not captured)
-    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    // Release capture on the stable canvas div
+    try { canvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* already released */ }
 
     activePointers.current.delete(e.pointerId);
     if (activePointers.current.size < 2) {

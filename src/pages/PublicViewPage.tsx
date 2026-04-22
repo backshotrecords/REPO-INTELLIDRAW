@@ -49,7 +49,7 @@ export default function PublicViewPage() {
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area")) {
       e.preventDefault();
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      canvasRef.current?.setPointerCapture(e.pointerId);
       isPanningRef.current = true;
       setIsPanningVisual(true);
       lastPanPos.current = { x: e.clientX, y: e.clientY };
@@ -65,7 +65,7 @@ export default function PublicViewPage() {
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    try { canvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* already released */ }
     isPanningRef.current = false;
     setIsPanningVisual(false);
   };
