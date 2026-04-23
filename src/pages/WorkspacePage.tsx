@@ -467,6 +467,10 @@ export default function WorkspacePage() {
   const handlePointerDown = (e: React.PointerEvent) => {
     if (!(e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area"))) return;
 
+    // Don't hijack clicks on interactive elements (mic button, zoom buttons, file inputs, etc.)
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a, input, label, textarea, select, [role='button']")) return;
+
     // Prevent text selection while dragging
     e.preventDefault();
 
