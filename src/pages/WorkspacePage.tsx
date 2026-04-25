@@ -6,6 +6,7 @@ import VoiceMicButton from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
 import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit } from "../lib/api";
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
+import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import type { ChatMessage, CanvasCommit } from "../types";
 
 const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
@@ -58,6 +59,7 @@ export default function WorkspacePage() {
   // Fetch global sound config from server on mount (populates in-memory cache)
   useEffect(() => {
     fetchSoundSettings();
+    fetchCanvasSettings();
   }, []);
 
   // Sound notification for canvas updates — reads from cached server config
@@ -450,7 +452,8 @@ export default function WorkspacePage() {
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    setZoom((z) => Math.min(16, Math.max(0.2, z + delta)));
+    const maxZoom = getCanvasSettings().maxZoomLevel;
+    setZoom((z) => Math.min(maxZoom, Math.max(0.2, z + delta)));
   };
 
   // Unified pointer tracking for pan (1 finger) + pinch-zoom (2 fingers)
@@ -510,7 +513,8 @@ export default function WorkspacePage() {
       const dist = getPointerDist();
       if (dist !== null && lastPinchDist.current !== null) {
         const delta = (dist - lastPinchDist.current) * 0.005;
-        setZoom((z) => Math.min(16, Math.max(0.2, z + delta)));
+        const maxZoom = getCanvasSettings().maxZoomLevel;
+        setZoom((z) => Math.min(maxZoom, Math.max(0.2, z + delta)));
         lastPinchDist.current = dist;
       }
     } else if (activePointers.current.size === 1 && isPanningRef.current) {
@@ -543,7 +547,10 @@ export default function WorkspacePage() {
     }
   };
 
-  const handleZoomIn = () => setZoom((z) => Math.min(16, z + 0.2));
+  const handleZoomIn = () => {
+    const maxZoom = getCanvasSettings().maxZoomLevel;
+    setZoom((z) => Math.min(maxZoom, z + 0.2));
+  };
   const handleZoomOut = () => setZoom((z) => Math.max(0.2, z - 0.2));
   const handleResetView = () => {
     setZoom(1);

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import MermaidRenderer from "../components/MermaidRenderer";
 import { apiGetPublicCanvas } from "../lib/api";
+import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 
 export default function PublicViewPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,6 +23,7 @@ export default function PublicViewPage() {
   const canvasRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    fetchCanvasSettings();
     if (!id) return;
 
     const loadPublicCanvas = async () => {
@@ -43,7 +45,8 @@ export default function PublicViewPage() {
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    setZoom((z) => Math.min(16, Math.max(0.2, z + delta)));
+    const maxZoom = getCanvasSettings().maxZoomLevel;
+    setZoom((z) => Math.min(maxZoom, Math.max(0.2, z + delta)));
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -85,7 +88,10 @@ export default function PublicViewPage() {
     }
   };
 
-  const handleZoomIn = () => setZoom((z) => Math.min(16, z + 0.2));
+  const handleZoomIn = () => {
+    const maxZoom = getCanvasSettings().maxZoomLevel;
+    setZoom((z) => Math.min(maxZoom, z + 0.2));
+  };
   const handleZoomOut = () => setZoom((z) => Math.max(0.2, z - 0.2));
   const handleResetView = () => {
     setZoom(1);

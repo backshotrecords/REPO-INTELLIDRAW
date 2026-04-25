@@ -429,3 +429,24 @@ export async function apiUpdateSoundConfig(opts: {
   return data;
 }
 
+// ===== Admin Canvas Config =====
+
+export async function apiGetCanvasConfig() {
+  const res = await apiFetch("/admin/canvas-config");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch canvas config");
+  return data;
+}
+
+export async function apiUpdateCanvasConfig(opts: {
+  maxZoomLevel?: number;
+}) {
+  const res = await apiFetch("/admin/canvas-config", {
+    method: "PUT",
+    body: JSON.stringify(opts),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update canvas config");
+  return data;
+}
+

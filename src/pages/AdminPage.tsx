@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig } from "../lib/api";
+import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig } from "../lib/api";
 
 // ─── Config Module Registry ─────────────────────────────
 // Add new config modules here — the sidebar auto-populates from this array.
 const CONFIG_MODULES: { key: string; label: string; icon: string }[] = [
   { key: "sound",  label: "Sound Effects",       icon: "volume_up" },
+  { key: "canvas", label: "Canvas Mechanics",    icon: "zoom_in" },
   { key: "rules",  label: "Sanitization Rules",  icon: "rule" },
 ];
 
@@ -49,6 +50,10 @@ export default function AdminPage() {
   const canvasFileRef = useRef<HTMLInputElement | null>(null);
   const voiceFileRef = useRef<HTMLInputElement | null>(null);
   const volumeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Canvas settings state
+  const [maxZoomLevel, setMaxZoomLevel] = useState<number>(16);
+  const zoomDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ─── Sidebar active-section tracking ───────────────────
   const [activeSection, setActiveSection] = useState<string>(CONFIG_MODULES[0].key);
@@ -99,9 +104,19 @@ export default function AdminPage() {
     }
     loadRules();
     loadSoundConfig();
+    loadCanvasConfig();
   }, [user, navigate]);
 
   // ─── Data loaders ──────────────────────────────────────
+
+  const loadCanvasConfig = async () => {
+    try {
+      const data = await apiGetCanvasConfig();
+      setMaxZoomLevel(data.maxZoomLevel ?? 16);
+    } catch (err) {
+      console.error("Failed to load canvas config:", err);
+    }
+  };
 
   const loadSoundConfig = async () => {
     try {
@@ -203,6 +218,15 @@ export default function AdminPage() {
     } catch {
       setSoundSettings((prev) => ({ ...prev, enabled: !newEnabled }));
     }
+  };
+
+  const handleMaxZoomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setMaxZoomLevel(val);
+    if (zoomDebounceRef.current) clearTimeout(zoomDebounceRef.current);
+    zoomDebounceRef.current = setTimeout(async () => {
+      try { await apiUpdateCanvasConfig({ maxZoomLevel: val }); } catch (err) { console.error("Failed to save max zoom:", err); }
+    }, 400);
   };
 
   const handlePreview = (type: "canvas" | "voice") => {
@@ -528,6 +552,53 @@ export default function AdminPage() {
                     isCustom: isVoiceCustom,
                     fileRef: voiceFileRef,
                   })}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ═══ Canvas Mechanics (collapsible) ═══════════════════ */}
+          <section
+            id="canvas"
+            ref={(el) => { sectionRefs.current["canvas"] = el; }}
+            className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden scroll-mt-24"
+          >
+            {renderAccordionHeader("canvas", "zoom_in", "Canvas Mechanics", "Configure global constraints for the flowchart rendering surface")}
+
+            <div
+              className="transition-all duration-300 ease-in-out overflow-hidden"
+              style={{
+                maxHeight: expandedSection === "canvas" ? "500px" : "0",
+                opacity: expandedSection === "canvas" ? 1 : 0,
+              }}
+            >
+              <div className="px-5 pb-5 space-y-6 border-t border-outline-variant/10">
+                <div className="flex flex-col gap-2 pt-4">
+                  <div className="flex justify-between items-center">
+                    <label className="text-sm font-semibold text-on-surface">Maximum Zoom Level</label>
+                    <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                      {Math.round(maxZoomLevel * 100)}%
+                    </span>
+                  </div>
+                  <p className="text-xs text-on-surface-variant">
+                    Caps how far users can zoom into the canvas. Increase this if flowcharts contain tiny, dense details.
+                  </p>
+                  <div className="flex items-center gap-3 mt-2">
+                    <span className="text-xs font-medium text-on-surface-variant/60">100%</span>
+                    <input
+                      type="range"
+                      min="1"
+                      max="200"
+                      step="1"
+                      value={maxZoomLevel}
+                      onChange={handleMaxZoomChange}
+                      className="flex-1 h-2 rounded-full appearance-none cursor-pointer accent-primary"
+                      style={{
+                        background: `linear-gradient(to right, var(--md-sys-color-primary, #6750A4) 0%, var(--md-sys-color-primary, #6750A4) ${((maxZoomLevel - 1) / 199) * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) ${((maxZoomLevel - 1) / 199) * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) 100%)`,
+                      }}
+                    />
+                    <span className="text-xs font-medium text-on-surface-variant/60">20000%</span>
+                  </div>
                 </div>
               </div>
             </div>
