@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
 import { useAuth } from "../hooks/useAuth";
 import {
   apiListSkills, apiCreateSkill, apiUpdateSkill, apiDeleteSkill,
   apiGetMarketplace, apiInstallSkill, apiPublishSkill,
-  apiGetSharedWithMe, apiShareSkill, apiUnshareSkill,
+  apiGetSharedWithMe, apiShareSkill,
   apiListGroups,
 } from "../lib/api";
 import type { SkillNote, UserGroup } from "../types";
