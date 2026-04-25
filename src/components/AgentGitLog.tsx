@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
-import type { ChatMessage, CanvasCommit } from "../types";
+import type { ChatMessage, CanvasCommit, UserGroup, GroupMember } from "../types";
 import ModelPicker from "./ModelPicker";
-import UserGroupsDialog from "./UserGroupsDialog";
+import { useAuth } from "../hooks/useAuth";
+import {
+  apiListGroups, apiCreateGroup, apiUpdateGroup, apiDeleteGroup,
+  apiAddGroupMember, apiRemoveGroupMember,
+} from "../lib/api";
 
 interface AgentGitLogProps {
   chatHistory: ChatMessage[];
@@ -57,10 +61,57 @@ export default function AgentGitLog({
   publishing,
   onPublishToggle,
 }: AgentGitLogProps) {
-  const [sidebarView, setSidebarView] = useState<"chat" | "tree">("chat");
+  const { user } = useAuth();
+  const [sidebarView, setSidebarView] = useState<"chat" | "tree" | "groups">("chat");
   const [expandedPills, setExpandedPills] = useState<Record<number, boolean>>({});
   const [menuOpen, setMenuOpen] = useState(false);
-  const [showGroups, setShowGroups] = useState(false);
+
+  // Groups inline state
+  const [groups, setGroups] = useState<UserGroup[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [addingToGroup, setAddingToGroup] = useState<string | null>(null);
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberMsg, setMemberMsg] = useState("");
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editGroupName, setEditGroupName] = useState("");
+
+  // Groups handlers
+  const loadGroups = useCallback(async () => {
+    setGroupsLoading(true);
+    try { setGroups(await apiListGroups()); } catch { /* ignore */ }
+    finally { setGroupsLoading(false); }
+  }, []);
+
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) return;
+    try { await apiCreateGroup(newGroupName.trim()); setNewGroupName(""); setCreatingGroup(false); loadGroups(); }
+    catch (err) { console.error(err); }
+  };
+
+  const handleDeleteGroup = async (id: string) => {
+    if (!confirm("Delete this group?")) return;
+    try { await apiDeleteGroup(id); loadGroups(); } catch (err) { console.error(err); }
+  };
+
+  const handleUpdateGroup = async (id: string) => {
+    if (!editGroupName.trim()) return;
+    try { await apiUpdateGroup(id, editGroupName.trim()); setEditingGroupId(null); loadGroups(); }
+    catch (err) { console.error(err); }
+  };
+
+  const handleAddMember = async (groupId: string) => {
+    if (!memberEmail.trim()) return;
+    setMemberMsg("");
+    try { await apiAddGroupMember(groupId, memberEmail.trim()); setMemberEmail(""); setMemberMsg("✅ Added!"); loadGroups(); }
+    catch (err) { setMemberMsg(`❌ ${err instanceof Error ? err.message : "Failed"}`); }
+  };
+
+  const handleRemoveMember = async (groupId: string, userId: string) => {
+    try { await apiRemoveGroupMember(groupId, userId); loadGroups(); } catch (err) { console.error(err); }
+  };
 
   // Share toast
   const [shareCopied, setShareCopied] = useState(false);
@@ -226,10 +277,14 @@ export default function AgentGitLog({
       <div className="px-5 py-4 border-b border-outline-variant/10 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="relative p-1.5 text-on-surface-variant">
-            <span className="material-symbols-outlined text-lg">account_tree</span>
+            <span className="material-symbols-outlined text-lg">
+              {sidebarView === "chat" ? "psychology" : sidebarView === "tree" ? "account_tree" : "groups"}
+            </span>
             <div className="absolute top-1 right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white" />
           </div>
-          <span className="font-bold text-sm text-on-surface tracking-tight">Agent Git Log</span>
+          <span className="font-bold text-sm text-on-surface tracking-tight">
+            {sidebarView === "chat" ? "Agent Log" : sidebarView === "tree" ? "Git Tree" : "Groups"}
+          </span>
         </div>
         <div className="flex items-center gap-0.5 -mr-1">
           {/* Publish duplicate */}
@@ -313,8 +368,10 @@ export default function AgentGitLog({
                 </button>
                 <div className="h-px bg-outline-variant/10 mx-2 my-1" />
                 <button
-                  onClick={() => { setShowGroups(true); setMenuOpen(false); }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-on-surface hover:bg-surface-container-high/40 transition-colors"
+                  onClick={() => { setSidebarView("groups"); setMenuOpen(false); loadGroups(); }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+                    sidebarView === "groups" ? "text-primary bg-primary/5" : "text-on-surface hover:bg-surface-container-high/40"
+                  }`}
                 >
                   <span className="material-symbols-outlined text-base text-on-surface-variant">groups</span>
                   User Groups
@@ -462,6 +519,143 @@ export default function AgentGitLog({
               )}
               <div ref={chatEndRef} />
             </div>
+          ) : sidebarView === "groups" ? (
+            /* ── Groups View ── */
+            <div className="flex flex-col gap-3 pt-4">
+              {groupsLoading ? (
+                <div className="flex flex-col items-center justify-center min-h-[200px] gap-3">
+                  <span className="material-symbols-outlined text-xl text-primary animate-spin">progress_activity</span>
+                </div>
+              ) : groups.length === 0 && !creatingGroup ? (
+                <div className="flex flex-col items-center justify-center min-h-[200px] gap-3 text-on-surface-variant/40">
+                  <span className="material-symbols-outlined text-3xl">group_add</span>
+                  <p className="text-sm font-medium">No groups yet</p>
+                  <p className="text-xs text-center max-w-[200px]">Create a group to share skill notes with multiple users at once</p>
+                </div>
+              ) : (
+                groups.map(group => {
+                  const isOwner = group.owner_id === user?.id;
+                  const isExpanded = expandedGroupId === group.id;
+                  const isEditing = editingGroupId === group.id;
+                  return (
+                    <div key={group.id} className="border border-outline-variant/15 rounded-xl overflow-hidden">
+                      <div className="flex items-center gap-3 px-3 py-2.5 bg-surface-container-lowest cursor-pointer hover:bg-surface-container-low transition-colors"
+                        onClick={() => setExpandedGroupId(isExpanded ? null : group.id)}>
+                        <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          <span className="material-symbols-outlined text-primary text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>group</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          {isEditing ? (
+                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                              <input value={editGroupName} onChange={e => setEditGroupName(e.target.value)} autoFocus
+                                onKeyDown={e => e.key === "Enter" && handleUpdateGroup(group.id)}
+                                className="flex-1 bg-surface-container-high rounded-lg px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-secondary" />
+                              <button onClick={() => handleUpdateGroup(group.id)} className="text-primary text-[10px] font-bold">Save</button>
+                              <button onClick={() => setEditingGroupId(null)} className="text-on-surface-variant text-[10px]">✕</button>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="text-xs font-semibold text-on-surface truncate block">{group.name}</span>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[10px] text-on-surface-variant/50">{group.member_count || 0} members</span>
+                                {isOwner && <span className="text-[8px] font-bold text-primary uppercase bg-primary/10 px-1 py-0.5 rounded-full">owner</span>}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+                          {isOwner && (
+                            <>
+                              <button onClick={() => { setEditingGroupId(group.id); setEditGroupName(group.name); }}
+                                className="p-1 text-on-surface-variant/40 hover:text-primary rounded-md transition-colors">
+                                <span className="material-symbols-outlined text-xs">edit</span>
+                              </button>
+                              <button onClick={() => handleDeleteGroup(group.id)}
+                                className="p-1 text-on-surface-variant/40 hover:text-error rounded-md transition-colors">
+                                <span className="material-symbols-outlined text-xs">delete</span>
+                              </button>
+                            </>
+                          )}
+                          <span className={`material-symbols-outlined text-on-surface-variant/40 text-sm transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}>
+                            expand_more
+                          </span>
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <div className="border-t border-outline-variant/10 px-3 py-2.5 space-y-1.5 bg-white">
+                          {(group.members || []).length === 0 ? (
+                            <p className="text-[10px] text-on-surface-variant/50 italic py-1">No members yet</p>
+                          ) : (
+                            (group.members || []).map((m: GroupMember) => (
+                              <div key={m.id} className="flex items-center gap-2.5 py-1 group/member">
+                                <div className="w-6 h-6 rounded-full bg-surface-container-high flex items-center justify-center text-[10px] font-bold text-on-surface-variant">
+                                  {(m.display_name || m.email || "?").charAt(0).toUpperCase()}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-[11px] font-medium text-on-surface truncate block">{m.display_name || "Unknown"}</span>
+                                  <span className="text-[9px] text-on-surface-variant/50 truncate block">{m.email}</span>
+                                </div>
+                                {isOwner && (
+                                  <button onClick={() => handleRemoveMember(group.id, m.user_id)}
+                                    className="opacity-0 group-hover/member:opacity-100 p-0.5 text-on-surface-variant/40 hover:text-error rounded-md transition-all">
+                                    <span className="material-symbols-outlined text-xs">person_remove</span>
+                                  </button>
+                                )}
+                              </div>
+                            ))
+                          )}
+                          {isOwner && (
+                            <div className="pt-1.5 border-t border-outline-variant/10">
+                              {addingToGroup === group.id ? (
+                                <div className="space-y-1.5">
+                                  <div className="flex gap-1.5">
+                                    <input value={memberEmail} onChange={e => setMemberEmail(e.target.value)}
+                                      placeholder="user@example.com" autoFocus
+                                      onKeyDown={e => e.key === "Enter" && handleAddMember(group.id)}
+                                      className="flex-1 bg-surface-container-high rounded-lg px-2 py-1.5 text-[10px] outline-none focus:ring-2 focus:ring-secondary" />
+                                    <button onClick={() => handleAddMember(group.id)}
+                                      className="px-2 py-1.5 text-[10px] font-bold bg-primary text-white rounded-lg active:scale-95 transition-all">Add</button>
+                                  </div>
+                                  {memberMsg && <p className="text-[10px]">{memberMsg}</p>}
+                                  <button onClick={() => { setAddingToGroup(null); setMemberMsg(""); }}
+                                    className="text-[10px] text-on-surface-variant hover:text-on-surface">Cancel</button>
+                                </div>
+                              ) : (
+                                <button onClick={() => { setAddingToGroup(group.id); setMemberEmail(""); setMemberMsg(""); }}
+                                  className="flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/80 transition-colors">
+                                  <span className="material-symbols-outlined text-xs">person_add</span>Add Member
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+              {/* Create group */}
+              {creatingGroup ? (
+                <div className="border border-primary/20 rounded-xl px-3 py-2.5 bg-primary/5">
+                  <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)}
+                    placeholder="Group name" autoFocus
+                    onKeyDown={e => e.key === "Enter" && handleCreateGroup()}
+                    className="w-full bg-white rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-secondary mb-2" />
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => setCreatingGroup(false)} className="text-[10px] font-semibold text-on-surface-variant">Cancel</button>
+                    <button onClick={handleCreateGroup} disabled={!newGroupName.trim()}
+                      className="px-3 py-1 text-[10px] font-bold bg-primary text-white rounded-lg disabled:opacity-40 active:scale-95 transition-all">Create</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setCreatingGroup(true)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2.5 border-2 border-dashed border-outline-variant/20 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-primary hover:border-primary/30 transition-colors">
+                  <span className="material-symbols-outlined text-sm">add</span>
+                  Create Group
+                </button>
+              )}
+              <div ref={chatEndRef} />
+            </div>
           ) : (
             /* ── Git Tree View ── */
             <div className="flex flex-col gap-1 pt-4">
@@ -542,8 +736,6 @@ export default function AgentGitLog({
 
       {/* Model picker — always visible at bottom */}
       <ModelPicker />
-
-      <UserGroupsDialog isOpen={showGroups} onClose={() => setShowGroups(false)} />
     </>
   );
 }
