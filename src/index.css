@@ -64,8 +64,35 @@
 
   /* Canvas dot grid background */
   .canvas-grid {
-    background-image: radial-gradient(circle at 1px 1px, #c4c6cd 1px, transparent 0);
-    background-size: 24px 24px;
+    background-image: radial-gradient(circle at 2px 2px, #d1d5db 2px, transparent 0);
+    background-size: 16px 16px;
+  }
+
+  .canvas-grid::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    /* Larger dots for the active state */
+    background-image: radial-gradient(circle at 2px 2px, #9ca3af 3px, transparent 0);
+    background-size: 16px 16px;
+    
+    /* Radial mask centered on mouse, fades out */
+    -webkit-mask-image: radial-gradient(circle, black 0%, transparent 100%);
+    mask-image: radial-gradient(circle, black 0%, transparent 100%);
+    
+    -webkit-mask-size: 240px 240px;
+    mask-size: 240px 240px;
+    
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    
+    /* Position mask based on mouse coordinates injected via React */
+    -webkit-mask-position: calc(var(--mouse-x, -1000px) - 120px) calc(var(--mouse-y, -1000px) - 120px);
+    mask-position: calc(var(--mouse-x, -1000px) - 120px) calc(var(--mouse-y, -1000px) - 120px);
+    
+    /* Trailing effect on move */
+    transition: mask-position 0.25s ease-out, -webkit-mask-position 0.25s ease-out;
   }
 
   /* Hide scrollbar */

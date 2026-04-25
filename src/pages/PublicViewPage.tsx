@@ -57,6 +57,14 @@ export default function PublicViewPage() {
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    if (canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      canvasRef.current.style.setProperty('--mouse-x', `${x}px`);
+      canvasRef.current.style.setProperty('--mouse-y', `${y}px`);
+    }
+
     if (!isPanningRef.current) return;
     const dx = e.clientX - lastPanPos.current.x;
     const dy = e.clientY - lastPanPos.current.y;
@@ -68,6 +76,13 @@ export default function PublicViewPage() {
     try { canvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* already released */ }
     isPanningRef.current = false;
     setIsPanningVisual(false);
+  };
+
+  const handlePointerLeave = () => {
+    if (canvasRef.current) {
+      canvasRef.current.style.setProperty('--mouse-x', `-1000px`);
+      canvasRef.current.style.setProperty('--mouse-y', `-1000px`);
+    }
   };
 
   const handleZoomIn = () => setZoom((z) => Math.min(16, z + 0.2));
@@ -166,6 +181,7 @@ export default function PublicViewPage() {
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
+            onPointerLeave={handlePointerLeave}
             style={{ cursor: isPanningVisual ? "grabbing" : "grab" }}
           >
             {/* Zoom controls */}

@@ -494,6 +494,14 @@ export default function WorkspacePage() {
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    if (canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      canvasRef.current.style.setProperty('--mouse-x', `${x}px`);
+      canvasRef.current.style.setProperty('--mouse-y', `${y}px`);
+    }
+
     if (!activePointers.current.has(e.pointerId)) return;
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -525,6 +533,13 @@ export default function WorkspacePage() {
     if (activePointers.current.size === 0) {
       isPanningRef.current = false;
       setIsPanningVisual(false);
+    }
+  };
+
+  const handlePointerLeave = () => {
+    if (canvasRef.current) {
+      canvasRef.current.style.setProperty('--mouse-x', `-1000px`);
+      canvasRef.current.style.setProperty('--mouse-y', `-1000px`);
     }
   };
 
@@ -716,6 +731,7 @@ export default function WorkspacePage() {
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerUp}
+              onPointerLeave={handlePointerLeave}
               style={{ cursor: isPanningVisual ? "grabbing" : "grab" }}
             >
               {/* Zoom controls */}
