@@ -276,7 +276,6 @@ function SkillCard({
 // ── Main Page ──
 export default function SkillsMarketplacePage() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"marketplace" | "shared" | "library">("library");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
