@@ -14,7 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { mermaidCode, errorMsg, chatHistory } = req.body;
+  const { mermaidCode, errorMsg, chatHistory, canvasId } = req.body;
   if (!mermaidCode || !errorMsg) {
     return res.status(400).json({ error: "Missing required fields" });
   }
@@ -55,6 +55,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const openai = new OpenAI({ apiKey });
 
+    // Fetch active skill notes
+    let skillText = "";
+    if (canvasId) {
+      try {
+        const { data: activeSkills } = await supabase.from("skill_note_attachments")
+          .select("skill_notes(title, instruction_text)")
+          .eq("user_id", authPayload.userId).eq("is_active", true).eq("trigger_mode", "automatic")
+          .or(`canvas_id.eq.${canvasId},scope.eq.global`);
+        const skills = (activeSkills || []).filter((d: Record<string, unknown>) => d.skill_notes);
+        if (skills.length > 0) {
+          skillText = "\n\nACTIVE SKILL NOTES (also follow these preferences):\n" +
+            skills.map((s: Record<string, unknown>, i: number) => {
+              const sn = s.skill_notes as Record<string, unknown>;
+              return `${i + 1}. ${sn.title}: ${sn.instruction_text}`;
+            }).join("\n");
+        }
+      } catch { /* non-fatal */ }
+    }
+
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       {
         role: "system",
@@ -73,7 +92,7 @@ THE PARSER ERROR WAS:
 ${errorMsg}
 
 Please fix the specific error mentioned above.
-ALSO: Check the rest of the code for any standard syntax issues that typically cause Mermaid to fail (e.g., unescaped parentheses in node string values).${rulesText}`
+ALSO: Check the rest of the code for any standard syntax issues that typically cause Mermaid to fail (e.g., unescaped parentheses in node string values).${rulesText}${skillText}`
       }
     ];
 

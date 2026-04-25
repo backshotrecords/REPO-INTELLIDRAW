@@ -626,7 +626,7 @@ export async function apiGetActiveSkills(canvasId: string) {
 export async function apiTriggerSkill(skillNoteId: string, canvasId: string) {
   const res = await apiFetch("/skills/trigger", {
     method: "POST",
-    body: JSON.stringify({ skillNoteId, canvasId }),
+    body: JSON.stringify({ skill_note_id: skillNoteId, canvas_id: canvasId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to trigger skill");
@@ -697,8 +697,9 @@ export async function apiAddGroupMember(groupId: string, email: string) {
 }
 
 export async function apiRemoveGroupMember(groupId: string, userId: string) {
-  const res = await apiFetch(`/groups/${groupId}/members/${userId}`, {
+  const res = await apiFetch(`/groups/${groupId}/members`, {
     method: "DELETE",
+    body: JSON.stringify({ userId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to remove member");

@@ -14,7 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { message, mermaidCode, chatHistory } = req.body;
+  const { message, mermaidCode, chatHistory, canvasId } = req.body;
 
   if (!message) {
     return res.status(400).json({ error: "Message is required" });
@@ -49,6 +49,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const openai = new OpenAI({ apiKey });
 
+    // Fetch active skill notes for this canvas
+    let skillInstructions = "";
+    if (canvasId) {
+      try {
+        const { data: activeSkills } = await supabase.from("skill_note_attachments")
+          .select("skill_notes(title, instruction_text)")
+          .eq("user_id", authPayload.userId).eq("is_active", true).eq("trigger_mode", "automatic")
+          .or(`canvas_id.eq.${canvasId},scope.eq.global`);
+        const skills = (activeSkills || []).filter((d: Record<string, unknown>) => d.skill_notes);
+        if (skills.length > 0) {
+          skillInstructions = "\n\nACTIVE SKILL NOTES (follow these as additional instructions and preferences):\n" +
+            skills.map((s: Record<string, unknown>, i: number) => {
+              const sn = s.skill_notes as Record<string, unknown>;
+              return `--- Skill ${i + 1}: ${sn.title} ---\n${sn.instruction_text}`;
+            }).join("\n\n");
+        }
+      } catch { /* non-fatal */ }
+    }
+
     // Build conversation history for context
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       {
@@ -67,7 +86,7 @@ INSTRUCTIONS:
 4. Use valid Mermaid syntax (flowchart TD, graph LR, etc.)
 5. Keep your conversational response concise but helpful
 6. If the user asks for changes, apply them and show the updated code
-7. Use descriptive node labels and proper flow connections`,
+7. Use descriptive node labels and proper flow connections${skillInstructions}`,
       },
     ];
 

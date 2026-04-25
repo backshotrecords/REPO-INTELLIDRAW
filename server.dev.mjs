@@ -1035,9 +1035,9 @@ app.get("/api/skills", requireAuth(async (req, res) => {
       .from("skill_notes").select("*")
       .eq("owner_id", req.auth.userId)
       .order("updated_at", { ascending: false });
-    if (error) return res.status(500).json({ error: "Failed to fetch skills" });
+    if (error) { console.error("GET /api/skills error:", error); return res.status(500).json({ error: error.message || "Failed to fetch skills" }); }
     return res.json({ skills: data || [] });
-  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+  } catch (err) { console.error("GET /api/skills catch:", err); return res.status(500).json({ error: "Internal server error" }); }
 }));
 
 app.post("/api/skills", requireAuth(async (req, res) => {
@@ -1047,7 +1047,7 @@ app.post("/api/skills", requireAuth(async (req, res) => {
     const { data, error } = await supabase.from("skill_notes")
       .insert({ owner_id: req.auth.userId, title, description: description || "", instruction_text, category: category || "general" })
       .select("*").single();
-    if (error) return res.status(500).json({ error: "Failed to create skill" });
+    if (error) { console.error("POST /api/skills error:", error); return res.status(500).json({ error: error.message || "Failed to create skill" }); }
     return res.status(201).json({ skill: data });
   } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
 }));
@@ -1317,7 +1317,7 @@ app.post("/api/skills/:id/sync", requireAuth(async (req, res) => {
 // MANUAL SKILL TRIGGER
 // ============================================================
 app.post("/api/skills/trigger", requireAuth(async (req, res) => {
-  const { skillNoteId, canvasId } = req.body || {};
+  const { skill_note_id: skillNoteId, canvas_id: canvasId } = req.body || {};
   if (!skillNoteId || !canvasId) return res.status(400).json({ error: "skillNoteId and canvasId required" });
   try {
     const { data: user } = await supabase.from("users").select("api_key_encrypted, active_model_id").eq("id", req.auth.userId).single();
@@ -1378,7 +1378,7 @@ app.post("/api/groups", requireAuth(async (req, res) => {
   if (!name) return res.status(400).json({ error: "Group name is required" });
   try {
     const { data, error } = await supabase.from("user_groups").insert({ name, owner_id: req.auth.userId }).select("*").single();
-    if (error) return res.status(500).json({ error: "Failed to create group" });
+    if (error) { console.error("POST /api/groups error:", error); return res.status(500).json({ error: error.message || "Failed to create group" }); }
     return res.status(201).json({ group: { ...data, members: [], member_count: 0 } });
   } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
 }));
@@ -1415,11 +1415,13 @@ app.post("/api/groups/:id/members", requireAuth(async (req, res) => {
   } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
 }));
 
-app.delete("/api/groups/:id/members/:userId", requireAuth(async (req, res) => {
+app.delete("/api/groups/:id/members/:userId?", requireAuth(async (req, res) => {
   try {
+    const userId = req.params.userId || req.body?.userId;
+    if (!userId) return res.status(400).json({ error: "userId is required" });
     const { data: group } = await supabase.from("user_groups").select("id").eq("id", req.params.id).eq("owner_id", req.auth.userId).single();
     if (!group) return res.status(403).json({ error: "Only group owners can remove members" });
-    const { error } = await supabase.from("group_members").delete().eq("group_id", req.params.id).eq("user_id", req.params.userId);
+    const { error } = await supabase.from("group_members").delete().eq("group_id", req.params.id).eq("user_id", userId);
     if (error) return res.status(500).json({ error: "Failed to remove member" });
     return res.json({ success: true });
   } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
