@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 const tabs = [
   { id: "canvases", label: "Canvases", icon: "dashboard", path: "/dashboard" },
   { id: "draw", label: "Draw", icon: "draw", path: "/canvas/new" },
+  { id: "skills", label: "Skills", icon: "auto_awesome", path: "/skills" },
   { id: "settings", label: "Settings", icon: "settings", path: "/settings" },
 ];
 
@@ -12,6 +13,7 @@ export default function BottomNav() {
 
   const getActiveTab = () => {
     if (location.pathname === "/settings") return "settings";
+    if (location.pathname === "/skills") return "skills";
     if (location.pathname.startsWith("/canvas")) return "draw";
     return "canvases";
   };

@@ -176,11 +176,12 @@ export async function apiCreateCommit(
 export async function apiChat(
   message: string,
   mermaidCode: string,
-  chatHistory: Array<{ role: string; content: string }>
+  chatHistory: Array<{ role: string; content: string }>,
+  canvasId?: string
 ) {
   const res = await apiFetch("/chat", {
     method: "POST",
-    body: JSON.stringify({ message, mermaidCode, chatHistory }),
+    body: JSON.stringify({ message, mermaidCode, chatHistory, canvasId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Chat failed");
@@ -450,3 +451,256 @@ export async function apiUpdateCanvasConfig(opts: {
   return data;
 }
 
+// ===== Skill Notes =====
+
+export async function apiListSkills() {
+  const res = await apiFetch("/skills");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch skills");
+  return data.skills;
+}
+
+export async function apiCreateSkill(skill: {
+  title: string;
+  description?: string;
+  instruction_text: string;
+  category?: string;
+}) {
+  const res = await apiFetch("/skills", {
+    method: "POST",
+    body: JSON.stringify(skill),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to create skill");
+  return data.skill;
+}
+
+export async function apiUpdateSkill(
+  id: string,
+  updates: {
+    title?: string;
+    description?: string;
+    instruction_text?: string;
+    category?: string;
+  }
+) {
+  const res = await apiFetch(`/skills/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update skill");
+  return data.skill;
+}
+
+export async function apiDeleteSkill(id: string) {
+  const res = await apiFetch(`/skills/${id}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to delete skill");
+  return data;
+}
+
+// ===== Skills Marketplace =====
+
+export async function apiGetMarketplace(opts?: {
+  search?: string;
+  category?: string;
+  page?: number;
+}) {
+  const params = new URLSearchParams();
+  if (opts?.search) params.set("search", opts.search);
+  if (opts?.category) params.set("category", opts.category);
+  if (opts?.page) params.set("page", String(opts.page));
+  const qs = params.toString();
+  const res = await apiFetch(`/skills/marketplace${qs ? `?${qs}` : ""}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch marketplace");
+  return data;
+}
+
+export async function apiInstallSkill(id: string) {
+  const res = await apiFetch(`/skills/${id}/install`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to install skill");
+  return data.skill;
+}
+
+export async function apiPublishSkill(id: string, publish: boolean) {
+  const res = await apiFetch(`/skills/${id}/publish`, {
+    method: "PUT",
+    body: JSON.stringify({ is_published: publish }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update publish state");
+  return data.skill;
+}
+
+// ===== Skills Sharing =====
+
+export async function apiShareSkill(
+  id: string,
+  target: { email?: string; group_id?: string }
+) {
+  const res = await apiFetch(`/skills/${id}/share`, {
+    method: "POST",
+    body: JSON.stringify(target),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to share skill");
+  return data;
+}
+
+export async function apiUnshareSkill(
+  id: string,
+  target: { user_id?: string; group_id?: string }
+) {
+  const res = await apiFetch(`/skills/${id}/share`, {
+    method: "DELETE",
+    body: JSON.stringify(target),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to unshare skill");
+  return data;
+}
+
+export async function apiGetSharedWithMe() {
+  const res = await apiFetch("/skills/shared-with-me");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch shared skills");
+  return data.skills;
+}
+
+// ===== Skill Attachments =====
+
+export async function apiGetSkillAttachments(canvasId?: string) {
+  const qs = canvasId ? `?canvasId=${canvasId}` : "";
+  const res = await apiFetch(`/skills/attachments${qs}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch attachments");
+  return data.attachments;
+}
+
+export async function apiAttachSkill(opts: {
+  skill_note_id: string;
+  canvas_id?: string;
+  scope: "local" | "global";
+  trigger_mode: "automatic" | "manual";
+}) {
+  const res = await apiFetch("/skills/attachments", {
+    method: "POST",
+    body: JSON.stringify(opts),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to attach skill");
+  return data.attachment;
+}
+
+export async function apiToggleAttachment(id: string, is_active: boolean) {
+  const res = await apiFetch(`/skills/attachments/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ is_active }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to toggle attachment");
+  return data.attachment;
+}
+
+export async function apiDetachSkill(id: string) {
+  const res = await apiFetch(`/skills/attachments/${id}`, {
+    method: "DELETE",
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to detach skill");
+  return data;
+}
+
+export async function apiGetActiveSkills(canvasId: string) {
+  const res = await apiFetch(`/skills/active?canvasId=${canvasId}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch active skills");
+  return data.instructions;
+}
+
+// ===== Manual Skill Trigger =====
+
+export async function apiTriggerSkill(skillNoteId: string, canvasId: string) {
+  const res = await apiFetch("/skills/trigger", {
+    method: "POST",
+    body: JSON.stringify({ skillNoteId, canvasId }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to trigger skill");
+  return data;
+}
+
+// ===== Skill Version Sync =====
+
+export async function apiCheckSkillUpdate(id: string) {
+  const res = await apiFetch(`/skills/${id}/check-update`);
+  const data = await res.json();
+  if (!res.ok)
+    throw new Error(data.error || "Failed to check for skill update");
+  return data;
+}
+
+export async function apiSyncSkill(id: string) {
+  const res = await apiFetch(`/skills/${id}/sync`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to sync skill");
+  return data.skill;
+}
+
+// ===== User Groups =====
+
+export async function apiListGroups() {
+  const res = await apiFetch("/groups");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch groups");
+  return data.groups;
+}
+
+export async function apiCreateGroup(name: string) {
+  const res = await apiFetch("/groups", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to create group");
+  return data.group;
+}
+
+export async function apiUpdateGroup(id: string, name: string) {
+  const res = await apiFetch(`/groups/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ name }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update group");
+  return data.group;
+}
+
+export async function apiDeleteGroup(id: string) {
+  const res = await apiFetch(`/groups/${id}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to delete group");
+  return data;
+}
+
+export async function apiAddGroupMember(groupId: string, email: string) {
+  const res = await apiFetch(`/groups/${groupId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to add member");
+  return data.member;
+}
+
+export async function apiRemoveGroupMember(groupId: string, userId: string) {
+  const res = await apiFetch(`/groups/${groupId}/members/${userId}`, {
+    method: "DELETE",
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to remove member");
+  return data;
+}

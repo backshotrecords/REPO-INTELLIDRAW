@@ -4,6 +4,7 @@ import MermaidRenderer from "../components/MermaidRenderer";
 import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
+import CanvasSkillsPanel from "../components/CanvasSkillsPanel";
 import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit } from "../lib/api";
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
@@ -34,6 +35,7 @@ export default function WorkspacePage() {
   useEffect(() => { mermaidCodeRef.current = mermaidCode; }, [mermaidCode]);
   useEffect(() => { chatLoadingRef.current = chatLoading; }, [chatLoading]);
   const [showChat, setShowChat] = useState(false);
+  const [showSkillsPanel, setShowSkillsPanel] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [isFixing, setIsFixing] = useState(false);
@@ -378,7 +380,7 @@ export default function WorkspacePage() {
     setChatLoading(true);
 
     try {
-      const result = await apiChat(text.trim(), mermaidCodeRef.current, newHistory);
+      const result = await apiChat(text.trim(), mermaidCodeRef.current, newHistory, canvasId || undefined);
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
@@ -767,6 +769,14 @@ export default function WorkspacePage() {
                 <div className="text-[10px] font-bold text-on-surface-variant/50 text-center">
                   {Math.round(zoom * 100)}%
                 </div>
+                {/* Skills Button */}
+                <button
+                  onClick={() => setShowSkillsPanel(prev => !prev)}
+                  className={`p-3 bg-white shadow-xl border border-outline-variant/30 rounded-full hover:bg-surface-container text-on-surface-variant material-symbols-outlined text-xl transition-all ${showSkillsPanel ? "ring-2 ring-primary text-primary" : ""}`}
+                  title="Canvas Skills"
+                >
+                  auto_awesome
+                </button>
               </div>
 
               {/* Mobile floating action buttons (mic + paperclip) — right side, same layer as zoom */}
@@ -805,6 +815,29 @@ export default function WorkspacePage() {
                   isFixing={isFixing}
                 />
               </div>
+
+              {/* Skills Panel */}
+              {canvasId && (
+                <CanvasSkillsPanel
+                  canvasId={canvasId}
+                  isOpen={showSkillsPanel}
+                  onClose={() => setShowSkillsPanel(false)}
+                  onSkillTriggered={(result) => {
+                    if (result.updatedMermaidCode) {
+                      setMermaidCode(result.updatedMermaidCode);
+                      playCanvasSound();
+                      autoSave(result.updatedMermaidCode);
+                      createCommit(result.updatedMermaidCode, "ai_chat", `Skill: ${result.skillTitle}`);
+                    }
+                    const skillMsg: ChatMessage = {
+                      role: "assistant",
+                      content: result.response || `⚡ Applied skill "${result.skillTitle}"`,
+                      timestamp: new Date().toISOString(),
+                    };
+                    setChatHistory(prev => [...prev, skillMsg]);
+                  }}
+                />
+              )}
             </div>
           ) : (
             /* Code editor view */

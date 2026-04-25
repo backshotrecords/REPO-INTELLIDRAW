@@ -385,7 +385,7 @@ app.post("/api/canvases/suggest-name", requireAuth(async (req, res) => {
 // CHAT ROUTE
 // ============================================================
 app.post("/api/chat", requireAuth(async (req, res) => {
-  const { message, mermaidCode, chatHistory } = req.body;
+  const { message, mermaidCode, chatHistory, canvasId } = req.body;
   if (!message) return res.status(400).json({ error: "Message is required" });
 
   try {
@@ -407,6 +407,22 @@ app.post("/api/chat", requireAuth(async (req, res) => {
 
     const openai = new OpenAI({ apiKey });
 
+    // Fetch active skill notes for this canvas
+    let skillInstructions = "";
+    if (canvasId) {
+      try {
+        const { data: activeSkills } = await supabase.from("skill_note_attachments")
+          .select("skill_notes(title, instruction_text)")
+          .eq("user_id", req.auth.userId).eq("is_active", true).eq("trigger_mode", "automatic")
+          .or(`canvas_id.eq.${canvasId},scope.eq.global`);
+        const skills = (activeSkills || []).filter(d => d.skill_notes);
+        if (skills.length > 0) {
+          skillInstructions = "\n\nACTIVE SKILL NOTES (follow these as additional instructions and preferences):\n" +
+            skills.map((s, i) => `--- Skill ${i + 1}: ${s.skill_notes.title} ---\n${s.skill_notes.instruction_text}`).join("\n\n");
+        }
+      } catch (skillErr) { console.error("Skill fetch error (non-fatal):", skillErr); }
+    }
+
     const messages = [
       {
         role: "system",
@@ -424,7 +440,7 @@ INSTRUCTIONS:
 4. Use valid Mermaid syntax (flowchart TD, graph LR, etc.)
 5. Keep your conversational response concise but helpful
 6. If the user asks for changes, apply them and show the updated code
-7. Use descriptive node labels and proper flow connections`,
+7. Use descriptive node labels and proper flow connections${skillInstructions}`,
       },
     ];
 
@@ -871,7 +887,7 @@ app.put("/api/admin/sound-config", requireAuth(async (req, res) => {
 // CHAT FIX ROUTE
 // ============================================================
 app.post("/api/chat_fix", requireAuth(async (req, res) => {
-  const { mermaidCode, errorMsg, chatHistory } = req.body;
+  const { mermaidCode, errorMsg, chatHistory, canvasId } = req.body;
   if (!mermaidCode || !errorMsg) return res.status(400).json({ error: "Missing required fields" });
 
   try {
@@ -887,6 +903,22 @@ app.post("/api/chat_fix", requireAuth(async (req, res) => {
 
     const { data: rules } = await supabase.from("sanitization_rules").select("rule_description").eq("is_active", true);
     
+    // Fetch active skill notes
+    let skillText = "";
+    if (canvasId) {
+      try {
+        const { data: activeSkills } = await supabase.from("skill_note_attachments")
+          .select("skill_notes(title, instruction_text)")
+          .eq("user_id", req.auth.userId).eq("is_active", true).eq("trigger_mode", "automatic")
+          .or(`canvas_id.eq.${canvasId},scope.eq.global`);
+        const skills = (activeSkills || []).filter(d => d.skill_notes);
+        if (skills.length > 0) {
+          skillText = "\n\nACTIVE SKILL NOTES (also follow these preferences):\n" +
+            skills.map((s, i) => `${i + 1}. ${s.skill_notes.title}: ${s.skill_notes.instruction_text}`).join("\n");
+        }
+      } catch { /* non-fatal */ }
+    }
+
     let rulesText = "";
     if (rules && rules.length > 0) {
       rulesText = "\n\nAdditionally, you MUST adhere to these global sanitization rules:\n" + 
@@ -913,7 +945,7 @@ THE PARSER ERROR WAS:
 ${errorMsg}
 
 Please fix the specific error mentioned above.
-ALSO: Check the rest of the code for any standard syntax issues that typically cause Mermaid to fail (e.g., unescaped parentheses in node string values).${rulesText}`
+ALSO: Check the rest of the code for any standard syntax issues that typically cause Mermaid to fail (e.g., unescaped parentheses in node string values).${rulesText}${skillText}`
       }
     ];
 
@@ -992,6 +1024,405 @@ app.post("/api/transcribe", upload.single("audio"), requireAuth(async (req, res)
     console.error("Transcription error:", err);
     return res.status(500).json({ error: err.message || "Transcription failed." });
   }
+}));
+
+// ============================================================
+// SKILL NOTES CRUD
+// ============================================================
+app.get("/api/skills", requireAuth(async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("skill_notes").select("*")
+      .eq("owner_id", req.auth.userId)
+      .order("updated_at", { ascending: false });
+    if (error) return res.status(500).json({ error: "Failed to fetch skills" });
+    return res.json({ skills: data || [] });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.post("/api/skills", requireAuth(async (req, res) => {
+  const { title, description, instruction_text, category } = req.body || {};
+  if (!title || !instruction_text) return res.status(400).json({ error: "Title and instruction_text are required" });
+  try {
+    const { data, error } = await supabase.from("skill_notes")
+      .insert({ owner_id: req.auth.userId, title, description: description || "", instruction_text, category: category || "general" })
+      .select("*").single();
+    if (error) return res.status(500).json({ error: "Failed to create skill" });
+    return res.status(201).json({ skill: data });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.put("/api/skills/:id", requireAuth(async (req, res) => {
+  const { title, description, instruction_text, category } = req.body || {};
+  try {
+    const updates = { updated_at: new Date().toISOString() };
+    if (title !== undefined) updates.title = title;
+    if (description !== undefined) updates.description = description;
+    if (instruction_text !== undefined) updates.instruction_text = instruction_text;
+    if (category !== undefined) updates.category = category;
+    // Bump version when instruction changes
+    if (instruction_text !== undefined) {
+      const { data: current } = await supabase.from("skill_notes").select("version").eq("id", req.params.id).eq("owner_id", req.auth.userId).single();
+      if (current) updates.version = (current.version || 1) + 1;
+    }
+    const { data, error } = await supabase.from("skill_notes").update(updates)
+      .eq("id", req.params.id).eq("owner_id", req.auth.userId).select("*").single();
+    if (error || !data) return res.status(404).json({ error: "Skill not found or update failed" });
+    return res.json({ skill: data });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.delete("/api/skills/:id", requireAuth(async (req, res) => {
+  try {
+    const { error } = await supabase.from("skill_notes").delete()
+      .eq("id", req.params.id).eq("owner_id", req.auth.userId);
+    if (error) return res.status(500).json({ error: "Failed to delete skill" });
+    return res.json({ success: true });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+// ============================================================
+// SKILL NOTES MARKETPLACE
+// ============================================================
+app.get("/api/skills/marketplace", requireAuth(async (req, res) => {
+  try {
+    const { search, category, page } = req.query;
+    const pageSize = 30;
+    const offset = ((parseInt(page) || 1) - 1) * pageSize;
+    let query = supabase.from("skill_notes")
+      .select("*, users!skill_notes_owner_id_fkey(display_name, email)", { count: "exact" })
+      .eq("is_published", true)
+      .order("stars", { ascending: false })
+      .range(offset, offset + pageSize - 1);
+    if (search) query = query.ilike("title", `%${search}%`);
+    if (category && category !== "all") query = query.eq("category", category);
+    const { data, error, count } = await query;
+    if (error) return res.status(500).json({ error: "Failed to fetch marketplace" });
+    const skills = (data || []).map(s => ({
+      ...s, owner_display_name: s.users?.display_name, owner_email: s.users?.email, users: undefined
+    }));
+    return res.json({ skills, total: count || 0, page: parseInt(page) || 1, pageSize });
+  } catch (err) { console.error("Marketplace error:", err); return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.post("/api/skills/:id/install", requireAuth(async (req, res) => {
+  try {
+    const { data: source, error: srcErr } = await supabase.from("skill_notes").select("*").eq("id", req.params.id).single();
+    if (srcErr || !source) return res.status(404).json({ error: "Skill not found" });
+    const { data: copy, error } = await supabase.from("skill_notes").insert({
+      owner_id: req.auth.userId, title: source.title, description: source.description,
+      instruction_text: source.instruction_text, category: source.category,
+      source_skill_id: source.id, source_version: source.version,
+    }).select("*").single();
+    if (error) return res.status(500).json({ error: "Failed to install skill" });
+    return res.status(201).json({ skill: copy });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.put("/api/skills/:id/publish", requireAuth(async (req, res) => {
+  const { is_published } = req.body || {};
+  try {
+    const { data, error } = await supabase.from("skill_notes")
+      .update({ is_published: !!is_published, updated_at: new Date().toISOString() })
+      .eq("id", req.params.id).eq("owner_id", req.auth.userId).select("*").single();
+    if (error || !data) return res.status(404).json({ error: "Skill not found" });
+    return res.json({ skill: data });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+// ============================================================
+// SKILL NOTES SHARING
+// ============================================================
+app.post("/api/skills/:id/share", requireAuth(async (req, res) => {
+  const { email, group_id } = req.body || {};
+  if (!email && !group_id) return res.status(400).json({ error: "email or group_id required" });
+  try {
+    const { data: skill } = await supabase.from("skill_notes").select("id").eq("id", req.params.id).eq("owner_id", req.auth.userId).single();
+    if (!skill) return res.status(403).json({ error: "You can only share skills you own" });
+    const shareRow = { skill_note_id: req.params.id, shared_by: req.auth.userId };
+    if (email) {
+      const { data: targetUser } = await supabase.from("users").select("id").eq("email", email.toLowerCase()).single();
+      if (!targetUser) return res.status(404).json({ error: "User not found" });
+      shareRow.shared_with_user_id = targetUser.id;
+    } else {
+      shareRow.shared_with_group_id = group_id;
+    }
+    const { data, error } = await supabase.from("skill_note_shares").insert(shareRow).select("*").single();
+    if (error) { if (error.code === "23505") return res.status(409).json({ error: "Already shared" }); return res.status(500).json({ error: "Failed to share" }); }
+    return res.status(201).json({ share: data });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.delete("/api/skills/:id/share", requireAuth(async (req, res) => {
+  const { user_id, group_id } = req.body || {};
+  try {
+    let query = supabase.from("skill_note_shares").delete()
+      .eq("skill_note_id", req.params.id).eq("shared_by", req.auth.userId);
+    if (user_id) query = query.eq("shared_with_user_id", user_id);
+    if (group_id) query = query.eq("shared_with_group_id", group_id);
+    const { error } = await query;
+    if (error) return res.status(500).json({ error: "Failed to unshare" });
+    return res.json({ success: true });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.get("/api/skills/shared-with-me", requireAuth(async (req, res) => {
+  try {
+    // Direct shares
+    const { data: directShares } = await supabase.from("skill_note_shares")
+      .select("skill_note_id, skill_notes(*,users!skill_notes_owner_id_fkey(display_name,email))")
+      .eq("shared_with_user_id", req.auth.userId);
+    // Group shares
+    const { data: myGroups } = await supabase.from("group_members").select("group_id").eq("user_id", req.auth.userId);
+    const groupIds = (myGroups || []).map(g => g.group_id);
+    let groupShares = [];
+    if (groupIds.length > 0) {
+      const { data } = await supabase.from("skill_note_shares")
+        .select("skill_note_id, skill_notes(*,users!skill_notes_owner_id_fkey(display_name,email))")
+        .in("shared_with_group_id", groupIds);
+      groupShares = data || [];
+    }
+    const seen = new Set();
+    const skills = [];
+    for (const s of [...(directShares || []), ...groupShares]) {
+      if (s.skill_notes && !seen.has(s.skill_note_id)) {
+        seen.add(s.skill_note_id);
+        skills.push({ ...s.skill_notes, owner_display_name: s.skill_notes.users?.display_name, owner_email: s.skill_notes.users?.email, users: undefined });
+      }
+    }
+    return res.json({ skills });
+  } catch (err) { console.error("Shared-with-me error:", err); return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+// ============================================================
+// SKILL NOTE ATTACHMENTS
+// ============================================================
+app.get("/api/skills/attachments", requireAuth(async (req, res) => {
+  try {
+    const { canvasId } = req.query;
+    let query = supabase.from("skill_note_attachments")
+      .select("*, skill_notes(*)").eq("user_id", req.auth.userId);
+    if (canvasId) {
+      // Local attachments for this canvas + all global attachments
+      query = supabase.from("skill_note_attachments")
+        .select("*, skill_notes(*)")
+        .eq("user_id", req.auth.userId)
+        .or(`canvas_id.eq.${canvasId},scope.eq.global`);
+    }
+    const { data, error } = await query.order("created_at", { ascending: true });
+    if (error) return res.status(500).json({ error: "Failed to fetch attachments" });
+    const attachments = (data || []).map(a => ({ ...a, skill_note: a.skill_notes, skill_notes: undefined }));
+    return res.json({ attachments });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.post("/api/skills/attachments", requireAuth(async (req, res) => {
+  const { skill_note_id, canvas_id, scope, trigger_mode } = req.body || {};
+  if (!skill_note_id || !scope || !trigger_mode) return res.status(400).json({ error: "skill_note_id, scope, trigger_mode required" });
+  try {
+    const row = { skill_note_id, user_id: req.auth.userId, scope, trigger_mode, is_active: true };
+    if (canvas_id && scope === "local") row.canvas_id = canvas_id;
+    const { data, error } = await supabase.from("skill_note_attachments").insert(row).select("*, skill_notes(*)").single();
+    if (error) { if (error.code === "23505") return res.status(409).json({ error: "Already attached" }); return res.status(500).json({ error: "Failed to attach" }); }
+    // Increment stars
+    await supabase.rpc("increment_field", { row_id: skill_note_id, table_name: "skill_notes", field_name: "stars", amount: 1 }).catch(() => {
+      supabase.from("skill_notes").update({ stars: supabase.raw("stars + 1") }).eq("id", skill_note_id).then(() => {});
+    });
+    // Fallback: direct increment
+    await supabase.from("skill_notes").select("stars").eq("id", skill_note_id).single().then(async ({ data: sn }) => {
+      if (sn) await supabase.from("skill_notes").update({ stars: (sn.stars || 0) + 1 }).eq("id", skill_note_id);
+    });
+    return res.status(201).json({ attachment: { ...data, skill_note: data.skill_notes, skill_notes: undefined } });
+  } catch (err) { console.error("Attach error:", err); return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.put("/api/skills/attachments/:id", requireAuth(async (req, res) => {
+  const { is_active } = req.body;
+  try {
+    const { data, error } = await supabase.from("skill_note_attachments")
+      .update({ is_active }).eq("id", req.params.id).eq("user_id", req.auth.userId).select("*, skill_notes(*)").single();
+    if (error || !data) return res.status(404).json({ error: "Attachment not found" });
+    return res.json({ attachment: { ...data, skill_note: data.skill_notes, skill_notes: undefined } });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.delete("/api/skills/attachments/:id", requireAuth(async (req, res) => {
+  try {
+    // Get the attachment to find skill_note_id for star decrement
+    const { data: att } = await supabase.from("skill_note_attachments").select("skill_note_id")
+      .eq("id", req.params.id).eq("user_id", req.auth.userId).single();
+    const { error } = await supabase.from("skill_note_attachments").delete()
+      .eq("id", req.params.id).eq("user_id", req.auth.userId);
+    if (error) return res.status(500).json({ error: "Failed to detach" });
+    // Decrement stars
+    if (att) {
+      const { data: sn } = await supabase.from("skill_notes").select("stars").eq("id", att.skill_note_id).single();
+      if (sn) await supabase.from("skill_notes").update({ stars: Math.max(0, (sn.stars || 0) - 1) }).eq("id", att.skill_note_id);
+    }
+    return res.json({ success: true });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+// Active skills for AI injection
+app.get("/api/skills/active", requireAuth(async (req, res) => {
+  try {
+    const { canvasId } = req.query;
+    if (!canvasId) return res.json({ instructions: [] });
+    const { data, error } = await supabase.from("skill_note_attachments")
+      .select("skill_notes(title, instruction_text)")
+      .eq("user_id", req.auth.userId)
+      .eq("is_active", true)
+      .eq("trigger_mode", "automatic")
+      .or(`canvas_id.eq.${canvasId},scope.eq.global`);
+    if (error) return res.json({ instructions: [] });
+    const instructions = (data || []).filter(d => d.skill_notes).map(d => ({
+      title: d.skill_notes.title, instruction: d.skill_notes.instruction_text
+    }));
+    return res.json({ instructions });
+  } catch (err) { return res.json({ instructions: [] }); }
+}));
+
+// ============================================================
+// SKILL VERSION SYNC
+// ============================================================
+app.get("/api/skills/:id/check-update", requireAuth(async (req, res) => {
+  try {
+    const { data: skill } = await supabase.from("skill_notes").select("source_skill_id, source_version")
+      .eq("id", req.params.id).eq("owner_id", req.auth.userId).single();
+    if (!skill?.source_skill_id) return res.json({ has_update: false });
+    const { data: source } = await supabase.from("skill_notes").select("version").eq("id", skill.source_skill_id).single();
+    if (!source) return res.json({ has_update: false });
+    return res.json({ has_update: source.version > (skill.source_version || 0), source_version: source.version, local_version: skill.source_version });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.post("/api/skills/:id/sync", requireAuth(async (req, res) => {
+  try {
+    const { data: skill } = await supabase.from("skill_notes").select("source_skill_id")
+      .eq("id", req.params.id).eq("owner_id", req.auth.userId).single();
+    if (!skill?.source_skill_id) return res.status(400).json({ error: "No source skill to sync from" });
+    const { data: source } = await supabase.from("skill_notes").select("title, description, instruction_text, category, version")
+      .eq("id", skill.source_skill_id).single();
+    if (!source) return res.status(404).json({ error: "Source skill no longer exists" });
+    const { data: updated, error } = await supabase.from("skill_notes").update({
+      title: source.title, description: source.description, instruction_text: source.instruction_text,
+      category: source.category, source_version: source.version, updated_at: new Date().toISOString()
+    }).eq("id", req.params.id).eq("owner_id", req.auth.userId).select("*").single();
+    if (error) return res.status(500).json({ error: "Failed to sync" });
+    return res.json({ skill: updated });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+// ============================================================
+// MANUAL SKILL TRIGGER
+// ============================================================
+app.post("/api/skills/trigger", requireAuth(async (req, res) => {
+  const { skillNoteId, canvasId } = req.body || {};
+  if (!skillNoteId || !canvasId) return res.status(400).json({ error: "skillNoteId and canvasId required" });
+  try {
+    const { data: user } = await supabase.from("users").select("api_key_encrypted, active_model_id").eq("id", req.auth.userId).single();
+    if (!user?.api_key_encrypted) return res.status(400).json({ error: "No API key configured" });
+    const { data: skill } = await supabase.from("skill_notes").select("title, instruction_text").eq("id", skillNoteId).single();
+    if (!skill) return res.status(404).json({ error: "Skill not found" });
+    const { data: canvas } = await supabase.from("canvases").select("mermaid_code").eq("id", canvasId).eq("user_id", req.auth.userId).single();
+    if (!canvas) return res.status(404).json({ error: "Canvas not found" });
+    const apiKey = decrypt(user.api_key_encrypted);
+    let modelId = "gpt-4o";
+    if (user.active_model_id) {
+      const { data: model } = await supabase.from("ai_models").select("model_id").eq("id", user.active_model_id).single();
+      if (model) modelId = model.model_id;
+    }
+    const openai = new OpenAI({ apiKey });
+    const completion = await openai.chat.completions.create({
+      model: modelId, max_tokens: 4096, temperature: 0.7,
+      messages: [
+        { role: "system", content: `You are IntelliDraw, an AI flowchart assistant. You are executing a manual skill note.\n\nSKILL: ${skill.title}\nINSTRUCTION:\n${skill.instruction_text}\n\nCURRENT MERMAID CODE:\n\`\`\`mermaid\n${canvas.mermaid_code}\n\`\`\`\n\nApply the skill instruction to the current flowchart. Return the COMPLETE updated Mermaid code in a fenced code block with the language identifier "mermaid". Also provide a brief explanation of what you changed.` },
+        { role: "user", content: `Please apply the skill "${skill.title}" to my flowchart.` }
+      ]
+    });
+    const aiResponse = completion.choices[0]?.message?.content || "";
+    const mermaidMatch = aiResponse.match(/```mermaid\n([\s\S]*?)```/);
+    return res.json({ response: aiResponse, updatedMermaidCode: mermaidMatch ? mermaidMatch[1].trim() : null, model: modelId, skillTitle: skill.title });
+  } catch (err) { console.error("Skill trigger error:", err); return res.status(500).json({ error: err.message || "Failed to trigger skill" }); }
+}));
+
+// ============================================================
+// USER GROUPS
+// ============================================================
+app.get("/api/groups", requireAuth(async (req, res) => {
+  try {
+    // Groups I own
+    const { data: owned } = await supabase.from("user_groups").select("*, group_members(id, user_id, added_at, users!group_members_user_id_fkey(display_name, email))").eq("owner_id", req.auth.userId).order("created_at", { ascending: false });
+    // Groups I'm a member of
+    const { data: memberships } = await supabase.from("group_members").select("group_id").eq("user_id", req.auth.userId);
+    const memberGroupIds = (memberships || []).map(m => m.group_id);
+    let memberGroups = [];
+    if (memberGroupIds.length > 0) {
+      const { data } = await supabase.from("user_groups")
+        .select("*, group_members(id, user_id, added_at, users!group_members_user_id_fkey(display_name, email))")
+        .in("id", memberGroupIds).neq("owner_id", req.auth.userId);
+      memberGroups = data || [];
+    }
+    const formatGroup = (g) => ({
+      ...g, members: (g.group_members || []).map(m => ({
+        id: m.id, group_id: g.id, user_id: m.user_id, added_at: m.added_at,
+        display_name: m.users?.display_name, email: m.users?.email
+      })), member_count: (g.group_members || []).length, group_members: undefined
+    });
+    return res.json({ groups: [...(owned || []).map(formatGroup), ...memberGroups.map(formatGroup)] });
+  } catch (err) { console.error("Groups error:", err); return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.post("/api/groups", requireAuth(async (req, res) => {
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: "Group name is required" });
+  try {
+    const { data, error } = await supabase.from("user_groups").insert({ name, owner_id: req.auth.userId }).select("*").single();
+    if (error) return res.status(500).json({ error: "Failed to create group" });
+    return res.status(201).json({ group: { ...data, members: [], member_count: 0 } });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.put("/api/groups/:id", requireAuth(async (req, res) => {
+  const { name } = req.body || {};
+  try {
+    const { data, error } = await supabase.from("user_groups").update({ name }).eq("id", req.params.id).eq("owner_id", req.auth.userId).select("*").single();
+    if (error || !data) return res.status(404).json({ error: "Group not found" });
+    return res.json({ group: data });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.delete("/api/groups/:id", requireAuth(async (req, res) => {
+  try {
+    const { error } = await supabase.from("user_groups").delete().eq("id", req.params.id).eq("owner_id", req.auth.userId);
+    if (error) return res.status(500).json({ error: "Failed to delete group" });
+    return res.json({ success: true });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.post("/api/groups/:id/members", requireAuth(async (req, res) => {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: "Email is required" });
+  try {
+    const { data: group } = await supabase.from("user_groups").select("id").eq("id", req.params.id).eq("owner_id", req.auth.userId).single();
+    if (!group) return res.status(403).json({ error: "Only group owners can add members" });
+    const { data: targetUser } = await supabase.from("users").select("id, display_name, email").eq("email", email.toLowerCase()).single();
+    if (!targetUser) return res.status(404).json({ error: "User not found with that email" });
+    const { data, error } = await supabase.from("group_members")
+      .insert({ group_id: req.params.id, user_id: targetUser.id }).select("*").single();
+    if (error) { if (error.code === "23505") return res.status(409).json({ error: "User is already a member" }); return res.status(500).json({ error: "Failed to add member" }); }
+    return res.status(201).json({ member: { ...data, display_name: targetUser.display_name, email: targetUser.email } });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
+}));
+
+app.delete("/api/groups/:id/members/:userId", requireAuth(async (req, res) => {
+  try {
+    const { data: group } = await supabase.from("user_groups").select("id").eq("id", req.params.id).eq("owner_id", req.auth.userId).single();
+    if (!group) return res.status(403).json({ error: "Only group owners can remove members" });
+    const { error } = await supabase.from("group_members").delete().eq("group_id", req.params.id).eq("user_id", req.params.userId);
+    if (error) return res.status(500).json({ error: "Failed to remove member" });
+    return res.json({ success: true });
+  } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
 }));
 
 // ============================================================
