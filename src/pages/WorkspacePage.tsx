@@ -615,9 +615,8 @@ export default function WorkspacePage() {
             <button
               onClick={handlePublishToggle}
               disabled={publishing || !canvasId}
-              className={`hidden sm:inline-flex items-center justify-center rounded-full text-xs font-bold transition-all duration-200 active:scale-95 disabled:opacity-40 bg-surface-container-high text-on-surface-variant border border-outline-variant/20 hover:bg-surface-container-low hover:text-on-surface ${
-                isPublic ? "w-8 h-8 outline outline-2 outline-emerald-800 outline-offset-[3px]" : "gap-1.5 px-3.5 py-2"
-              }`}
+              className={`hidden sm:inline-flex items-center justify-center rounded-full text-xs font-bold transition-all duration-200 active:scale-95 disabled:opacity-40 bg-surface-container-high text-on-surface-variant border border-outline-variant/20 hover:bg-surface-container-low hover:text-on-surface ${isPublic ? "w-8 h-8 outline outline-2 outline-emerald-800 outline-offset-[3px]" : "gap-1.5 px-3.5 py-2"
+                }`}
               title={isPublic ? "Published" : "Publish"}
             >
               <span
@@ -658,9 +657,8 @@ export default function WorkspacePage() {
               {/* Toast pill */}
               {shareCopied && (
                 <div
-                  className={`absolute top-full mt-2 right-0 whitespace-nowrap px-3 py-1.5 rounded-full text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-xl z-50 ${
-                    isPublic ? "bg-slate-900" : "bg-amber-600"
-                  } ${shareExiting ? "toast-copied-exit" : "toast-copied"}`}
+                  className={`absolute top-full mt-2 right-0 whitespace-nowrap px-3 py-1.5 rounded-full text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-xl z-50 ${isPublic ? "bg-slate-900" : "bg-amber-600"
+                    } ${shareExiting ? "toast-copied-exit" : "toast-copied"}`}
                 >
                   {isPublic ? (
                     <>
@@ -691,11 +689,10 @@ export default function WorkspacePage() {
             <div className="inline-flex items-center bg-white/80 backdrop-blur-xl rounded-full border border-outline-variant/20 px-1 py-1 gap-0.5 shadow-lg shadow-black/5">
               <button
                 onClick={() => handleViewSwitch("flowchart")}
-                className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-full text-xs font-semibold transition-all duration-200 ${
-                  activeView === "flowchart"
+                className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-full text-xs font-semibold transition-all duration-200 ${activeView === "flowchart"
                     ? "bg-white text-on-surface shadow-sm"
                     : "text-on-surface-variant hover:bg-surface-container-high/60"
-                }`}
+                  }`}
               >
                 <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1, 'wght' 400, 'opsz' 20" }}>account_tree</span>
                 Flowchart
@@ -705,11 +702,10 @@ export default function WorkspacePage() {
 
               <button
                 onClick={() => handleViewSwitch("code")}
-                className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-full text-xs font-semibold transition-all duration-200 ${
-                  activeView === "code"
+                className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-full text-xs font-semibold transition-all duration-200 ${activeView === "code"
                     ? "bg-white text-on-surface shadow-sm"
                     : "text-on-surface-variant hover:bg-surface-container-high/60"
-                }`}
+                  }`}
               >
                 <span className="material-symbols-outlined text-base">code</span>
                 Code
@@ -791,9 +787,9 @@ export default function WorkspacePage() {
                   transition: isPanningVisual ? "none" : "transform 0.1s ease-out",
                 }}
               >
-                <MermaidRenderer 
-                  code={mermaidCode} 
-                  className="min-h-[400px] min-w-[300px]" 
+                <MermaidRenderer
+                  code={mermaidCode}
+                  className="min-h-[400px] min-w-[300px]"
                   onSyntaxError={handleSyntaxError}
                   isFixing={isFixing}
                 />
@@ -852,9 +848,8 @@ export default function WorkspacePage() {
                 {/* Chat History Toggle (Mobile only) */}
                 <button
                   onClick={() => setShowChat(!showChat)}
-                  className={`md:hidden shrink-0 h-11 w-11 rounded-xl flex items-center justify-center transition-all ${
-                    showChat ? "bg-primary text-white" : "text-on-surface-variant hover:text-primary active:scale-95"
-                  }`}
+                  className={`md:hidden shrink-0 h-11 w-11 rounded-xl flex items-center justify-center transition-all ${showChat ? "bg-primary text-white" : "text-on-surface-variant hover:text-primary active:scale-95"
+                    }`}
                 >
                   <span className="material-symbols-outlined text-xl">
                     {showChat ? "keyboard_arrow_down" : "history"}
@@ -927,9 +922,8 @@ export default function WorkspacePage() {
 
         {/* Agent Manager panel (desktop sidebar / mobile bottom sheet) */}
         <div
-          className={`absolute md:relative left-0 md:left-auto right-0 bottom-[var(--chat-bottom)] md:bottom-auto top-0 md:top-0 h-auto md:h-full w-full md:w-[380px] bg-white/95 backdrop-blur-2xl md:bg-white/90 md:backdrop-blur-xl border-t md:border-t-0 md:border-l md:border-l-[#c4c4c4] border-outline-variant/15 z-20 md:z-auto transition-all duration-300 flex flex-col shadow-[0_-10px_40px_rgb(0,0,0,0.08)] md:shadow-none ${
-            showChat ? "translate-y-0 opacity-100" : "translate-y-[20%] opacity-0 pointer-events-none md:translate-y-0 md:opacity-100 md:pointer-events-auto"
-          }`}
+          className={`absolute md:relative left-0 md:left-auto right-0 bottom-[var(--chat-bottom)] md:bottom-auto top-0 md:top-0 h-auto md:h-full w-full md:w-[380px] bg-white/95 backdrop-blur-2xl md:bg-white/90 md:backdrop-blur-xl border-t md:border-t-0 md:border-l md:border-l-[#c4c4c4] border-outline-variant/15 z-20 md:z-auto transition-all duration-300 flex flex-col shadow-[0_-10px_40px_rgb(0,0,0,0.08)] md:shadow-none ${showChat ? "translate-y-0 scale-100 opacity-100" : "translate-y-4 scale-[0.98] opacity-0 pointer-events-none md:translate-y-0 md:scale-100 md:opacity-100 md:pointer-events-auto"
+            }`}
           style={{
             '--chat-bottom': `${inputBarHeight + 20}px`
           } as React.CSSProperties}
