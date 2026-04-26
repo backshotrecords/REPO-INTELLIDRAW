@@ -779,25 +779,8 @@ export default function WorkspacePage() {
                 </button>
               </div>
 
-              {/* Mobile floating action buttons (mic + paperclip) — right side, same layer as zoom */}
-              <div className={`md:hidden absolute right-4 flex flex-col items-center gap-2 z-[10000] transition-all duration-300 ${showChat ? "opacity-0 pointer-events-none" : "opacity-100"}`} style={{ bottom: `${inputBarHeight + 16}px` }}>
-                <label className="cursor-pointer shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all bg-white shadow-xl border border-outline-variant/30">
-                  <span className="material-symbols-outlined text-xl">attach_file</span>
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept="image/*,.pdf,.txt,.md,.doc,.docx"
-                    onChange={handleFileUpload}
-                  />
-                </label>
-                <div className="voice-mic-mobile-float">
-                  <VoiceMicButton
-                    onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
-                    onAutoSendTranscript={sendMessage}
-                    disabled={chatLoading}
-                  />
-                </div>
-              </div>
+              {/* Mobile floating action buttons (mic + paperclip) moved to main level to avoid canvas z-index context */}
+
 
               {/* Rendered diagram */}
               <div
@@ -944,9 +927,12 @@ export default function WorkspacePage() {
 
         {/* Agent Manager panel (desktop sidebar / mobile bottom sheet) */}
         <div
-          className={`fixed md:relative left-0 md:left-auto right-0 bottom-[104px] md:bottom-auto top-auto md:top-0 h-[50vh] md:h-full w-full md:w-[380px] bg-white/80 backdrop-blur-2xl md:bg-white/90 md:backdrop-blur-xl border-t md:border-t-0 md:border-l md:border-l-[#c4c4c4] border-outline-variant/15 z-20 md:z-auto transition-all duration-300 flex flex-col shadow-[0_-10px_40px_rgb(0,0,0,0.08)] md:shadow-none ${
+          className={`absolute md:relative left-0 md:left-auto right-0 bottom-[var(--chat-bottom)] md:bottom-auto top-0 md:top-0 h-auto md:h-full w-full md:w-[380px] bg-white/95 backdrop-blur-2xl md:bg-white/90 md:backdrop-blur-xl border-t md:border-t-0 md:border-l md:border-l-[#c4c4c4] border-outline-variant/15 z-20 md:z-auto transition-all duration-300 flex flex-col shadow-[0_-10px_40px_rgb(0,0,0,0.08)] md:shadow-none ${
             showChat ? "translate-y-0 opacity-100" : "translate-y-[20%] opacity-0 pointer-events-none md:translate-y-0 md:opacity-100 md:pointer-events-auto"
           }`}
+          style={{
+            '--chat-bottom': `${inputBarHeight + 20}px`
+          } as React.CSSProperties}
         >
           <AgentGitLog
             chatHistory={chatHistory}
@@ -961,7 +947,26 @@ export default function WorkspacePage() {
 
 
 
+        </div>
 
+        {/* Mobile floating action buttons (mic + paperclip) */}
+        <div className="md:hidden absolute right-4 flex flex-col items-center gap-2 z-[10000] transition-all duration-300" style={{ bottom: `${inputBarHeight + 16}px` }}>
+          <label className="cursor-pointer shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all bg-white shadow-xl border border-outline-variant/30 shadow-[0_8px_32px_rgba(0,0,0,0.15)]">
+            <span className="material-symbols-outlined text-xl">attach_file</span>
+            <input
+              type="file"
+              className="hidden"
+              accept="image/*,.pdf,.txt,.md,.doc,.docx"
+              onChange={handleFileUpload}
+            />
+          </label>
+          <div className="voice-mic-mobile-float shadow-[0_8px_32px_rgba(0,0,0,0.15)] rounded-full">
+            <VoiceMicButton
+              onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
+              onAutoSendTranscript={sendMessage}
+              disabled={chatLoading}
+            />
+          </div>
         </div>
       </main>
     </div>
