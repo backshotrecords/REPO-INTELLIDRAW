@@ -687,7 +687,7 @@ export default function WorkspacePage() {
         {/* Canvas / Code area */}
         <div className="flex-1 flex flex-col overflow-hidden relative">
           {/* Floating view toggle toolbar */}
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 pointer-events-auto">
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 md:z-40 pointer-events-auto transition-all duration-300">
             <div className="inline-flex items-center bg-white/80 backdrop-blur-xl rounded-full border border-outline-variant/20 px-1 py-1 gap-0.5 shadow-lg shadow-black/5">
               <button
                 onClick={() => handleViewSwitch("flowchart")}
