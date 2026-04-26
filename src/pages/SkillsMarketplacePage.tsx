@@ -342,9 +342,9 @@ export default function SkillsMarketplacePage() {
   };
 
   const tabs = [
-    { id: "library" as const, label: "My Library", icon: "folder_special" },
-    { id: "marketplace" as const, label: "Marketplace", icon: "storefront" },
-    { id: "shared" as const, label: "Shared With Me", icon: "group" },
+    { id: "library" as const, label: "My Library", mobileLabel: "Library", icon: "folder_special" },
+    { id: "marketplace" as const, label: "Marketplace", mobileLabel: "Market", icon: "storefront" },
+    { id: "shared" as const, label: "Shared With Me", mobileLabel: "Shared", icon: "group" },
   ];
 
   const currentSkills = activeTab === "library" ? mySkills :
@@ -378,14 +378,15 @@ export default function SkillsMarketplacePage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 bg-surface-container-high/60 backdrop-blur-sm rounded-2xl p-1.5 mb-6 w-fit">
+        <div className="flex items-center gap-1 bg-surface-container-high/60 backdrop-blur-sm rounded-2xl p-1.5 mb-6 w-full md:w-fit">
           {tabs.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
+              className={`flex-1 md:flex-none inline-flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-xs md:text-sm font-semibold transition-all duration-200 ${
                 activeTab === tab.id ? "bg-white text-on-surface shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/50"
               }`}>
-              <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: activeTab === tab.id ? "'FILL' 1" : "'FILL' 0" }}>{tab.icon}</span>
-              {tab.label}
+              <span className="material-symbols-outlined text-xl md:text-base" style={{ fontVariationSettings: activeTab === tab.id ? "'FILL' 1" : "'FILL' 0" }}>{tab.icon}</span>
+              <span className="md:hidden">{tab.mobileLabel}</span>
+              <span className="hidden md:inline">{tab.label}</span>
             </button>
           ))}
         </div>
