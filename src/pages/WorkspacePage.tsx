@@ -222,10 +222,11 @@ export default function WorkspacePage() {
     // Anchor commit: record the restore in the Git Tree
     createCommit(anchorCode, "restore", commitMsg);
 
-    // Insert a chat message explaining the restore
+    // Insert a chat message explaining the restore (include mermaid code so the AI knows the current state)
+    const restoreLabel = vNum > 0 ? `version ${vNum}` : "a previous version";
     const restoreMsg: ChatMessage = {
       role: "assistant",
-      content: vNum > 0 ? `↩️ Restored to version ${vNum}` : "↩️ Restored to a previous version",
+      content: `↩️ Restored to ${restoreLabel}. The current flowchart is now:\n\n\`\`\`mermaid\n${anchorCode}\n\`\`\``,
       timestamp: new Date().toISOString(),
       versionSource: "restore",
     };
