@@ -231,6 +231,7 @@ export default function WorkspacePage() {
     };
     const newHistory = [...chatHistoryRef.current, restoreMsg];
     setChatHistory(newHistory);
+    chatHistoryRef.current = newHistory; // Sync ref immediately so sendMessage reads correct history
 
     // Persist the anchor state (autoSave still checks previewModeRef, so clear it first)
     previewModeRef.current = false;
