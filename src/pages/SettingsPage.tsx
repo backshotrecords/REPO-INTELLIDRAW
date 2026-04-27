@@ -474,7 +474,7 @@ export default function SettingsPage() {
                 <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
                   Add New Model
                 </p>
-                <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex flex-col sm:flex-row flex-wrap gap-3">
                   <input
                     className="flex-1 bg-surface-container-high border-none rounded-lg px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-secondary/20 outline-none"
                     placeholder="Model ID (e.g. gpt-4o)"
