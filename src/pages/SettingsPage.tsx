@@ -490,9 +490,10 @@ export default function SettingsPage() {
                   <button
                     onClick={handleAddModel}
                     disabled={addingModel || !newModelId.trim()}
-                    className="px-6 py-3 editorial-gradient text-white text-sm font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-50 whitespace-nowrap"
+                    className="px-6 py-3 editorial-gradient text-white text-sm font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-50 whitespace-nowrap flex items-center justify-center gap-2"
                   >
-                    {addingModel ? "Adding..." : "Add Model"}
+                    <span className="material-symbols-outlined text-[20px]">add</span>
+                    {addingModel ? "Adding..." : "Add"}
                   </button>
                 </div>
               </div>
