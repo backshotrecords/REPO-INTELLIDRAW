@@ -48,6 +48,16 @@ export default function WorkspacePage() {
   const inputBarRef = useRef<HTMLDivElement>(null);
   const [inputBarHeight, setInputBarHeight] = useState(60);
 
+  // Preview Mode state — version browsing without committing
+  const [previewMode, setPreviewMode] = useState(false);
+  const [previewVersionNumber, setPreviewVersionNumber] = useState<number | null>(null);
+  const latestMermaidCodeRef = useRef(DEFAULT_MERMAID_CODE);
+  // Ref mirrors for closure-proof access in sendMessage / flushPreviewMode
+  const previewModeRef = useRef(false);
+  const previewVersionNumberRef = useRef<number | null>(null);
+  useEffect(() => { previewModeRef.current = previewMode; }, [previewMode]);
+  useEffect(() => { previewVersionNumberRef.current = previewVersionNumber; }, [previewVersionNumber]);
+
   // Canvas pan/zoom state
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -83,6 +93,7 @@ export default function WorkspacePage() {
       setCanvasId(canvas.id);
       setTitle(canvas.title);
       setMermaidCode(canvas.mermaid_code);
+      latestMermaidCodeRef.current = canvas.mermaid_code;
       setChatHistory(canvas.chat_history || []);
       setIsPublic(canvas.is_public || false);
 
@@ -150,6 +161,7 @@ export default function WorkspacePage() {
   const autoSave = useCallback(
     (code: string, history?: ChatMessage[]) => {
       if (!canvasId) return;
+      if (previewModeRef.current) return; // Don't persist previewed state
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(async () => {
         setSaving(true);
@@ -175,6 +187,9 @@ export default function WorkspacePage() {
   ) => {
     if (!canvasId) return;
 
+    // Track the latest committed code for preview-mode revert
+    latestMermaidCodeRef.current = code;
+
     // Optimistic: append locally immediately so Git Tree updates instantly
     const optimistic: CanvasCommit = {
       id: crypto.randomUUID(),
@@ -194,8 +209,41 @@ export default function WorkspacePage() {
     }
   }, [canvasId]);
 
+  // ── Flush preview mode — creates anchor commit when user makes a real change ──
+  const flushPreviewMode = useCallback(() => {
+    if (!previewModeRef.current || previewVersionNumberRef.current === null) return;
+
+    const anchorCode = mermaidCodeRef.current; // the previewed code on canvas
+    const vNum = previewVersionNumberRef.current;
+    const commitMsg = vNum > 0
+      ? `Restored to version ${vNum}`
+      : "Restored to a previous version";
+
+    // Anchor commit: record the restore in the Git Tree
+    createCommit(anchorCode, "restore", commitMsg);
+
+    // Insert a chat message explaining the restore
+    const restoreMsg: ChatMessage = {
+      role: "assistant",
+      content: vNum > 0 ? `↩️ Restored to version ${vNum}` : "↩️ Restored to a previous version",
+      timestamp: new Date().toISOString(),
+      versionSource: "restore",
+    };
+    const newHistory = [...chatHistoryRef.current, restoreMsg];
+    setChatHistory(newHistory);
+
+    // Persist the anchor state (autoSave still checks previewModeRef, so clear it first)
+    previewModeRef.current = false;
+    setPreviewMode(false);
+    setPreviewVersionNumber(null);
+    previewVersionNumberRef.current = null;
+
+    autoSave(anchorCode, newHistory);
+  }, [createCommit, autoSave]);
+
   const handleSyntaxError = useCallback(async (_errorMsg: string, brokenCode: string) => {
     if (isFixing || chatLoading) return;
+    flushPreviewMode();
     setIsFixing(true);
     setChatLoading(true);
 
@@ -258,7 +306,7 @@ export default function WorkspacePage() {
       setIsFixing(false);
       setChatLoading(false);
     }
-  }, [isFixing, chatLoading, chatHistory, autoSave, createCommit]);
+  }, [isFixing, chatLoading, chatHistory, autoSave, createCommit, flushPreviewMode]);
 
   const handleMermaidCodeChange = (newCode: string) => {
     setMermaidCode(newCode);
@@ -275,19 +323,20 @@ export default function WorkspacePage() {
     }
   };
 
-  // Restore a version from the git log
-  const handleRestoreVersion = (snapshot: string) => {
+  // Restore a version from the git log — enters Preview Mode (no commit until user makes a change)
+  const handleRestoreVersion = (snapshot: string, versionNumber: number) => {
     setMermaidCode(snapshot);
-    playCanvasSound();
-    const restoreMsg: ChatMessage = {
-      role: "assistant",
-      content: "↩️ Restored to a previous version",
-      timestamp: new Date().toISOString(),
-    };
-    const newHistory = [...chatHistory, restoreMsg];
-    setChatHistory(newHistory);
-    autoSave(snapshot, newHistory);
-    createCommit(snapshot, "restore", "Restored previous version");
+
+    // If restoring to the latest version, exit preview mode
+    if (snapshot === latestMermaidCodeRef.current) {
+      setPreviewMode(false);
+      setPreviewVersionNumber(null);
+      return;
+    }
+
+    // Enter preview mode — no commit, no autosave, no chat message
+    setPreviewMode(true);
+    setPreviewVersionNumber(versionNumber);
   };
 
   // Manual edit tracking on view switch
@@ -296,12 +345,13 @@ export default function WorkspacePage() {
       codeOnEnterRef.current = mermaidCode;
     } else if (view === "flowchart" && activeView === "code") {
       if (mermaidCode !== codeOnEnterRef.current) {
+        flushPreviewMode();
         const manualMsg: ChatMessage = {
           role: "assistant",
           content: "✏️ Canvas updated via code editor",
           timestamp: new Date().toISOString(),
         };
-        const newHistory = [...chatHistory, manualMsg];
+        const newHistory = [...chatHistoryRef.current, manualMsg];
         setChatHistory(newHistory);
         autoSave(mermaidCode, newHistory);
         createCommit(mermaidCode, "manual", "Manual code edit");
@@ -331,7 +381,15 @@ export default function WorkspacePage() {
       return;
     }
 
-    const hasChanges = mermaidCode.trim() !== DEFAULT_MERMAID_CODE.trim();
+    // If previewing, discard the preview — revert to the real latest code
+    if (previewModeRef.current) {
+      setMermaidCode(latestMermaidCodeRef.current);
+      setPreviewMode(false);
+      setPreviewVersionNumber(null);
+    }
+
+    // Use the latest committed code for the blank-canvas check (not the previewed code)
+    const hasChanges = latestMermaidCodeRef.current.trim() !== DEFAULT_MERMAID_CODE.trim();
 
     if (!hasChanges) {
       // No edits — delete the blank canvas silently
@@ -348,7 +406,7 @@ export default function WorkspacePage() {
     if (title === "Untitled Canvas") {
       setIsNaming(true);
       try {
-        const suggestedName = await apiSuggestCanvasName(mermaidCode);
+        const suggestedName = await apiSuggestCanvasName(latestMermaidCodeRef.current);
         if (suggestedName && suggestedName !== "Untitled Canvas") {
           await apiUpdateCanvas(canvasId, { title: suggestedName });
         }
@@ -361,12 +419,13 @@ export default function WorkspacePage() {
     }
 
     navigate("/dashboard");
-  }, [canvasId, mermaidCode, title, navigate]);
+  }, [canvasId, title, navigate]);
 
 
   // ── Unified send message (ref-backed, closure-proof) ──
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || chatLoadingRef.current) return;
+    flushPreviewMode();
 
     const userMessage: ChatMessage = {
       role: "user",
@@ -409,7 +468,7 @@ export default function WorkspacePage() {
     } finally {
       setChatLoading(false);
     }
-  }, [autoSave, playCanvasSound, createCommit]);
+  }, [autoSave, playCanvasSound, createCommit, flushPreviewMode]);
 
 
   // File upload
@@ -417,6 +476,7 @@ export default function WorkspacePage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    flushPreviewMode();
     setChatLoading(true);
     const reader = new FileReader();
     reader.onload = async () => {
@@ -802,6 +862,7 @@ export default function WorkspacePage() {
                   isOpen={showSkillsPanel}
                   onClose={() => setShowSkillsPanel(false)}
                   onSkillTriggered={(result) => {
+                    flushPreviewMode();
                     if (result.updatedMermaidCode) {
                       setMermaidCode(result.updatedMermaidCode);
                       playCanvasSound();
@@ -937,6 +998,8 @@ export default function WorkspacePage() {
             canvasId={canvasId}
             publishing={publishing}
             onPublishToggle={handlePublishToggle}
+            previewMode={previewMode}
+            previewVersionNumber={previewVersionNumber}
           />
 
 

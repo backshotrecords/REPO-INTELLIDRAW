@@ -12,11 +12,13 @@ interface AgentGitLogProps {
   chatHistory: ChatMessage[];
   chatLoading: boolean;
   commits: CanvasCommit[];
-  onRestore: (mermaidSnapshot: string) => void;
+  onRestore: (mermaidSnapshot: string, versionNumber: number) => void;
   isPublic: boolean;
   canvasId: string | null;
   publishing: boolean;
   onPublishToggle: () => void;
+  previewMode: boolean;
+  previewVersionNumber: number | null;
 }
 
 function relativeTime(timestamp: string): string {
@@ -60,6 +62,8 @@ export default function AgentGitLog({
   canvasId,
   publishing,
   onPublishToggle,
+  previewMode,
+  previewVersionNumber,
 }: AgentGitLogProps) {
   const { user } = useAuth();
   const [sidebarView, setSidebarView] = useState<"chat" | "tree" | "groups">("chat");
@@ -390,6 +394,17 @@ export default function AgentGitLog({
           onMouseMove={handleMouseMove}
           className="h-full overflow-y-auto px-5 pb-5 no-scrollbar"
         >
+          {/* Preview Mode banner */}
+          {previewMode && previewVersionNumber !== null && (
+            <div className="mt-3 mb-1 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200/60 flex items-center gap-2 text-amber-800">
+              <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
+                visibility
+              </span>
+              <span className="text-[11px] font-semibold flex-1">
+                Previewing version {previewVersionNumber} — make an edit to restore
+              </span>
+            </div>
+          )}
           {sidebarView === "chat" ? (
             /* ── Chat View ── */
             <div className="flex flex-col gap-6 pt-4">
@@ -453,7 +468,7 @@ export default function AgentGitLog({
                         {getInteractionSnapshot(interaction) && (
                           <div className="absolute left-1/2 -translate-x-1/2 bottom-0 opacity-0 translate-y-[-8px] group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 z-20 pointer-events-none group-hover:pointer-events-auto flex justify-center">
                             <button
-                              onClick={() => onRestore(getInteractionSnapshot(interaction)!)}
+                              onClick={() => onRestore(getInteractionSnapshot(interaction)!, 0)}
                               className="flex items-center gap-1.5 px-3 py-1 bg-white border border-outline-variant/20 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/40 hover:border-outline-variant/40 text-[11px] font-medium rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-colors"
                             >
                               <span className="material-symbols-outlined text-xs">restore</span>
@@ -490,7 +505,7 @@ export default function AgentGitLog({
                       </div>
                       {interaction.assistantMessages[0]?.mermaidSnapshot && (
                         <button
-                          onClick={() => onRestore(interaction.assistantMessages[0].mermaidSnapshot!)}
+                          onClick={() => onRestore(interaction.assistantMessages[0].mermaidSnapshot!, 0)}
                           className="opacity-0 group-hover:opacity-100 shrink-0 flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-on-surface-variant hover:text-on-surface rounded-full border border-outline-variant/20 hover:bg-surface-container-high/40 transition-all"
                         >
                           <span className="material-symbols-outlined text-xs">restore</span>
@@ -668,26 +683,46 @@ export default function AgentGitLog({
               ) : (
                 versions.map((v, idx) => {
                   const isCurrent = idx === versions.length - 1;
+                  const isPreviewing = previewMode && v.versionNumber === previewVersionNumber;
                   const truncLabel = v.commitMessage.length > 50 ? v.commitMessage.slice(0, 50) + "..." : v.commitMessage;
 
                   return (
                     <button
                       key={v.id}
-                      onClick={() => onRestore(v.mermaidCode)}
+                      onClick={() => onRestore(v.mermaidCode, v.versionNumber)}
                       className={`group w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-colors ${
-                        isCurrent ? "bg-primary/5 border border-primary/15" : "hover:bg-surface-container-high/60"
+                        isPreviewing
+                          ? "bg-amber-50 border border-amber-200"
+                          : isCurrent
+                            ? "bg-primary/5 border border-primary/15"
+                            : "hover:bg-surface-container-high/60"
                       }`}
                     >
                       <div className="flex flex-col items-center shrink-0 self-stretch">
-                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${isCurrent ? "bg-primary" : "bg-outline-variant/40 group-hover:bg-primary/60"} transition-colors`} />
+                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                          isPreviewing
+                            ? "bg-amber-500"
+                            : isCurrent
+                              ? "bg-primary"
+                              : "bg-outline-variant/40 group-hover:bg-primary/60"
+                        } transition-colors`} />
                         {idx < versions.length - 1 && <div className="w-px flex-1 bg-outline-variant/20 mt-1" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className={`text-xs font-bold ${isCurrent ? "text-primary" : "text-on-surface-variant"}`}>
+                          <span className={`text-xs font-bold ${
+                            isPreviewing
+                              ? "text-amber-700"
+                              : isCurrent
+                                ? "text-primary"
+                                : "text-on-surface-variant"
+                          }`}>
                             v{v.versionNumber}
                           </span>
-                          {isCurrent && (
+                          {isPreviewing && (
+                            <span className="text-[9px] font-bold text-amber-700 uppercase tracking-wider bg-amber-100 px-1.5 py-0.5 rounded-full">previewing</span>
+                          )}
+                          {isCurrent && !isPreviewing && (
                             <span className="text-[9px] font-bold text-primary uppercase tracking-wider bg-primary/10 px-1.5 py-0.5 rounded-full">current</span>
                           )}
                         </div>
