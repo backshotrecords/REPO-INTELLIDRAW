@@ -56,6 +56,18 @@ export default function ModelPicker() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
 
+  // Alt+S (⌥S) to toggle model picker
+  useEffect(() => {
+    const handleAltS = (e: KeyboardEvent) => {
+      if (e.altKey && e.key === "s") {
+        e.preventDefault();
+        setIsOpen((prev) => !prev);
+      }
+    };
+    document.addEventListener("keydown", handleAltS);
+    return () => document.removeEventListener("keydown", handleAltS);
+  }, []);
+
   // Optimistic model switch
   const handleSelectModel = async (model: AIModel) => {
     const previousActiveId = activeModelId;
