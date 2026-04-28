@@ -63,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
       ],
       //max_tokens: 100, // Removed to allow more models to be used
-      temperature: 0.5,
+      temperature: modelId === "gpt-5.5" ? 1 : 0.5,
     });
 
     const raw = completion.choices[0]?.message?.content || "Untitled Canvas";

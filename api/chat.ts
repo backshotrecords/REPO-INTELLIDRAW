@@ -106,7 +106,7 @@ INSTRUCTIONS:
       model: modelId,
       messages,
       //max_tokens: 4096, // lets get rid of this for the time being to allow later models to be loaded
-      temperature: 0.7,
+      temperature: modelId === "gpt-5.5" ? 1 : 0.7,
     });
 
     const aiResponse = completion.choices[0]?.message?.content || "I couldn't generate a response. Please try again.";

@@ -107,7 +107,7 @@ ALSO: Check the rest of the code for any standard syntax issues that typically c
       model: modelId,
       messages,
       //max_tokens: 4096, // lets get rid of this for the time being to allow later models to be loaded
-      temperature: 0.2,
+      temperature: modelId === "gpt-5.5" ? 1 : 0.2,
     });
 
     const aiResponse = completion.choices[0]?.message?.content || "";

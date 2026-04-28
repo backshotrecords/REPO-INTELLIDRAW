@@ -86,6 +86,7 @@ Use descriptive node labels and proper flow connections.`,
           },
         ],
         max_tokens: 4096,
+        temperature: modelId === "gpt-5.5" ? 1 : 0.7,
       });
 
       aiResponse = completion.choices[0]?.message?.content || "";
@@ -111,6 +112,7 @@ Use descriptive node labels and proper flow connections.`,
           },
         ],
         max_tokens: 4096,
+        temperature: modelId === "gpt-5.5" ? 1 : 0.7,
       });
 
       aiResponse = completion.choices[0]?.message?.content || "";
