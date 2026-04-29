@@ -15,7 +15,9 @@ export default function ModelPicker() {
   const [models, setModels] = useState<AIModel[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Fetch models on mount
   const loadModels = useCallback(async () => {
@@ -46,15 +48,45 @@ export default function ModelPicker() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen]);
 
-  // Close on ESC
+  // Initialize highlight to active model when opened
+  useEffect(() => {
+    if (isOpen && models.length > 0) {
+      const activeIdx = models.findIndex((m) => m.id === activeModelId);
+      setHighlightedIndex(activeIdx >= 0 ? activeIdx : 0);
+    }
+  }, [isOpen, models, activeModelId]);
+
+  // Keyboard navigation: ESC, Arrow keys, Enter
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsOpen(false);
+      switch (e.key) {
+        case "Escape":
+          setIsOpen(false);
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          setHighlightedIndex((prev) =>
+            prev < models.length - 1 ? prev + 1 : 0
+          );
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          setHighlightedIndex((prev) =>
+            prev > 0 ? prev - 1 : models.length - 1
+          );
+          break;
+        case "Enter":
+          e.preventDefault();
+          if (models[highlightedIndex]) {
+            handleSelectModel(models[highlightedIndex]);
+          }
+          break;
+      }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen]);
+  }, [isOpen, models, highlightedIndex]);
 
   // Alt+S (⌥S) to toggle model picker
   useEffect(() => {
@@ -144,23 +176,34 @@ export default function ModelPicker() {
             <span className="text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-widest">
               Switch Model
             </span>
-            <span className="text-[9px] bg-surface-container-high px-1.5 py-0.5 rounded text-on-surface-variant/50 font-mono">
-              ESC
+            <span className="flex items-center gap-1.5">
+              <span className="text-[9px] bg-surface-container-high px-1.5 py-0.5 rounded text-on-surface-variant/50 font-mono">↑↓</span>
+              <span className="text-[9px] bg-surface-container-high px-1.5 py-0.5 rounded text-on-surface-variant/50 font-mono">↵</span>
+              <span className="text-[9px] bg-surface-container-high px-1.5 py-0.5 rounded text-on-surface-variant/50 font-mono">ESC</span>
             </span>
           </div>
 
           {/* Model list */}
-          <div className="py-1 max-h-60 overflow-y-auto">
-            {models.map((model) => {
+          <div className="py-1 max-h-60 overflow-y-auto" ref={listRef}>
+            {models.map((model, index) => {
               const isActive = activeModelId === model.id;
+              const isHighlighted = highlightedIndex === index;
               return (
                 <button
                   key={model.id}
+                  ref={(el) => {
+                    if (isHighlighted && el) {
+                      el.scrollIntoView({ block: "nearest" });
+                    }
+                  }}
                   onClick={() => handleSelectModel(model)}
+                  onMouseEnter={() => setHighlightedIndex(index)}
                   className={`w-full flex items-center gap-3 px-5 py-3 text-left transition-all border-l-4 ${
-                    isActive
-                      ? "bg-secondary/5 text-on-surface border-secondary"
-                      : "text-on-surface-variant border-transparent hover:bg-surface-container-high/60 hover:text-on-surface hover:border-outline-variant/40"
+                    isHighlighted
+                      ? "bg-surface-container-high/80 text-on-surface border-secondary/60"
+                      : isActive
+                        ? "bg-secondary/5 text-on-surface border-secondary"
+                        : "text-on-surface-variant border-transparent hover:bg-surface-container-high/60 hover:text-on-surface hover:border-outline-variant/40"
                   }`}
                 >
                   <span
