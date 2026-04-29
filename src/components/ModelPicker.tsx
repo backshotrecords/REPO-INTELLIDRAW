@@ -59,7 +59,7 @@ export default function ModelPicker() {
   // Alt+S (⌥S) to toggle model picker
   useEffect(() => {
     const handleAltS = (e: KeyboardEvent) => {
-      if (e.altKey && e.key === "s") {
+      if (e.altKey && e.code === "KeyS") {
         e.preventDefault();
         setIsOpen((prev) => !prev);
       }
