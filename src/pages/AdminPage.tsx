@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig } from "../lib/api";
+import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGenerateResetLink } from "../lib/api";
 
 // ─── Config Module Registry ─────────────────────────────
 // Add new config modules here — the sidebar auto-populates from this array.
@@ -9,6 +9,7 @@ const CONFIG_MODULES: { key: string; label: string; icon: string }[] = [
   { key: "sound",  label: "Sound Effects",       icon: "volume_up" },
   { key: "canvas", label: "Canvas Mechanics",    icon: "zoom_in" },
   { key: "rules",  label: "Sanitization Rules",  icon: "rule" },
+  { key: "userreset", label: "User Account Reset", icon: "lock_reset" },
 ];
 
 interface SoundConfig {
@@ -53,6 +54,13 @@ export default function AdminPage() {
 
   // Canvas settings state
   const [maxZoomLevel, setMaxZoomLevel] = useState<number>(16);
+
+  // User reset state
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetting, setResetting] = useState(false);
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const zoomDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ─── Sidebar active-section tracking ───────────────────
@@ -263,6 +271,38 @@ export default function AdminPage() {
 
   const isCanvasCustom = soundSettings.soundUrl !== "/intellidraw-v2.mp3";
   const isVoiceCustom = soundSettings.voiceSoundUrl !== "/intellisend_v2.mp3";
+
+  // ─── User Reset Handler ───────────────────────────────
+
+  const handleGenerateResetLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail.trim()) return;
+    setResetting(true);
+    setGeneratedLink(null);
+    setResetError(null);
+    setLinkCopied(false);
+    try {
+      const data = await apiGenerateResetLink(resetEmail.trim());
+      const fullLink = `${window.location.origin}${data.resetLink}`;
+      setGeneratedLink(fullLink);
+      setResetEmail("");
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : "Failed to generate reset link");
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    if (!generatedLink) return;
+    try {
+      await navigator.clipboard.writeText(generatedLink);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      // Fallback: select the text
+    }
+  };
 
   // ─── Sound card sub-component (used for both canvas & voice) ──
 
@@ -686,6 +726,96 @@ export default function AdminPage() {
                         </button>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+          {/* ═══ User Account Reset (collapsible) ════════════════ */}
+          <section
+            id="userreset"
+            ref={(el) => { sectionRefs.current["userreset"] = el; }}
+            className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden scroll-mt-24"
+          >
+            {renderAccordionHeader("userreset", "lock_reset", "User Account Reset", "Generate a password reset link for any user")}
+
+            <div
+              className="transition-all duration-300 ease-in-out overflow-hidden"
+              style={{
+                maxHeight: expandedSection === "userreset" ? "600px" : "0",
+                opacity: expandedSection === "userreset" ? 1 : 0,
+              }}
+            >
+              <div className="px-5 pb-5 space-y-4 border-t border-outline-variant/10">
+                {/* Description */}
+                <div className="flex items-start gap-3 pt-4">
+                  <span className="material-symbols-outlined text-lg text-amber-500 mt-0.5" style={{ fontVariationSettings: "'FILL' 1" }}>info</span>
+                  <p className="text-sm text-on-surface-variant leading-relaxed">
+                    Enter a user's email to generate a one-time reset link. When the link is visited, the user's password will be set to: <span className="font-bold text-on-surface font-mono bg-surface-container-high px-1.5 py-0.5 rounded">password</span>
+                  </p>
+                </div>
+
+                {/* Email input + button */}
+                <form onSubmit={handleGenerateResetLink} className="flex gap-3">
+                  <input
+                    type="email"
+                    value={resetEmail}
+                    onChange={(e) => { setResetEmail(e.target.value); setResetError(null); }}
+                    placeholder="user@example.com"
+                    className="flex-1 bg-surface-container-lowest border border-outline-variant/50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+                    disabled={resetting}
+                    required
+                  />
+                  <button
+                    type="submit"
+                    disabled={resetting || !resetEmail.trim()}
+                    className="bg-error text-white font-semibold px-6 py-3 rounded-xl hover:bg-error/90 disabled:opacity-50 transition-colors flex items-center gap-2 active:scale-95"
+                  >
+                    <span className="material-symbols-outlined text-sm">lock_reset</span>
+                    {resetting ? "Generating..." : "Generate Reset Link"}
+                  </button>
+                </form>
+
+                {/* Error feedback */}
+                {resetError && (
+                  <div className="flex items-center gap-2 bg-error-container/20 border border-error/20 rounded-xl px-4 py-3">
+                    <span className="material-symbols-outlined text-sm text-error" style={{ fontVariationSettings: "'FILL' 1" }}>error</span>
+                    <p className="text-sm text-error font-medium">{resetError}</p>
+                  </div>
+                )}
+
+                {/* Generated link display */}
+                {generatedLink && (
+                  <div className="bg-surface-container-lowest border border-green-200 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-sm text-green-600" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                      <p className="text-sm font-semibold text-green-700">Reset link generated successfully</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={generatedLink}
+                        readOnly
+                        className="flex-1 bg-white border border-outline-variant/30 rounded-lg px-3 py-2 text-xs font-mono text-on-surface-variant select-all outline-none"
+                        onClick={(e) => (e.target as HTMLInputElement).select()}
+                      />
+                      <button
+                        onClick={handleCopyLink}
+                        className={`inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all active:scale-95 ${
+                          linkCopied
+                            ? "bg-green-100 text-green-700 border border-green-200"
+                            : "bg-primary text-white hover:bg-primary/90"
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-sm">
+                          {linkCopied ? "done" : "content_copy"}
+                        </span>
+                        {linkCopied ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-on-surface-variant/60">
+                      This link is single-use. Once visited, it will expire and cannot be reused.
+                    </p>
                   </div>
                 )}
               </div>

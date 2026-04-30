@@ -8,6 +8,7 @@ import SettingsPage from "./pages/SettingsPage";
 import AdminPage from "./pages/AdminPage";
 import PublicViewPage from "./pages/PublicViewPage";
 import SkillsMarketplacePage from "./pages/SkillsMarketplacePage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -105,6 +106,7 @@ function AppRoutes() {
         }
       />
       <Route path="/view/:id" element={<PublicViewPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

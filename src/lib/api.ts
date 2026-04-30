@@ -451,6 +451,33 @@ export async function apiUpdateCanvasConfig(opts: {
   return data;
 }
 
+// ===== Admin User Reset =====
+
+export async function apiGenerateResetLink(email: string) {
+  const res = await apiFetch("/admin/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to generate reset link");
+  return data;
+}
+
+/**
+ * Consume a reset token (public — no auth needed).
+ * Called from the /reset-password page when a user clicks their link.
+ */
+export async function apiConsumeResetToken(token: string) {
+  const res = await fetch(`${API_BASE}/auth/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to reset password");
+  return data;
+}
+
 // ===== Skill Notes =====
 
 export async function apiListSkills() {
