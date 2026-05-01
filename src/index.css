@@ -769,3 +769,73 @@
   animation: canvasSafeExit 2s ease-out 0.3s forwards;
 }
 
+/* ======================================
+   Dashboard Card Menu Animation
+   ====================================== */
+@keyframes cardMenuIn {
+  0%   { opacity: 0; transform: scale(0.9) translateY(-4px); }
+  70%  { opacity: 1; transform: scale(1.02) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes cardMenuInAbove {
+  0%   { opacity: 0; transform: scale(0.9) translateY(4px); }
+  70%  { opacity: 1; transform: scale(1.02) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.card-menu-panel {
+  transform-origin: top right;
+  animation: cardMenuIn 200ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.card-menu-panel.card-menu-above {
+  transform-origin: bottom right;
+  animation-name: cardMenuInAbove;
+}
+
+/* Staggered item reveal */
+@keyframes cardMenuItemIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.card-menu-item {
+  opacity: 0;
+  animation: cardMenuItemIn 180ms ease forwards;
+}
+
+.card-menu-item:nth-child(1) { animation-delay: 40ms; }
+.card-menu-item:nth-child(2) { animation-delay: 80ms; }
+.card-menu-item:nth-child(3) { animation-delay: 120ms; }
+.card-menu-item:nth-child(4) { animation-delay: 160ms; }
+
+/* Exit animations */
+@keyframes cardMenuOut {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to   { opacity: 0; transform: scale(0.9) translateY(-4px); }
+}
+
+@keyframes cardMenuOutAbove {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to   { opacity: 0; transform: scale(0.9) translateY(4px); }
+}
+
+@keyframes cardMenuItemOut {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(6px); }
+}
+
+.card-menu-panel.card-menu-closing {
+  animation: cardMenuOut 180ms ease forwards;
+}
+
+.card-menu-panel.card-menu-closing.card-menu-above {
+  animation: cardMenuOutAbove 180ms ease forwards;
+}
+
+.card-menu-closing .card-menu-item {
+  animation: cardMenuItemOut 120ms ease forwards;
+  animation-delay: 0ms !important;
+}
+

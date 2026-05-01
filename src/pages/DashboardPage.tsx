@@ -24,7 +24,9 @@ export default function DashboardPage() {
   const [exportOptions, setExportOptions] = useState({ markdown: true, png: false });
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuAbove, setMenuAbove] = useState(false);
+  const [menuClosing, setMenuClosing] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
   const thumbnails = useMermaidThumbnails(canvases);
   const location = useLocation();
@@ -46,16 +48,39 @@ export default function DashboardPage() {
     loadCanvases();
   }, []);
 
+  // Animated close helper
+  const closeMenu = () => {
+    if (!menuOpenId || menuClosing) return;
+    setMenuClosing(true);
+    closeTimerRef.current = setTimeout(() => {
+      setMenuOpenId(null);
+      setMenuClosing(false);
+    }, 180);
+  };
+
+  // Cleanup close timer on unmount
+  useEffect(() => {
+    return () => { if (closeTimerRef.current) clearTimeout(closeTimerRef.current); };
+  }, []);
+
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpenId(null);
+        closeMenu();
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  });
+
+  // Close menu on scroll
+  useEffect(() => {
+    if (!menuOpenId) return;
+    const handleScroll = () => closeMenu();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  });
 
   const loadCanvases = async () => {
     try {
@@ -329,14 +354,14 @@ export default function DashboardPage() {
                         <span className="material-symbols-outlined">more_vert</span>
                       </button>
 
-                      {menuOpenId === canvas.id && (
-                        <div className={`absolute right-0 ${menuAbove ? 'bottom-full mb-1' : 'top-full mt-1'} bg-white rounded-xl shadow-ambient-lg border border-outline-variant/10 py-2 min-w-[160px] z-30`}>
+                      {(menuOpenId === canvas.id || (menuClosing && menuOpenId === canvas.id)) && (
+                        <div className={`absolute right-0 ${menuAbove ? 'bottom-full mb-1' : 'top-full mt-1'} bg-white rounded-xl shadow-ambient-lg border border-outline-variant/10 py-2 min-w-[160px] z-30 card-menu-panel${menuAbove ? ' card-menu-above' : ''}${menuClosing ? ' card-menu-closing' : ''}`}>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               navigate(`/canvas/${canvas.id}`);
                             }}
-                            className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3"
+                            className="card-menu-item w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3"
                           >
                             <span className="material-symbols-outlined text-lg">edit</span>
                             Edit
@@ -347,7 +372,7 @@ export default function DashboardPage() {
                               exportAsMarkdown(canvas);
                               setMenuOpenId(null);
                             }}
-                            className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3"
+                            className="card-menu-item w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3"
                           >
                             <span className="material-symbols-outlined text-lg">description</span>
                             Export .md
@@ -358,7 +383,7 @@ export default function DashboardPage() {
                               exportAsImage(canvas);
                               setMenuOpenId(null);
                             }}
-                            className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3"
+                            className="card-menu-item w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3"
                           >
                             <span className="material-symbols-outlined text-lg">image</span>
                             Export .png
@@ -368,7 +393,7 @@ export default function DashboardPage() {
                               e.stopPropagation();
                               handleDeleteCanvas(canvas.id);
                             }}
-                            className="w-full px-4 py-2.5 text-left text-sm text-error hover:bg-error-container/20 flex items-center gap-3"
+                            className="card-menu-item w-full px-4 py-2.5 text-left text-sm text-error hover:bg-error-container/20 flex items-center gap-3"
                           >
                             <span className="material-symbols-outlined text-lg">delete</span>
                             Delete
