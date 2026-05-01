@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
 import { apiListCanvases, apiCreateCanvas, apiDeleteCanvas } from "../lib/api";
@@ -26,6 +26,20 @@ export default function DashboardPage() {
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const thumbnails = useMermaidThumbnails(canvases);
+  const location = useLocation();
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  // Highlight the recently closed canvas card
+  useEffect(() => {
+    const cid = (location.state as Record<string, unknown> | null)?.closedCanvasId as string | undefined;
+    if (cid) {
+      setHighlightId(cid);
+      // Clear router state to prevent re-trigger on refresh
+      navigate(location.pathname, { replace: true, state: {} });
+      const timer = setTimeout(() => setHighlightId(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     loadCanvases();
@@ -230,7 +244,7 @@ export default function DashboardPage() {
             {filtered.map((canvas) => (
               <div
                 key={canvas.id}
-                className="group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20 cursor-pointer"
+                className={`group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20 cursor-pointer${highlightId === canvas.id ? " canvas-card-highlight" : ""}`}
                 onClick={() => {
                   if (exportMode) {
                     toggleExportSelection(canvas.id);

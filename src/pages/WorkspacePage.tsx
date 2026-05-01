@@ -67,6 +67,7 @@ export default function WorkspacePage() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const codeOnEnterRef = useRef("");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exitingRef = useRef(false);
 
   // Fetch global sound config from server on mount (populates in-memory cache)
   useEffect(() => {
@@ -377,7 +378,10 @@ export default function WorkspacePage() {
   };
 
   // Navigate back to dashboard with intelligent naming / blank-canvas cleanup
-  const handleNavigateBack = useCallback(async () => {
+  const handleCanvasExit = useCallback(async () => {
+    if (exitingRef.current) return;
+    exitingRef.current = true;
+
     if (!canvasId) {
       navigate("/dashboard");
       return;
@@ -420,8 +424,25 @@ export default function WorkspacePage() {
       }
     }
 
-    navigate("/dashboard");
+    navigate("/dashboard", { state: { closedCanvasId: canvasId } });
   }, [canvasId, title, navigate]);
+
+  // History guard — intercept Android/browser back button
+  const handleCanvasExitRef = useRef(handleCanvasExit);
+  useEffect(() => { handleCanvasExitRef.current = handleCanvasExit; }, [handleCanvasExit]);
+
+  useEffect(() => {
+    window.history.pushState({ canvasGuard: true }, "", window.location.href);
+
+    const onPopState = () => {
+      // Re-push guard to block rapid double-back during async exit
+      window.history.pushState({ canvasGuard: true }, "", window.location.href);
+      handleCanvasExitRef.current();
+    };
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
 
   // ── Unified send message (ref-backed, closure-proof) ──
@@ -646,7 +667,7 @@ export default function WorkspacePage() {
         <div className="flex justify-between items-center w-full px-4 py-3">
           <div className="flex items-center gap-3">
             <button
-              onClick={handleNavigateBack}
+              onClick={handleCanvasExit}
               disabled={isNaming}
               className="material-symbols-outlined text-on-surface p-2 -ml-2 rounded-full active:bg-surface-container-high transition-colors disabled:opacity-40"
             >
