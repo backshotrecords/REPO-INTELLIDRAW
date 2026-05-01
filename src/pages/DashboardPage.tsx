@@ -23,6 +23,7 @@ export default function DashboardPage() {
   const [exportMode, setExportMode] = useState(false);
   const [exportOptions, setExportOptions] = useState({ markdown: true, png: false });
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [menuAbove, setMenuAbove] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const thumbnails = useMermaidThumbnails(canvases);
@@ -314,7 +315,14 @@ export default function DashboardPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setMenuOpenId(menuOpenId === canvas.id ? null : canvas.id);
+                          if (menuOpenId === canvas.id) {
+                            setMenuOpenId(null);
+                          } else {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const spaceBelow = window.innerHeight - rect.bottom;
+                            setMenuAbove(spaceBelow < 220);
+                            setMenuOpenId(canvas.id);
+                          }
                         }}
                         className="text-on-surface-variant hover:text-primary p-2 hover:bg-surface-container-high rounded-lg transition-colors"
                       >
@@ -322,7 +330,7 @@ export default function DashboardPage() {
                       </button>
 
                       {menuOpenId === canvas.id && (
-                        <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-ambient-lg border border-outline-variant/10 py-2 min-w-[160px] z-30">
+                        <div className={`absolute right-0 ${menuAbove ? 'bottom-full mb-1' : 'top-full mt-1'} bg-white rounded-xl shadow-ambient-lg border border-outline-variant/10 py-2 min-w-[160px] z-30`}>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
