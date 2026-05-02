@@ -1031,6 +1031,12 @@
   opacity: 1;
 }
 
+/* Auto-show tooltip after roll-in animation completes (0.4s delay) */
+.node-action-tooltip-auto {
+  opacity: 1 !important;
+  transition-delay: 0.4s;
+}
+
 /* ======================================
    Node Selection Pills — Scrollable Tray
    ====================================== */
