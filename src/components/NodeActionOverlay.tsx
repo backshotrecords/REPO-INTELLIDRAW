@@ -29,11 +29,15 @@ interface NodeActionOverlayProps {
 export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeActionOverlayProps) {
   const [phase, setPhase] = useState<"hidden" | "entering" | "visible" | "exiting">("hidden");
   const lastRectRef = useRef<DOMRect | null>(null);
+  const lastActionsRef = useRef<NodeAction[]>([]);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Track the last valid rect for exit animations
+  // Track the last valid rect and actions for exit animations
   if (nodeRect) {
     lastRectRef.current = nodeRect;
+  }
+  if (actions.length > 0) {
+    lastActionsRef.current = actions;
   }
 
   useEffect(() => {
@@ -102,9 +106,12 @@ export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeAc
   const isIn = phase === "visible";
   const isExiting = phase === "exiting";
 
+  // Use last known actions during exit so buttons exist to animate out
+  const resolvedActions = actions.length > 0 ? actions : lastActionsRef.current;
+
   const overlay = (
     <>
-      {actions.map((action, index) => {
+      {resolvedActions.map((action, index) => {
         const verticalOffset = index * 48;
 
         let transform: string;
