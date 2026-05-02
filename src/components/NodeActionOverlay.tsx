@@ -43,12 +43,22 @@ export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeAc
     }
 
     if (visible && nodeRect) {
-      // Animate in: hidden → entering (next frame) → visible
+      // Animate in: hidden → entering → (paint) → visible
+      // Double-rAF ensures the browser paints the "entering" state before
+      // we apply "visible", giving the CSS transition something to animate from.
       setPhase("entering");
       const raf = requestAnimationFrame(() => {
-        setPhase("visible");
+        const raf2 = requestAnimationFrame(() => {
+          setPhase("visible");
+        });
+        // Store for cleanup
+        (cleanup as any).raf2 = raf2;
       });
-      return () => cancelAnimationFrame(raf);
+      const cleanup: any = { raf };
+      return () => {
+        cancelAnimationFrame(cleanup.raf);
+        if (cleanup.raf2) cancelAnimationFrame(cleanup.raf2);
+      };
     } else if (phase === "visible" || phase === "entering") {
       // Animate out: visible → exiting → hidden (after transition completes)
       setPhase("exiting");
