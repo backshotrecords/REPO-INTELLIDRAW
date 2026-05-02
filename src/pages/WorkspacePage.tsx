@@ -1018,7 +1018,8 @@ export default function WorkspacePage() {
             </div>
           </div>
           {activeView === "flowchart" ? (
-            /* Infinite canvas */
+            <>
+            {/* Infinite canvas */}
             <div
               ref={canvasRef}
               className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area select-none"
@@ -1121,6 +1122,7 @@ export default function WorkspacePage() {
                 actions={nodeActions}
               />
             )}
+            </>
           ) : (
             /* Code editor view */
             <div className="flex-1 flex flex-col bg-surface-container-lowest p-4">
