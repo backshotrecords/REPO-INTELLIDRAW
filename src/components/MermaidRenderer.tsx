@@ -58,7 +58,7 @@ function cleanupMermaidErrors() {
  */
 export function extractNodeId(svgElementId: string): string | null {
   // Strip common prefixes and extract the node ID before the trailing -number
-  const match = svgElementId.match(/^(?:flowchart|graph)-(.+)-\d+$/);
+  const match = svgElementId.match(/(?:flowchart|graph)-(.+)-\d+$/);
   return match ? match[1] : null;
 }
 
