@@ -60,12 +60,16 @@ export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeAc
         if (cleanup.raf2) cancelAnimationFrame(cleanup.raf2);
       };
     } else if (phase === "visible" || phase === "entering") {
-      // Animate out: visible → exiting → hidden (after transition completes)
-      setPhase("exiting");
+      // Animate out: ensure the browser paints the "visible" state,
+      // then apply "exiting" so the CSS transition has a starting point.
+      const exitRaf = requestAnimationFrame(() => {
+        setPhase("exiting");
+      });
       exitTimerRef.current = setTimeout(() => {
         setPhase("hidden");
         exitTimerRef.current = null;
-      }, 400); // match CSS transition duration
+      }, 500); // transition duration + buffer
+      return () => cancelAnimationFrame(exitRaf);
     }
   }, [visible, nodeRect]);
 

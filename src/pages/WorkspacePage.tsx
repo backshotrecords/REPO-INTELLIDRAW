@@ -491,10 +491,34 @@ export default function WorkspacePage() {
   const activeNodeIdRef = useRef<string | null>(null);
   useEffect(() => { activeNodeIdRef.current = activeNode?.id ?? null; }, [activeNode]);
 
+  const nodeSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleNodeTap = useCallback((nodeInfo: { id: string; label: string; rect: DOMRect }) => {
+    // Clear any pending switch timer
+    if (nodeSwitchTimerRef.current) {
+      clearTimeout(nodeSwitchTimerRef.current);
+      nodeSwitchTimerRef.current = null;
+    }
+
     // Toggle: clicking the same node again deselects it
     if (activeNodeIdRef.current === nodeInfo.id) {
       setActiveNode(null);
+      return;
+    }
+
+    // If another node is already active, animate out first, then animate in at new node
+    if (activeNodeIdRef.current !== null) {
+      setActiveNode(null); // triggers exit animation
+      nodeSwitchTimerRef.current = setTimeout(() => {
+        const codeDefinition = findNodeDefinition(mermaidCodeRef.current, nodeInfo.id);
+        setActiveNode({
+          id: nodeInfo.id,
+          label: nodeInfo.label,
+          codeDefinition,
+          rect: nodeInfo.rect,
+        });
+        nodeSwitchTimerRef.current = null;
+      }, 300); // slight overlap with exit for a smooth feel
       return;
     }
 
