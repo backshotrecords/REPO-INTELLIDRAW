@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import MermaidRenderer from "../components/MermaidRenderer";
+import NodeActionOverlay from "../components/NodeActionOverlay";
+import type { NodeAction } from "../components/NodeActionOverlay";
 import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
@@ -11,6 +13,36 @@ import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import type { ChatMessage, CanvasCommit } from "../types";
 
 const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
+
+/** Selected node info stored as a pill */
+interface SelectedNode {
+  id: string;
+  label: string;
+  codeDefinition: string;
+}
+
+/**
+ * Parse the mermaid source code to find the full node definition for a given node ID.
+ * Handles shapes: [] () {} {{}} [()] etc.
+ * Falls back to "ID" if no definition line is found.
+ */
+function findNodeDefinition(mermaidCode: string, nodeId: string): string {
+  // Escape special regex chars in the node ID
+  const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Match the node ID followed by a shape opener: [ ( { or "
+  const regex = new RegExp(`^\\s*${escaped}\\s*([\\[\\(\\{"<])`, "m");
+  const match = mermaidCode.match(regex);
+  if (!match) return nodeId;
+
+  // Found the start — now extract the full definition up to end of line
+  const startIdx = mermaidCode.indexOf(match[0]);
+  const lineEnd = mermaidCode.indexOf("\n", startIdx);
+  const line = lineEnd === -1
+    ? mermaidCode.slice(startIdx).trim()
+    : mermaidCode.slice(startIdx, lineEnd).trim();
+
+  return line;
+}
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
@@ -46,6 +78,16 @@ export default function WorkspacePage() {
   const [shareExiting, setShareExiting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputBarRef = useRef<HTMLDivElement>(null);
+
+  // ── Node selection state ──
+  const [activeNode, setActiveNode] = useState<{
+    id: string;
+    label: string;
+    codeDefinition: string;
+    rect: DOMRect;
+  } | null>(null);
+  const [selectedNodes, setSelectedNodes] = useState<SelectedNode[]>([]);
+  const [flashPillId, setFlashPillId] = useState<string | null>(null);
   const [inputBarHeight, setInputBarHeight] = useState(60);
 
   // Preview Mode state — version browsing without committing
@@ -445,14 +487,110 @@ export default function WorkspacePage() {
   }, []);
 
 
+  // ── Node selection handlers ──
+  const handleNodeTap = useCallback((nodeInfo: { id: string; label: string; rect: DOMRect }) => {
+    const codeDefinition = findNodeDefinition(mermaidCodeRef.current, nodeInfo.id);
+    setActiveNode({
+      id: nodeInfo.id,
+      label: nodeInfo.label,
+      codeDefinition,
+      rect: nodeInfo.rect,
+    });
+  }, []);
+
+  const handleAddNodeSelection = useCallback(() => {
+    if (!activeNode) return;
+
+    // Check if already selected
+    if (selectedNodes.some((n) => n.id === activeNode.id)) {
+      // Flash the existing pill
+      setFlashPillId(activeNode.id);
+      setTimeout(() => setFlashPillId(null), 500);
+      setActiveNode(null);
+      return;
+    }
+
+    setSelectedNodes((prev) => [
+      ...prev,
+      { id: activeNode.id, label: activeNode.label, codeDefinition: activeNode.codeDefinition },
+    ]);
+    setActiveNode(null);
+  }, [activeNode, selectedNodes]);
+
+  const handleRemoveNodeSelection = useCallback((nodeId: string) => {
+    setSelectedNodes((prev) => prev.filter((n) => n.id !== nodeId));
+  }, []);
+
+  const handleClearAllSelections = useCallback(() => {
+    setSelectedNodes([]);
+    setActiveNode(null);
+  }, []);
+
+  // Build the action list for the overlay (extensible — add new entries here)
+  const nodeActions: NodeAction[] = activeNode
+    ? [
+        {
+          id: "add-selection",
+          icon: "add",
+          label: "Add to selection",
+          onClick: handleAddNodeSelection,
+        },
+        // Future actions go here:
+        // { id: 'edit-label', icon: 'edit', label: 'Edit label', onClick: handleEditLabel },
+      ]
+    : [];
+
+  // Clear activeNode on canvas background tap (detected via pointerup on the canvas wrapper)
+  const canvasTapRef = useRef<{ x: number; y: number; time: number } | null>(null);
+
+  const handleCanvasPointerDown = useCallback((e: React.PointerEvent) => {
+    // Record for tap detection
+    canvasTapRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+  }, []);
+
+  const handleCanvasPointerUpForDeselect = useCallback((e: React.PointerEvent) => {
+    const state = canvasTapRef.current;
+    if (!state) return;
+    canvasTapRef.current = null;
+
+    const dx = e.clientX - state.x;
+    const dy = e.clientY - state.y;
+    const elapsed = Date.now() - state.time;
+
+    // Only treat as a background tap if minimal movement + short duration
+    if (Math.hypot(dx, dy) < 10 && elapsed < 300) {
+      // Check that the click target is NOT a node (node taps are handled by MermaidRenderer)
+      const target = e.target as Element;
+      if (!target.closest?.(".node")) {
+        setActiveNode(null);
+      }
+    }
+  }, []);
+
   // ── Unified send message (ref-backed, closure-proof) ──
+  const selectedNodesRef = useRef<SelectedNode[]>([]);
+  useEffect(() => { selectedNodesRef.current = selectedNodes; }, [selectedNodes]);
+
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || chatLoadingRef.current) return;
     flushPreviewMode();
 
+    // Augment message with selected node context
+    let augmentedMessage = text.trim();
+    const nodes = selectedNodesRef.current;
+    if (nodes.length > 0) {
+      const nodeLines = nodes
+        .map((n) => `- Node "${n.id}", Definition: ${n.codeDefinition}`)
+        .join("\n");
+      augmentedMessage = `[The user has selected the following node(s) to target with their instruction:\n${nodeLines}\n]\n\n${augmentedMessage}`;
+      // Clear selections after consuming
+      setSelectedNodes([]);
+      setActiveNode(null);
+    }
+
     const userMessage: ChatMessage = {
       role: "user",
-      content: text.trim(),
+      content: augmentedMessage,
       timestamp: new Date().toISOString(),
     };
 
@@ -462,7 +600,7 @@ export default function WorkspacePage() {
     setChatLoading(true);
 
     try {
-      const result = await apiChat(text.trim(), mermaidCodeRef.current, newHistory, canvasId || undefined);
+      const result = await apiChat(augmentedMessage, mermaidCodeRef.current, newHistory, canvasId || undefined);
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
@@ -815,9 +953,9 @@ export default function WorkspacePage() {
               ref={canvasRef}
               className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area select-none"
               onWheel={handleWheel}
-              onPointerDown={handlePointerDown}
+              onPointerDown={(e) => { handlePointerDown(e); handleCanvasPointerDown(e); }}
               onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
+              onPointerUp={(e) => { handlePointerUp(e); handleCanvasPointerUpForDeselect(e); }}
               onPointerCancel={handlePointerUp}
               onPointerLeave={handlePointerLeave}
               style={{ cursor: isPanningVisual ? "grabbing" : "grab" }}
@@ -875,6 +1013,9 @@ export default function WorkspacePage() {
                   className="min-h-[400px] min-w-[300px]"
                   onSyntaxError={handleSyntaxError}
                   isFixing={isFixing}
+                  onNodeTap={handleNodeTap}
+                  activeNodeId={activeNode?.id ?? null}
+                  selectedNodeIds={selectedNodes.map((n) => n.id)}
                 />
               </div>
 
@@ -901,6 +1042,13 @@ export default function WorkspacePage() {
                   }}
                 />
               )}
+
+              {/* Node Action Overlay — renders outside the zoom transform */}
+              <NodeActionOverlay
+                nodeRect={activeNode?.rect ?? null}
+                visible={!!activeNode}
+                actions={nodeActions}
+              />
             </div>
           ) : (
             /* Code editor view */
@@ -925,6 +1073,34 @@ export default function WorkspacePage() {
           {/* ── Floating chat input bar ─────────────────────── */}
           <div ref={inputBarRef} className="absolute bottom-3 md:bottom-5 left-3 right-3 md:left-1/2 md:-translate-x-1/2 md:w-[calc(100%-40px)] md:max-w-[700px] z-30">
             <div className="bg-white/70 backdrop-blur-2xl border border-[#c4c4c4] rounded-[22px] shadow-[0_4px_32px_rgba(0,0,0,0.08)] overflow-hidden">
+
+              {/* Node selection pills */}
+              {selectedNodes.length > 0 && (
+                <div className="node-selection-tray">
+                  {selectedNodes.map((node) => (
+                    <div
+                      key={node.id}
+                      className={`node-selection-pill ${flashPillId === node.id ? "node-selection-pill-flash" : ""}`}
+                    >
+                      <span className="node-selection-pill-label" title={node.codeDefinition}>
+                        {node.label.length > 30 ? `${node.label.slice(0, 27)}...` : node.label}
+                      </span>
+                      <button
+                        className="node-selection-pill-dismiss"
+                        onClick={() => handleRemoveNodeSelection(node.id)}
+                        title="Remove"
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                      </button>
+                    </div>
+                  ))}
+                  {selectedNodes.length >= 2 && (
+                    <button className="node-selection-clear-all" onClick={handleClearAllSelections}>
+                      Clear all
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Input row */}
               <div className="p-2.5 md:p-3 flex items-end gap-2.5">
