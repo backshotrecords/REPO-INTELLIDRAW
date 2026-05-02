@@ -682,11 +682,22 @@ export default function WorkspacePage() {
   } | null>(null);
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (!(e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area"))) return;
+    console.log('[NodeTap] 🔵 pointerDown fired — target:', (e.target as HTMLElement).tagName, (e.target as HTMLElement).className);
+
+    if (!(e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area"))) {
+      console.log('[NodeTap] ❌ SUSPECT 1: Guard returned early — .closest(".canvas-area") failed. Target is NOT inside canvas-area.');
+      return;
+    }
+    console.log('[NodeTap] ✅ Passed canvas-area guard');
 
     // Don't hijack clicks on interactive elements (mic button, zoom buttons, file inputs, etc.)
     const target = e.target as HTMLElement;
-    if (target.closest("button, a, input, label, textarea, select, [role='button']")) return;
+    const interactiveMatch = target.closest("button, a, input, label, textarea, select, [role='button']");
+    if (interactiveMatch) {
+      console.log('[NodeTap] ❌ SUSPECT 2: Guard returned early — matched interactive element:', interactiveMatch.tagName, interactiveMatch.className);
+      return;
+    }
+    console.log('[NodeTap] ✅ Passed interactive-element guard');
 
     // Hit-test: find which .node SVG element contains the click point.
     // We use bounding-rect intersection instead of .closest(".node") because
@@ -706,6 +717,7 @@ export default function WorkspacePage() {
     }
 
     if (nodeEl) {
+      console.log('[NodeTap] ✅ Hit-test found node:', nodeEl.id, '— recording tap state');
       nodeTapRef.current = {
         nodeEl,
         startX: e.clientX,
@@ -714,6 +726,7 @@ export default function WorkspacePage() {
         pointerId: e.pointerId,
       };
     } else {
+      console.log('[NodeTap] ⚪ Hit-test found no node at', e.clientX, e.clientY, '— allNodes count:', allNodes?.length ?? 0);
       nodeTapRef.current = null;
     }
 
@@ -725,6 +738,7 @@ export default function WorkspacePage() {
       pointerId: e.pointerId,
       hadNode: !!nodeEl,
     };
+    console.log('[NodeTap] 🔵 pointerDown complete — nodeTap:', !!nodeTapRef.current, ', bgTap hadNode:', !!nodeEl);
 
     // Prevent text selection while dragging
     e.preventDefault();
@@ -799,6 +813,7 @@ export default function WorkspacePage() {
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    console.log('[NodeTap] 🟢 pointerUp fired');
     // Release capture on the stable canvas div
     try { canvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* already released */ }
 
@@ -814,33 +829,42 @@ export default function WorkspacePage() {
     // ── Node tap detection ──
     // Check if this was a stationary tap on a .node element
     const tapState = nodeTapRef.current;
+    console.log('[NodeTap] 🟢 tapState:', tapState ? `node ${tapState.nodeEl.id}` : 'null');
+
     if (tapState && tapState.pointerId === e.pointerId) {
       nodeTapRef.current = null;
       const elapsed = Date.now() - tapState.startTime;
+      console.log('[NodeTap] 🟢 Tap elapsed:', elapsed, 'ms (limit: 300ms)');
 
       if (elapsed < 300) {
         // Confirmed tap on a node! Extract info and fire handler.
         const nodeEl = tapState.nodeEl;
         const svgId = nodeEl.id || "";
         const nodeId = extractNodeId(svgId);
+        console.log('[NodeTap] 🟢 svgId:', svgId, '→ nodeId:', nodeId);
 
         if (nodeId) {
           const labelEl = nodeEl.querySelector(".nodeLabel");
           const label = labelEl?.textContent?.trim() || nodeId;
           const rect = nodeEl.getBoundingClientRect();
+          console.log('[NodeTap] ✅✅✅ CONFIRMED TAP — calling handleNodeTap:', { id: nodeId, label, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height } });
           handleNodeTap({ id: nodeId, label, rect });
           return; // Don't also deselect
+        } else {
+          console.log('[NodeTap] ❌ extractNodeId returned null for svgId:', svgId);
         }
+      } else {
+        console.log('[NodeTap] ⚪ Tap too slow — treating as hold/drag');
       }
     }
 
     // ── Background tap detection ──
-    // If it wasn't a node tap, check if it was a stationary background tap to deselect
     const bgTapState = backgroundTapRef.current;
     if (bgTapState && bgTapState.pointerId === e.pointerId && !bgTapState.hadNode) {
       backgroundTapRef.current = null;
       const bgElapsed = Date.now() - bgTapState.startTime;
       if (bgElapsed < 300) {
+        console.log('[NodeTap] 🟢 Background tap — clearing activeNode');
         setActiveNode(null);
       }
     } else {
