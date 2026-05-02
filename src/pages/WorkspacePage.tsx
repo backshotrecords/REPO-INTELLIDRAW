@@ -488,7 +488,16 @@ export default function WorkspacePage() {
 
 
   // ── Node selection handlers ──
+  const activeNodeIdRef = useRef<string | null>(null);
+  useEffect(() => { activeNodeIdRef.current = activeNode?.id ?? null; }, [activeNode]);
+
   const handleNodeTap = useCallback((nodeInfo: { id: string; label: string; rect: DOMRect }) => {
+    // Toggle: clicking the same node again deselects it
+    if (activeNodeIdRef.current === nodeInfo.id) {
+      setActiveNode(null);
+      return;
+    }
+
     const codeDefinition = findNodeDefinition(mermaidCodeRef.current, nodeInfo.id);
     setActiveNode({
       id: nodeInfo.id,
@@ -1186,31 +1195,59 @@ export default function WorkspacePage() {
           <div ref={inputBarRef} className="absolute bottom-3 md:bottom-5 left-3 right-3 md:left-1/2 md:-translate-x-1/2 md:w-[calc(100%-40px)] md:max-w-[700px] z-30">
             <div className="bg-white/70 backdrop-blur-2xl border border-[#c4c4c4] rounded-[22px] shadow-[0_4px_32px_rgba(0,0,0,0.08)] overflow-hidden">
 
-              {/* Node selection pills */}
+              {/* Node selection pills — scrollable tray */}
               {selectedNodes.length > 0 && (
-                <div className="node-selection-tray">
-                  {selectedNodes.map((node) => (
-                    <div
-                      key={node.id}
-                      className={`node-selection-pill ${flashPillId === node.id ? "node-selection-pill-flash" : ""}`}
-                    >
-                      <span className="node-selection-pill-label" title={node.codeDefinition}>
-                        {node.label.length > 30 ? `${node.label.slice(0, 27)}...` : node.label}
-                      </span>
-                      <button
-                        className="node-selection-pill-dismiss"
-                        onClick={() => handleRemoveNodeSelection(node.id)}
-                        title="Remove"
+                <div className="node-selection-tray-wrapper">
+                  {/* Left scroll arrow */}
+                  <button
+                    className="node-scroll-arrow node-scroll-arrow-left"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const tray = (e.currentTarget as HTMLElement).parentElement?.querySelector('.node-selection-tray');
+                      tray?.scrollBy({ left: -120, behavior: 'smooth' });
+                    }}
+                    title="Scroll left"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_left</span>
+                  </button>
+
+                  <div className="node-selection-tray">
+                    {selectedNodes.map((node) => (
+                      <div
+                        key={node.id}
+                        className={`node-selection-pill ${flashPillId === node.id ? "node-selection-pill-flash" : ""}`}
                       >
-                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                        <span className="node-selection-pill-label" title={node.codeDefinition}>
+                          {node.label.length > 30 ? `${node.label.slice(0, 27)}...` : node.label}
+                        </span>
+                        <button
+                          className="node-selection-pill-dismiss"
+                          onClick={() => handleRemoveNodeSelection(node.id)}
+                          title="Remove"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                        </button>
+                      </div>
+                    ))}
+                    {selectedNodes.length >= 2 && (
+                      <button className="node-selection-clear-all" onClick={handleClearAllSelections}>
+                        Clear all
                       </button>
-                    </div>
-                  ))}
-                  {selectedNodes.length >= 2 && (
-                    <button className="node-selection-clear-all" onClick={handleClearAllSelections}>
-                      Clear all
-                    </button>
-                  )}
+                    )}
+                  </div>
+
+                  {/* Right scroll arrow */}
+                  <button
+                    className="node-scroll-arrow node-scroll-arrow-right"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const tray = (e.currentTarget as HTMLElement).parentElement?.querySelector('.node-selection-tray');
+                      tray?.scrollBy({ left: 120, behavior: 'smooth' });
+                    }}
+                    title="Scroll right"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_right</span>
+                  </button>
                 </div>
               )}
 

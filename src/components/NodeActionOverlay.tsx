@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * Extensible action definition — add new entries here for future radial menu items.
@@ -21,19 +22,18 @@ interface NodeActionOverlayProps {
 
 /**
  * NodeActionOverlay — floating HTML overlay that renders contextual action buttons
- * next to a clicked Mermaid SVG node. Positioned in fixed screen-space (zoom-independent).
+ * next to a clicked Mermaid SVG node. Rendered via Portal into document.body to
+ * escape any ancestor overflow/transform containment issues.
  *
  * The actions array makes this extensible: add new entries for edit, delete, etc.
  * Currently renders a single "+" button; future work can fan them into a radial layout.
  */
 export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeActionOverlayProps) {
   const [animateIn, setAnimateIn] = useState(false);
-  const overlayRef = useRef<HTMLDivElement>(null);
 
   // Trigger the spring animation after mount
   useEffect(() => {
     if (visible && nodeRect) {
-      // Small delay to let the DOM paint first, then trigger the CSS transition
       const raf = requestAnimationFrame(() => {
         setAnimateIn(true);
       });
@@ -45,37 +45,22 @@ export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeAc
 
   if (!visible || !nodeRect) return null;
 
-  // Calculate position — place the buttons to the right of the node by default
-  const gap = 12; // px between node edge and button
-  const btnSize = 44; // total hit area (36px visual + 4px padding each side)
+  // Calculate position — place the button to the right of the node by default
+  const gap = 12;
+  const btnSize = 44;
 
-  // Edge detection: flip to left side if node is too close to right viewport edge
   const viewportWidth = window.innerWidth;
   const spaceRight = viewportWidth - nodeRect.right;
-  const placeLeft = spaceRight < (btnSize + gap + 20); // 20px safety margin
+  const placeLeft = spaceRight < (btnSize + gap + 20);
 
-  // Vertical center relative to the node
   const top = nodeRect.top + nodeRect.height / 2;
-
-  // Horizontal position
   const left = placeLeft
     ? nodeRect.left - gap - btnSize / 2
     : nodeRect.right + gap + btnSize / 2;
 
-  return (
-    <div
-      ref={overlayRef}
-      className="node-action-overlay"
-      style={{
-        top: 0,
-        left: 0,
-        width: "100vw",
-        height: "100vh",
-      }}
-    >
+  const overlay = (
+    <>
       {actions.map((action, index) => {
-        // For future radial layout, offset each button by angle.
-        // Currently all buttons stack vertically with 48px spacing.
         const verticalOffset = index * 48;
 
         return (
@@ -83,13 +68,14 @@ export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeAc
             key={action.id}
             className={`node-action-btn-wrapper ${animateIn ? "node-action-visible" : ""}`}
             style={{
+              position: "fixed",
+              zIndex: 9999,
               left: `${left}px`,
               top: `${top + verticalOffset}px`,
               transform: animateIn
                 ? "translate(-50%, -50%) scale(1) rotate(0deg)"
                 : "translate(-50%, -50%) scale(0.5) rotate(-90deg)",
               opacity: animateIn ? 1 : 0,
-              // Stagger each button slightly for a cascading effect
               transitionDelay: `${index * 50}ms`,
             }}
           >
@@ -112,6 +98,9 @@ export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeAc
           </div>
         );
       })}
-    </div>
+    </>
   );
+
+  // Portal into document.body to escape overflow:hidden and transform containment
+  return createPortal(overlay, document.body);
 }
