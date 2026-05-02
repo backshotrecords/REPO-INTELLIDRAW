@@ -853,9 +853,13 @@ export default function WorkspacePage() {
         console.log('[NodeTap] 🟢 svgId:', svgId, '→ nodeId:', nodeId);
 
         if (nodeId) {
-          const labelEl = nodeEl.querySelector(".nodeLabel");
+          // Re-query the node from live DOM — the stored nodeEl may be detached
+          // (React re-renders between pointerDown and pointerUp, and
+          // dangerouslySetInnerHTML re-creates the SVG elements)
+          const liveNode = canvasRef.current?.querySelector(`#${CSS.escape(svgId)}`) || nodeEl;
+          const labelEl = liveNode.querySelector(".nodeLabel");
           const label = labelEl?.textContent?.trim() || nodeId;
-          const rect = nodeEl.getBoundingClientRect();
+          const rect = liveNode.getBoundingClientRect();
           console.log('[NodeTap] ✅✅✅ CONFIRMED TAP — calling handleNodeTap:', { id: nodeId, label, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height } });
           handleNodeTap({ id: nodeId, label, rect });
           return; // Don't also deselect
