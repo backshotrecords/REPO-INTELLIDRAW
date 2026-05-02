@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
 
 interface MermaidRendererProps {
@@ -6,8 +6,6 @@ interface MermaidRendererProps {
   className?: string;
   onSyntaxError?: (errorMsg: string, code: string) => void;
   isFixing?: boolean;
-  /** Fires when a user taps/clicks a node (tap-vs-drag detection built in) */
-  onNodeTap?: (nodeInfo: { id: string; label: string; rect: DOMRect }) => void;
   /** Node ID currently "active" (tapped, showing the "+" button) */
   activeNodeId?: string | null;
   /** Node IDs currently selected (pills exist) */
@@ -58,19 +56,15 @@ function cleanupMermaidErrors() {
  * Handles patterns like: flowchart-A-0, flowchart-RazorBlades-7, flowchart-OBJ-12
  * The node ID can contain any characters except the trailing -\d+ index.
  */
-function extractNodeId(svgElementId: string): string | null {
+export function extractNodeId(svgElementId: string): string | null {
   // Strip common prefixes and extract the node ID before the trailing -number
   const match = svgElementId.match(/^(?:flowchart|graph)-(.+)-\d+$/);
   return match ? match[1] : null;
 }
 
-// Tap-vs-drag detection constants
-const TAP_MAX_DISTANCE = 10;  // px — beyond this it's a drag
-const TAP_MAX_DURATION = 300; // ms — beyond this it's a hold/drag
-
 export default function MermaidRenderer({
   code, className = "", onSyntaxError, isFixing = false,
-  onNodeTap, activeNodeId, selectedNodeIds,
+  activeNodeId, selectedNodeIds,
 }: MermaidRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,9 +75,6 @@ export default function MermaidRenderer({
   // Stable ref for the callback so useEffect doesn't re-run when callback identity changes
   const onSyntaxErrorRef = useRef(onSyntaxError);
   onSyntaxErrorRef.current = onSyntaxError;
-
-  const onNodeTapRef = useRef(onNodeTap);
-  onNodeTapRef.current = onNodeTap;
 
   useEffect(() => {
     if (!code?.trim()) {
@@ -134,82 +125,8 @@ export default function MermaidRenderer({
     return () => cleanupMermaidErrors();
   }, []);
 
-  // ── Tap-vs-drag detection on SVG .node elements ──
-  const tapStateRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    startTime: number;
-    nodeEl: Element;
-  } | null>(null);
-
-  const handleNodePointerDown = useCallback((e: PointerEvent) => {
-    // Walk up to find the .node <g> element
-    const nodeEl = (e.target as Element).closest?.(".node");
-    if (!nodeEl) return;
-
-    tapStateRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      startTime: Date.now(),
-      nodeEl,
-    };
-  }, []);
-
-  const handleNodePointerMove = useCallback((e: PointerEvent) => {
-    const state = tapStateRef.current;
-    if (!state || state.pointerId !== e.pointerId) return;
-
-    const dx = e.clientX - state.startX;
-    const dy = e.clientY - state.startY;
-    if (Math.hypot(dx, dy) > TAP_MAX_DISTANCE) {
-      // Too much movement — this is a pan, not a tap
-      tapStateRef.current = null;
-    }
-  }, []);
-
-  const handleNodePointerUp = useCallback((e: PointerEvent) => {
-    const state = tapStateRef.current;
-    if (!state || state.pointerId !== e.pointerId) return;
-    tapStateRef.current = null;
-
-    const elapsed = Date.now() - state.startTime;
-    if (elapsed > TAP_MAX_DURATION) return; // Too long — it was a hold/drag
-
-    // Confirmed tap! Extract node info.
-    const nodeEl = state.nodeEl;
-    const svgId = nodeEl.id || "";
-    const nodeId = extractNodeId(svgId);
-    if (!nodeId) return;
-
-    // Get the label text
-    const labelEl = nodeEl.querySelector(".nodeLabel");
-    const label = labelEl?.textContent?.trim() || nodeId;
-
-    // Get bounding rect for overlay positioning
-    const rect = nodeEl.getBoundingClientRect();
-
-    onNodeTapRef.current?.({ id: nodeId, label, rect });
-  }, []);
-
-  // Attach pointer listeners to the container after SVG renders
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container || !svgHtml) return;
-
-    container.addEventListener("pointerdown", handleNodePointerDown);
-    container.addEventListener("pointermove", handleNodePointerMove);
-    container.addEventListener("pointerup", handleNodePointerUp);
-
-    return () => {
-      container.removeEventListener("pointerdown", handleNodePointerDown);
-      container.removeEventListener("pointermove", handleNodePointerMove);
-      container.removeEventListener("pointerup", handleNodePointerUp);
-    };
-  }, [svgHtml, handleNodePointerDown, handleNodePointerMove, handleNodePointerUp]);
-
   // ── Apply visual state classes to SVG nodes ──
+  // (Tap detection is handled by the parent WorkspacePage via canvas pointer events)
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !svgHtml) return;

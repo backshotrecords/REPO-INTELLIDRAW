@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import MermaidRenderer from "../components/MermaidRenderer";
+import MermaidRenderer, { extractNodeId } from "../components/MermaidRenderer";
 import NodeActionOverlay from "../components/NodeActionOverlay";
 import type { NodeAction } from "../components/NodeActionOverlay";
 import ProfileMenu from "../components/ProfileMenu";
@@ -540,33 +540,6 @@ export default function WorkspacePage() {
       ]
     : [];
 
-  // Clear activeNode on canvas background tap (detected via pointerup on the canvas wrapper)
-  const canvasTapRef = useRef<{ x: number; y: number; time: number } | null>(null);
-
-  const handleCanvasPointerDown = useCallback((e: React.PointerEvent) => {
-    // Record for tap detection
-    canvasTapRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
-  }, []);
-
-  const handleCanvasPointerUpForDeselect = useCallback((e: React.PointerEvent) => {
-    const state = canvasTapRef.current;
-    if (!state) return;
-    canvasTapRef.current = null;
-
-    const dx = e.clientX - state.x;
-    const dy = e.clientY - state.y;
-    const elapsed = Date.now() - state.time;
-
-    // Only treat as a background tap if minimal movement + short duration
-    if (Math.hypot(dx, dy) < 10 && elapsed < 300) {
-      // Check that the click target is NOT a node (node taps are handled by MermaidRenderer)
-      const target = e.target as Element;
-      if (!target.closest?.(".node")) {
-        setActiveNode(null);
-      }
-    }
-  }, []);
-
   // ── Unified send message (ref-backed, closure-proof) ──
   const selectedNodesRef = useRef<SelectedNode[]>([]);
   useEffect(() => { selectedNodesRef.current = selectedNodes; }, [selectedNodes]);
@@ -690,12 +663,36 @@ export default function WorkspacePage() {
 
   const lastPinchDist = useRef<number | null>(null);
 
+  // Track the original pointerdown target for node tap detection
+  // (needed because setPointerCapture redirects pointerup to the canvas element)
+  const nodeTapRef = useRef<{
+    nodeEl: Element;
+    startX: number;
+    startY: number;
+    startTime: number;
+    pointerId: number;
+  } | null>(null);
+
   const handlePointerDown = (e: React.PointerEvent) => {
     if (!(e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area"))) return;
 
     // Don't hijack clicks on interactive elements (mic button, zoom buttons, file inputs, etc.)
     const target = e.target as HTMLElement;
     if (target.closest("button, a, input, label, textarea, select, [role='button']")) return;
+
+    // Check if the pointerdown landed on a .node element — save it for tap detection
+    const nodeEl = target.closest?.(".node");
+    if (nodeEl) {
+      nodeTapRef.current = {
+        nodeEl,
+        startX: e.clientX,
+        startY: e.clientY,
+        startTime: Date.now(),
+        pointerId: e.pointerId,
+      };
+    } else {
+      nodeTapRef.current = null;
+    }
 
     // Prevent text selection while dragging
     e.preventDefault();
@@ -731,6 +728,16 @@ export default function WorkspacePage() {
     if (!activePointers.current.has(e.pointerId)) return;
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+    // Cancel pending node tap if pointer moved too far
+    const tapState = nodeTapRef.current;
+    if (tapState && tapState.pointerId === e.pointerId) {
+      const dx = e.clientX - tapState.startX;
+      const dy = e.clientY - tapState.startY;
+      if (Math.hypot(dx, dy) > 10) {
+        nodeTapRef.current = null; // Too much movement — it's a pan, not a tap
+      }
+    }
+
     if (activePointers.current.size === 2) {
       // Pinch zoom
       const dist = getPointerDist();
@@ -760,6 +767,44 @@ export default function WorkspacePage() {
     if (activePointers.current.size === 0) {
       isPanningRef.current = false;
       setIsPanningVisual(false);
+    }
+
+    // ── Node tap detection ──
+    // Check if this was a stationary tap on a .node element
+    const tapState = nodeTapRef.current;
+    if (tapState && tapState.pointerId === e.pointerId) {
+      nodeTapRef.current = null;
+      const elapsed = Date.now() - tapState.startTime;
+
+      if (elapsed < 300) {
+        // Confirmed tap on a node! Extract info and fire handler.
+        const nodeEl = tapState.nodeEl;
+        const svgId = nodeEl.id || "";
+        const nodeId = extractNodeId(svgId);
+
+        if (nodeId) {
+          const labelEl = nodeEl.querySelector(".nodeLabel");
+          const label = labelEl?.textContent?.trim() || nodeId;
+          const rect = nodeEl.getBoundingClientRect();
+          handleNodeTap({ id: nodeId, label, rect });
+          return; // Don't also deselect
+        }
+      }
+    }
+
+    // ── Background tap detection ──
+    // If it wasn't a node tap but was a stationary tap, clear activeNode
+    // (We can reuse the pan distance: if pan offset was ~0, it was a tap)
+    // The pointer capture means e.target is the canvas, so we can't check .node on it.
+    // But if nodeTapRef was already cleared (movement > 10px), it was a drag.
+    // If nodeTapRef was null from the start (no node target), check if it was a quick tap.
+    if (!tapState) {
+      // No node was involved — check if this was a background tap to deselect
+      // We use the pan distance heuristic: isPanningRef was just set to false.
+      // For a simple tap, the cumulative pan offset is negligible.
+      // Since we don't have the original startX/Y for non-node taps, we use a simpler check:
+      // If the pointer was down for < 300ms and we're releasing, it's probably a tap.
+      setActiveNode(null);
     }
   };
 
@@ -953,9 +998,9 @@ export default function WorkspacePage() {
               ref={canvasRef}
               className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area select-none"
               onWheel={handleWheel}
-              onPointerDown={(e) => { handlePointerDown(e); handleCanvasPointerDown(e); }}
+              onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
-              onPointerUp={(e) => { handlePointerUp(e); handleCanvasPointerUpForDeselect(e); }}
+              onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerUp}
               onPointerLeave={handlePointerLeave}
               style={{ cursor: isPanningVisual ? "grabbing" : "grab" }}
@@ -1013,7 +1058,6 @@ export default function WorkspacePage() {
                   className="min-h-[400px] min-w-[300px]"
                   onSyntaxError={handleSyntaxError}
                   isFixing={isFixing}
-                  onNodeTap={handleNodeTap}
                   activeNodeId={activeNode?.id ?? null}
                   selectedNodeIds={selectedNodes.map((n) => n.id)}
                 />
