@@ -688,8 +688,23 @@ export default function WorkspacePage() {
     const target = e.target as HTMLElement;
     if (target.closest("button, a, input, label, textarea, select, [role='button']")) return;
 
-    // Check if the pointerdown landed on a .node element — save it for tap detection
-    const nodeEl = target.closest?.(".node");
+    // Hit-test: find which .node SVG element contains the click point.
+    // We use bounding-rect intersection instead of .closest(".node") because
+    // Mermaid renders labels as HTML inside <foreignObject>, and .closest()
+    // can't traverse from HTML elements across the SVG namespace boundary.
+    let nodeEl: Element | null = null;
+    const allNodes = canvasRef.current?.querySelectorAll(".node");
+    if (allNodes) {
+      for (const node of allNodes) {
+        const r = node.getBoundingClientRect();
+        if (e.clientX >= r.left && e.clientX <= r.right &&
+            e.clientY >= r.top && e.clientY <= r.bottom) {
+          nodeEl = node;
+          break;
+        }
+      }
+    }
+
     if (nodeEl) {
       nodeTapRef.current = {
         nodeEl,
