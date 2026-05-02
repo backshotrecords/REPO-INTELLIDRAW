@@ -6,6 +6,7 @@ export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -99,15 +100,27 @@ export default function LoginPage() {
                   Password
                 </label>
               </div>
-              <input
-                className="w-full bg-surface-container-high border-none rounded-xl px-4 py-4 text-on-surface focus:ring-2 focus:ring-secondary transition-all outline-none placeholder:text-outline/50"
-                placeholder="••••••••"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-              />
+              <div className="relative">
+                <input
+                  className="w-full bg-surface-container-high border-none rounded-xl px-4 py-4 pr-12 text-on-surface focus:ring-2 focus:ring-secondary transition-all outline-none placeholder:text-outline/50"
+                  placeholder="••••••••"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="pw-toggle-btn absolute right-3 top-1/2 -translate-y-1/2"
+                  title={showPassword ? "Hide password" : "Show password"}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
+                    {showPassword ? "visibility_off" : "visibility"}
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
 

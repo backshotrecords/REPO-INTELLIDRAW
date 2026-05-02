@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
@@ -12,6 +12,8 @@ import {
   apiAddModel,
   apiDeleteModel,
   apiSetActiveModel,
+  apiChangePassword,
+  apiVerifyPassword,
 } from "../lib/api";
 
 interface AIModel {
@@ -53,10 +55,91 @@ export default function SettingsPage() {
   const [addingModel, setAddingModel] = useState(false);
   const [copyMessage, setCopyMessage] = useState("");
 
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [currentPasswordValid, setCurrentPasswordValid] = useState<boolean | null>(null);
+  const [currentPasswordChecking, setCurrentPasswordChecking] = useState(false);
+  const [passwordChangeSaving, setPasswordChangeSaving] = useState(false);
+  const [passwordChangeMessage, setPasswordChangeMessage] = useState("");
+  const [passwordChangeError, setPasswordChangeError] = useState("");
+  const verifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     loadSettings();
     loadModels();
   }, []);
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (verifyTimerRef.current) clearTimeout(verifyTimerRef.current);
+    };
+  }, []);
+
+  // Debounced verification of current password
+  const debouncedVerifyPassword = useCallback((password: string) => {
+    if (verifyTimerRef.current) clearTimeout(verifyTimerRef.current);
+    if (!password || password.length < 1) {
+      setCurrentPasswordValid(null);
+      setCurrentPasswordChecking(false);
+      return;
+    }
+    setCurrentPasswordChecking(true);
+    verifyTimerRef.current = setTimeout(async () => {
+      try {
+        const valid = await apiVerifyPassword(password);
+        setCurrentPasswordValid(valid);
+      } catch {
+        setCurrentPasswordValid(null);
+      } finally {
+        setCurrentPasswordChecking(false);
+      }
+    }, 600);
+  }, []);
+
+  const handleCurrentPasswordChange = (value: string) => {
+    setCurrentPassword(value);
+    debouncedVerifyPassword(value);
+  };
+
+  const passwordsMatch = newPassword.length > 0 && confirmPassword.length > 0 && newPassword === confirmPassword;
+  const passwordsMismatch = confirmPassword.length > 0 && newPassword !== confirmPassword;
+
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) return;
+    if (newPassword !== confirmPassword) {
+      setPasswordChangeError("New passwords do not match");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordChangeError("New password must be at least 6 characters");
+      return;
+    }
+    setPasswordChangeSaving(true);
+    setPasswordChangeMessage("");
+    setPasswordChangeError("");
+    try {
+      await apiChangePassword(currentPassword, newPassword);
+      setPasswordChangeMessage("Password changed successfully");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setCurrentPasswordValid(null);
+      setShowCurrentPassword(false);
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
+      setTimeout(() => setPasswordChangeMessage(""), 4000);
+    } catch (err) {
+      setPasswordChangeError(err instanceof Error ? err.message : "Failed to change password");
+    } finally {
+      setPasswordChangeSaving(false);
+    }
+  };
 
   const loadSettings = async () => {
     try {
@@ -284,6 +367,161 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* Change Password */}
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="md:col-span-1">
+            <h3 className="text-xl font-headline font-bold text-primary">Change Password</h3>
+            <p className="text-sm text-on-surface-variant mt-2">
+              Update your account password. You must verify your current password first.
+            </p>
+          </div>
+          <div className="md:col-span-2">
+            <div className="bg-surface-container-lowest rounded-xl p-8 border border-outline-variant/15 shadow-sm space-y-6">
+              {/* Current Password */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-on-surface">Current Password</label>
+                <div className="relative">
+                  <input
+                    className="w-full bg-surface-container-high border-none rounded-lg pl-4 pr-20 py-4 focus:ring-2 focus:ring-secondary/20 transition-all outline-none text-sm"
+                    placeholder="Enter your current password"
+                    type={showCurrentPassword ? "text" : "password"}
+                    value={currentPassword}
+                    onChange={(e) => handleCurrentPasswordChange(e.target.value)}
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    {/* Verification indicator */}
+                    {currentPassword.length > 0 && (
+                      currentPasswordChecking ? (
+                        <span className="pw-indicator pw-indicator-checking">
+                          <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+                        </span>
+                      ) : currentPasswordValid === true ? (
+                        <span className="pw-indicator pw-indicator-valid">
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check</span>
+                        </span>
+                      ) : currentPasswordValid === false ? (
+                        <span className="pw-indicator pw-indicator-invalid">
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                        </span>
+                      ) : null
+                    )}
+                    {/* Show/hide toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                      className="pw-toggle-btn"
+                      title={showCurrentPassword ? "Hide password" : "Show password"}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
+                        {showCurrentPassword ? "visibility_off" : "visibility"}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* New Password */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-on-surface">New Password</label>
+                <div className="relative">
+                  <input
+                    className="w-full bg-surface-container-high border-none rounded-lg pl-4 pr-20 py-4 focus:ring-2 focus:ring-secondary/20 transition-all outline-none text-sm"
+                    placeholder="Enter new password (min 6 characters)"
+                    type={showNewPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    minLength={6}
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="pw-toggle-btn"
+                      title={showNewPassword ? "Hide password" : "Show password"}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
+                        {showNewPassword ? "visibility_off" : "visibility"}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Confirm New Password */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-on-surface">Confirm New Password</label>
+                <div className="relative">
+                  <input
+                    className="w-full bg-surface-container-high border-none rounded-lg pl-4 pr-20 py-4 focus:ring-2 focus:ring-secondary/20 transition-all outline-none text-sm"
+                    placeholder="Re-enter new password"
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    minLength={6}
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    {/* Match indicator */}
+                    {confirmPassword.length > 0 && (
+                      passwordsMatch ? (
+                        <span className="pw-indicator pw-indicator-valid">
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check</span>
+                        </span>
+                      ) : passwordsMismatch ? (
+                        <span className="pw-indicator pw-indicator-invalid">
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                        </span>
+                      ) : null
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="pw-toggle-btn"
+                      title={showConfirmPassword ? "Hide password" : "Show password"}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
+                        {showConfirmPassword ? "visibility_off" : "visibility"}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Messages */}
+              {passwordChangeMessage && (
+                <p className="text-sm text-emerald-600 font-medium flex items-center gap-2">
+                  <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                  {passwordChangeMessage}
+                </p>
+              )}
+              {passwordChangeError && (
+                <p className="text-sm text-error font-medium flex items-center gap-2">
+                  <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>error</span>
+                  {passwordChangeError}
+                </p>
+              )}
+
+              {/* Submit */}
+              <div className="pt-2 flex justify-end">
+                <button
+                  onClick={handleChangePassword}
+                  disabled={
+                    passwordChangeSaving ||
+                    !currentPassword ||
+                    !newPassword ||
+                    !confirmPassword ||
+                    !passwordsMatch ||
+                    currentPasswordValid !== true
+                  }
+                  className="px-8 py-2.5 editorial-gradient text-white text-sm font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-50 flex items-center gap-2"
+                >
+                  <span className="material-symbols-outlined text-[20px]">lock</span>
+                  {passwordChangeSaving ? "Updating..." : "Update Password"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* API Configuration */}
         <section className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="md:col-span-1">
@@ -337,10 +575,10 @@ export default function SettingsPage() {
                         <>
                           <button
                             onClick={handleShowKey}
-                            className="p-2 text-on-surface-variant hover:text-primary transition-colors"
+                            className="pw-toggle-btn"
                             title={showKey ? "Hide key" : "Show key"}
                           >
-                            <span className="material-symbols-outlined text-lg">
+                            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
                               {showKey ? "visibility_off" : "visibility"}
                             </span>
                           </button>

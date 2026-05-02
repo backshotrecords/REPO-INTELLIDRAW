@@ -682,6 +682,54 @@ app.put("/api/settings/models", requireAuth(async (req, res) => {
   }
 }));
 
+// Password Change & Verification
+app.post("/api/settings/change-password", requireAuth(async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: "Current and new passwords are required" });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: "New password must be at least 6 characters" });
+  }
+  try {
+    const { data: user, error: fetchError } = await supabase
+      .from("users").select("id, password_hash")
+      .eq("id", req.auth.userId).single();
+    if (fetchError || !user) return res.status(404).json({ error: "User not found" });
+
+    const valid = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!valid) return res.status(401).json({ error: "Current password is incorrect" });
+
+    const newHash = await bcrypt.hash(newPassword, 12);
+    const { error: updateError } = await supabase
+      .from("users").update({ password_hash: newHash })
+      .eq("id", req.auth.userId);
+    if (updateError) return res.status(500).json({ error: "Failed to update password" });
+
+    return res.status(200).json({ success: true, message: "Password changed successfully" });
+  } catch (err) {
+    console.error("Change-password error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+app.post("/api/settings/verify-password", requireAuth(async (req, res) => {
+  const { password } = req.body || {};
+  if (!password) return res.status(400).json({ error: "Password is required" });
+  try {
+    const { data: user, error } = await supabase
+      .from("users").select("password_hash")
+      .eq("id", req.auth.userId).single();
+    if (error || !user) return res.status(404).json({ error: "User not found" });
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    return res.status(200).json({ valid });
+  } catch (err) {
+    console.error("Verify-password error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
 // ============================================================
 // ACTIVE RULES (public for auto-fix)
 // ============================================================

@@ -223,6 +223,26 @@ export async function apiUpdateProfile(displayName: string, email: string) {
   return data;
 }
 
+export async function apiChangePassword(currentPassword: string, newPassword: string) {
+  const res = await apiFetch("/settings/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to change password");
+  return data;
+}
+
+export async function apiVerifyPassword(password: string): Promise<boolean> {
+  const res = await apiFetch("/settings/verify-password", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+  const data = await res.json();
+  if (!res.ok) return false;
+  return data.valid;
+}
+
 export async function apiSaveApiKey(apiKey: string) {
   const res = await apiFetch("/settings/apikey", {
     method: "PUT",
