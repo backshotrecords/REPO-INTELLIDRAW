@@ -426,7 +426,7 @@ export default function AdminPage() {
       </header>
 
       {/* ─── Two-column layout: sidebar + content ─────────── */}
-      <div className="max-w-7xl mx-auto flex">
+      <div className="max-w-7xl mx-auto flex flex-col lg:flex-row">
 
         {/* ── Sidebar ──────────────────────────────────────── */}
         <aside className="hidden lg:flex flex-col w-64 shrink-0 sticky top-[73px] self-start h-[calc(100vh-73px)] border-r border-outline-variant/15 py-6 px-4 gap-1">
