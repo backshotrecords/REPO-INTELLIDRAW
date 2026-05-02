@@ -837,6 +837,8 @@ export default function WorkspacePage() {
         const maxZoom = getCanvasSettings().maxZoomLevel;
         setZoom((z) => Math.min(maxZoom, Math.max(0.2, z + delta)));
         lastPinchDist.current = dist;
+        // Dismiss active node overlay on pinch zoom
+        setActiveNode(null);
       }
     } else if (activePointers.current.size === 1 && isPanningRef.current) {
       // Single-pointer pan (reads ref — always synchronous, no stale closure)
@@ -925,11 +927,13 @@ export default function WorkspacePage() {
   const handleZoomIn = () => {
     const maxZoom = getCanvasSettings().maxZoomLevel;
     setZoom((z) => Math.min(maxZoom, z + 0.2));
+    setActiveNode(null);
   };
-  const handleZoomOut = () => setZoom((z) => Math.max(0.2, z - 0.2));
+  const handleZoomOut = () => { setZoom((z) => Math.max(0.2, z - 0.2)); setActiveNode(null); };
   const handleResetView = () => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    setActiveNode(null);
   };
 
 
