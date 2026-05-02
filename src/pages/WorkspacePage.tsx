@@ -673,6 +673,14 @@ export default function WorkspacePage() {
     pointerId: number;
   } | null>(null);
 
+  const backgroundTapRef = useRef<{
+    startX: number;
+    startY: number;
+    startTime: number;
+    pointerId: number;
+    hadNode: boolean;
+  } | null>(null);
+
   const handlePointerDown = (e: React.PointerEvent) => {
     if (!(e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area"))) return;
 
@@ -693,6 +701,15 @@ export default function WorkspacePage() {
     } else {
       nodeTapRef.current = null;
     }
+
+    // Always track for background tap detection (deselect active node)
+    backgroundTapRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startTime: Date.now(),
+      pointerId: e.pointerId,
+      hadNode: !!nodeEl,
+    };
 
     // Prevent text selection while dragging
     e.preventDefault();
@@ -735,6 +752,16 @@ export default function WorkspacePage() {
       const dy = e.clientY - tapState.startY;
       if (Math.hypot(dx, dy) > 10) {
         nodeTapRef.current = null; // Too much movement — it's a pan, not a tap
+      }
+    }
+
+    // Cancel background tap if moved too far
+    const bgTap = backgroundTapRef.current;
+    if (bgTap && bgTap.pointerId === e.pointerId) {
+      const dx = e.clientX - bgTap.startX;
+      const dy = e.clientY - bgTap.startY;
+      if (Math.hypot(dx, dy) > 10) {
+        backgroundTapRef.current = null;
       }
     }
 
@@ -793,18 +820,16 @@ export default function WorkspacePage() {
     }
 
     // ── Background tap detection ──
-    // If it wasn't a node tap but was a stationary tap, clear activeNode
-    // (We can reuse the pan distance: if pan offset was ~0, it was a tap)
-    // The pointer capture means e.target is the canvas, so we can't check .node on it.
-    // But if nodeTapRef was already cleared (movement > 10px), it was a drag.
-    // If nodeTapRef was null from the start (no node target), check if it was a quick tap.
-    if (!tapState) {
-      // No node was involved — check if this was a background tap to deselect
-      // We use the pan distance heuristic: isPanningRef was just set to false.
-      // For a simple tap, the cumulative pan offset is negligible.
-      // Since we don't have the original startX/Y for non-node taps, we use a simpler check:
-      // If the pointer was down for < 300ms and we're releasing, it's probably a tap.
-      setActiveNode(null);
+    // If it wasn't a node tap, check if it was a stationary background tap to deselect
+    const bgTapState = backgroundTapRef.current;
+    if (bgTapState && bgTapState.pointerId === e.pointerId && !bgTapState.hadNode) {
+      backgroundTapRef.current = null;
+      const bgElapsed = Date.now() - bgTapState.startTime;
+      if (bgElapsed < 300) {
+        setActiveNode(null);
+      }
+    } else {
+      backgroundTapRef.current = null;
     }
   };
 
@@ -1086,14 +1111,16 @@ export default function WorkspacePage() {
                   }}
                 />
               )}
+            </div>
 
-              {/* Node Action Overlay — renders outside the zoom transform */}
+            {/* Node Action Overlay — rendered OUTSIDE the canvas div to escape overflow:hidden */}
+            {activeView === "flowchart" && (
               <NodeActionOverlay
                 nodeRect={activeNode?.rect ?? null}
                 visible={!!activeNode}
                 actions={nodeActions}
               />
-            </div>
+            )}
           ) : (
             /* Code editor view */
             <div className="flex-1 flex flex-col bg-surface-container-lowest p-4">
