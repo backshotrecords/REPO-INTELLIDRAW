@@ -659,6 +659,8 @@ export default function WorkspacePage() {
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
     const maxZoom = getCanvasSettings().maxZoomLevel;
     setZoom((z) => Math.min(maxZoom, Math.max(0.2, z + delta)));
+    // Dismiss active node overlay on zoom
+    setActiveNode(null);
   };
 
   // Unified pointer tracking for pan (1 finger) + pinch-zoom (2 fingers)
@@ -818,6 +820,10 @@ export default function WorkspacePage() {
       const dy = e.clientY - lastPanPos.current.y;
       lastPanPos.current = { x: e.clientX, y: e.clientY };
       setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+      // Dismiss active node overlay on pan
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+        setActiveNode(null);
+      }
     }
   };
 

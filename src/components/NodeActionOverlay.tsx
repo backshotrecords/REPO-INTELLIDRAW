@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 /**
@@ -22,61 +22,108 @@ interface NodeActionOverlayProps {
 
 /**
  * NodeActionOverlay — floating HTML overlay that renders contextual action buttons
- * next to a clicked Mermaid SVG node. Rendered via Portal into document.body to
- * escape any ancestor overflow/transform containment issues.
+ * next to a clicked Mermaid SVG node. Rendered via Portal into document.body.
  *
- * The actions array makes this extensible: add new entries for edit, delete, etc.
- * Currently renders a single "+" button; future work can fan them into a radial layout.
+ * Supports roll-in and roll-out animations with lateral movement + spin.
  */
 export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeActionOverlayProps) {
-  const [animateIn, setAnimateIn] = useState(false);
+  const [phase, setPhase] = useState<"hidden" | "entering" | "visible" | "exiting">("hidden");
+  const lastRectRef = useRef<DOMRect | null>(null);
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Trigger the spring animation after mount
+  // Track the last valid rect for exit animations
+  if (nodeRect) {
+    lastRectRef.current = nodeRect;
+  }
+
   useEffect(() => {
+    if (exitTimerRef.current) {
+      clearTimeout(exitTimerRef.current);
+      exitTimerRef.current = null;
+    }
+
     if (visible && nodeRect) {
+      // Animate in: hidden → entering (next frame) → visible
+      setPhase("entering");
       const raf = requestAnimationFrame(() => {
-        setAnimateIn(true);
+        setPhase("visible");
       });
       return () => cancelAnimationFrame(raf);
-    } else {
-      setAnimateIn(false);
+    } else if (phase === "visible" || phase === "entering") {
+      // Animate out: visible → exiting → hidden (after transition completes)
+      setPhase("exiting");
+      exitTimerRef.current = setTimeout(() => {
+        setPhase("hidden");
+        exitTimerRef.current = null;
+      }, 400); // match CSS transition duration
     }
   }, [visible, nodeRect]);
 
-  if (!visible || !nodeRect) return null;
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    };
+  }, []);
 
-  // Calculate position — place the button to the right of the node by default
+  if (phase === "hidden") return null;
+
+  // Use last known rect for exit animation positioning
+  const rect = nodeRect || lastRectRef.current;
+  if (!rect) return null;
+
   const gap = 12;
   const btnSize = 44;
+  const rollDistance = 10; // px lateral shift for roll effect
 
   const viewportWidth = window.innerWidth;
-  const spaceRight = viewportWidth - nodeRect.right;
+  const spaceRight = viewportWidth - rect.right;
   const placeLeft = spaceRight < (btnSize + gap + 20);
 
-  const top = nodeRect.top + nodeRect.height / 2;
-  const left = placeLeft
-    ? nodeRect.left - gap - btnSize / 2
-    : nodeRect.right + gap + btnSize / 2;
+  const top = rect.top + rect.height / 2;
+  const baseLeft = placeLeft
+    ? rect.left - gap - btnSize / 2
+    : rect.right + gap + btnSize / 2;
+
+  const isIn = phase === "visible";
+  const isExiting = phase === "exiting";
 
   const overlay = (
     <>
       {actions.map((action, index) => {
         const verticalOffset = index * 48;
 
+        let transform: string;
+        let opacity: number;
+
+        if (isIn) {
+          // Fully visible — at rest position
+          transform = `translate(-50%, -50%) translateX(0px) scale(1) rotate(0deg)`;
+          opacity = 1;
+        } else if (isExiting) {
+          // Rolling back out — shift left, spin reverse, fade
+          transform = `translate(-50%, -50%) translateX(${placeLeft ? rollDistance : -rollDistance}px) scale(0.5) rotate(${placeLeft ? 90 : -90}deg)`;
+          opacity = 0;
+        } else {
+          // Entering — start offset, small, rotated
+          transform = `translate(-50%, -50%) translateX(${placeLeft ? rollDistance : -rollDistance}px) scale(0.5) rotate(${placeLeft ? 90 : -90}deg)`;
+          opacity = 0;
+        }
+
         return (
           <div
             key={action.id}
-            className={`node-action-btn-wrapper ${animateIn ? "node-action-visible" : ""}`}
+            className="node-action-btn-wrapper"
             style={{
               position: "fixed",
               zIndex: 9999,
-              left: `${left}px`,
+              left: `${baseLeft}px`,
               top: `${top + verticalOffset}px`,
-              transform: animateIn
-                ? "translate(-50%, -50%) scale(1) rotate(0deg)"
-                : "translate(-50%, -50%) scale(0.5) rotate(-90deg)",
-              opacity: animateIn ? 1 : 0,
-              transitionDelay: `${index * 50}ms`,
+              transform,
+              opacity,
+              transition: "transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease",
+              transitionDelay: isExiting ? "0ms" : `${index * 50}ms`,
+              pointerEvents: isIn ? "auto" : "none",
             }}
           >
             <button
@@ -101,6 +148,5 @@ export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeAc
     </>
   );
 
-  // Portal into document.body to escape overflow:hidden and transform containment
   return createPortal(overlay, document.body);
 }
