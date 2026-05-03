@@ -103,8 +103,10 @@ export default function WorkspacePage() {
   // Canvas pan/zoom state
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const zoomRef = useRef(1); // synchronous mirror for wheel handler
   const isPanningRef = useRef(false);
   const [isPanningVisual, setIsPanningVisual] = useState(false); // drives cursor style only
+  const [isWheeling, setIsWheeling] = useState(false); // disables transition during wheel input
   const lastPanPos = useRef({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
   const codeOnEnterRef = useRef("");
@@ -115,6 +117,66 @@ export default function WorkspacePage() {
   useEffect(() => {
     fetchSoundSettings();
     fetchCanvasSettings();
+  }, []);
+
+  // ── Native wheel listener: pinch-to-zoom + trackpad pan ──
+  // Must be native (not React onWheel) so we can use { passive: false }
+  // and actually preventDefault to block browser zoom.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    let wheelTimer: ReturnType<typeof setTimeout>;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault(); // Block browser zoom & back/forward navigation
+
+      // Disable CSS transition during gesture input
+      setIsWheeling(true);
+      clearTimeout(wheelTimer);
+      wheelTimer = setTimeout(() => setIsWheeling(false), 150);
+
+      if (e.ctrlKey || e.metaKey) {
+        // ── Pinch-to-zoom (trackpad) or Ctrl/Cmd + Scroll (mouse) ──
+        // Zoom towards cursor position
+        const rect = el.getBoundingClientRect();
+        const mx = e.clientX - rect.left - rect.width / 2;
+        const my = e.clientY - rect.top - rect.height / 2;
+
+        const oldZoom = zoomRef.current;
+        const zoomFactor = 1 - e.deltaY * 0.005;
+        const maxZoom = getCanvasSettings().maxZoomLevel;
+        const newZoom = Math.min(maxZoom, Math.max(0.2, oldZoom * zoomFactor));
+        const ratio = newZoom / oldZoom;
+
+        zoomRef.current = newZoom; // Update immediately for back-to-back events
+        setZoom(newZoom);
+        setPan(p => ({
+          x: mx * (1 - ratio) + p.x * ratio,
+          y: my * (1 - ratio) + p.y * ratio,
+        }));
+        setActiveNode(null);
+      } else {
+        // ── Two-finger swipe (trackpad) or plain scroll (mouse) → Pan ──
+        setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+      }
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      clearTimeout(wheelTimer);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Safari: prevent native gesture events from zooming the browser ──
+  useEffect(() => {
+    const prevent = (e: Event) => e.preventDefault();
+    document.addEventListener("gesturestart", prevent, { passive: false } as AddEventListenerOptions);
+    document.addEventListener("gesturechange", prevent, { passive: false } as AddEventListenerOptions);
+    return () => {
+      document.removeEventListener("gesturestart", prevent);
+      document.removeEventListener("gesturechange", prevent);
+    };
   }, []);
 
   // Sound notification for canvas updates — reads from cached server config
@@ -677,15 +739,7 @@ export default function WorkspacePage() {
     e.target.value = "";
   };
 
-  // Pan/Zoom handlers
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    const maxZoom = getCanvasSettings().maxZoomLevel;
-    setZoom((z) => Math.min(maxZoom, Math.max(0.2, z + delta)));
-    // Dismiss active node overlay on zoom
-    setActiveNode(null);
-  };
+  // Pan/Zoom handlers (wheel is now handled by native listener in useEffect above)
 
   // Unified pointer tracking for pan (1 finger) + pinch-zoom (2 fingers)
   const getPointerDist = (): number | null => {
@@ -835,7 +889,7 @@ export default function WorkspacePage() {
       if (dist !== null && lastPinchDist.current !== null) {
         const delta = (dist - lastPinchDist.current) * 0.005;
         const maxZoom = getCanvasSettings().maxZoomLevel;
-        setZoom((z) => Math.min(maxZoom, Math.max(0.2, z + delta)));
+        setZoom((z) => { const n = Math.min(maxZoom, Math.max(0.2, z + delta)); zoomRef.current = n; return n; });
         lastPinchDist.current = dist;
         // Dismiss active node overlay on pinch zoom
         setActiveNode(null);
@@ -926,11 +980,15 @@ export default function WorkspacePage() {
 
   const handleZoomIn = () => {
     const maxZoom = getCanvasSettings().maxZoomLevel;
-    setZoom((z) => Math.min(maxZoom, z + 0.2));
+    setZoom((z) => { const n = Math.min(maxZoom, z + 0.2); zoomRef.current = n; return n; });
     setActiveNode(null);
   };
-  const handleZoomOut = () => { setZoom((z) => Math.max(0.2, z - 0.2)); setActiveNode(null); };
+  const handleZoomOut = () => {
+    setZoom((z) => { const n = Math.max(0.2, z - 0.2); zoomRef.current = n; return n; });
+    setActiveNode(null);
+  };
   const handleResetView = () => {
+    zoomRef.current = 1;
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setActiveNode(null);
@@ -1109,7 +1167,7 @@ export default function WorkspacePage() {
             <div
               ref={canvasRef}
               className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area select-none"
-              onWheel={handleWheel}
+
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
@@ -1162,7 +1220,7 @@ export default function WorkspacePage() {
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                   transformOrigin: "center center",
-                  transition: isPanningVisual ? "none" : "transform 0.1s ease-out",
+                  transition: (isPanningVisual || isWheeling) ? "none" : "transform 0.1s ease-out",
                 }}
               >
                 <MermaidRenderer

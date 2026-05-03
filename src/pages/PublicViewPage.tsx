@@ -17,10 +17,23 @@ export default function PublicViewPage() {
   // Pan/zoom state
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const zoomRef = useRef(1); // synchronous mirror for wheel handler
   const isPanningRef = useRef(false);
   const [isPanningVisual, setIsPanningVisual] = useState(false);
+  const [isWheeling, setIsWheeling] = useState(false);
   const lastPanPos = useRef({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
+  const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const lastPinchDist = useRef<number | null>(null);
+
+  // Pinch distance helper
+  const getPointerDist = (): number | null => {
+    const pts = Array.from(activePointers.current.values());
+    if (pts.length < 2) return null;
+    const dx = pts[0].x - pts[1].x;
+    const dy = pts[0].y - pts[1].y;
+    return Math.hypot(dx, dy);
+  };
 
   useEffect(() => {
     fetchCanvasSettings();
@@ -41,21 +54,79 @@ export default function PublicViewPage() {
     loadPublicCanvas();
   }, [id]);
 
-  // Pan/Zoom handlers
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    const maxZoom = getCanvasSettings().maxZoomLevel;
-    setZoom((z) => Math.min(maxZoom, Math.max(0.2, z + delta)));
-  };
+  // ── Native wheel listener: pinch-to-zoom + trackpad pan ──
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    let wheelTimer: ReturnType<typeof setTimeout>;
 
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area")) {
+    const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      canvasRef.current?.setPointerCapture(e.pointerId);
+
+      setIsWheeling(true);
+      clearTimeout(wheelTimer);
+      wheelTimer = setTimeout(() => setIsWheeling(false), 150);
+
+      if (e.ctrlKey || e.metaKey) {
+        // Pinch-to-zoom or Ctrl/Cmd + Scroll → zoom to cursor
+        const rect = el.getBoundingClientRect();
+        const mx = e.clientX - rect.left - rect.width / 2;
+        const my = e.clientY - rect.top - rect.height / 2;
+
+        const oldZoom = zoomRef.current;
+        const zoomFactor = 1 - e.deltaY * 0.005;
+        const maxZoom = getCanvasSettings().maxZoomLevel;
+        const newZoom = Math.min(maxZoom, Math.max(0.2, oldZoom * zoomFactor));
+        const ratio = newZoom / oldZoom;
+
+        zoomRef.current = newZoom;
+        setZoom(newZoom);
+        setPan(p => ({
+          x: mx * (1 - ratio) + p.x * ratio,
+          y: my * (1 - ratio) + p.y * ratio,
+        }));
+      } else {
+        // Two-finger swipe or plain scroll → Pan
+        setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+      }
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      clearTimeout(wheelTimer);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Safari: prevent native gesture events from zooming the browser ──
+  useEffect(() => {
+    const prevent = (e: Event) => e.preventDefault();
+    document.addEventListener("gesturestart", prevent, { passive: false } as AddEventListenerOptions);
+    document.addEventListener("gesturechange", prevent, { passive: false } as AddEventListenerOptions);
+    return () => {
+      document.removeEventListener("gesturestart", prevent);
+      document.removeEventListener("gesturechange", prevent);
+    };
+  }, []);
+
+  // Pointer handlers — multi-pointer for pinch-zoom + single-pointer for pan
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (!(e.target === canvasRef.current || (e.target as HTMLElement).closest(".canvas-area"))) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a, input, label, textarea, select, [role='button']")) return;
+
+    e.preventDefault();
+    canvasRef.current?.setPointerCapture(e.pointerId);
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointers.current.size === 1) {
       isPanningRef.current = true;
       setIsPanningVisual(true);
       lastPanPos.current = { x: e.clientX, y: e.clientY };
+    } else if (activePointers.current.size === 2) {
+      isPanningRef.current = false;
+      setIsPanningVisual(false);
+      lastPinchDist.current = getPointerDist();
     }
   };
 
@@ -68,17 +139,36 @@ export default function PublicViewPage() {
       canvasRef.current.style.setProperty('--mouse-y', `${y}px`);
     }
 
-    if (!isPanningRef.current) return;
-    const dx = e.clientX - lastPanPos.current.x;
-    const dy = e.clientY - lastPanPos.current.y;
-    lastPanPos.current = { x: e.clientX, y: e.clientY };
-    setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+    if (!activePointers.current.has(e.pointerId)) return;
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointers.current.size === 2) {
+      // Pinch zoom
+      const dist = getPointerDist();
+      if (dist !== null && lastPinchDist.current !== null) {
+        const delta = (dist - lastPinchDist.current) * 0.005;
+        const maxZoom = getCanvasSettings().maxZoomLevel;
+        setZoom((z) => { const n = Math.min(maxZoom, Math.max(0.2, z + delta)); zoomRef.current = n; return n; });
+        lastPinchDist.current = dist;
+      }
+    } else if (activePointers.current.size === 1 && isPanningRef.current) {
+      const dx = e.clientX - lastPanPos.current.x;
+      const dy = e.clientY - lastPanPos.current.y;
+      lastPanPos.current = { x: e.clientX, y: e.clientY };
+      setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+    }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     try { canvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* already released */ }
-    isPanningRef.current = false;
-    setIsPanningVisual(false);
+    activePointers.current.delete(e.pointerId);
+    if (activePointers.current.size < 2) {
+      lastPinchDist.current = null;
+    }
+    if (activePointers.current.size === 0) {
+      isPanningRef.current = false;
+      setIsPanningVisual(false);
+    }
   };
 
   const handlePointerLeave = () => {
@@ -90,10 +180,13 @@ export default function PublicViewPage() {
 
   const handleZoomIn = () => {
     const maxZoom = getCanvasSettings().maxZoomLevel;
-    setZoom((z) => Math.min(maxZoom, z + 0.2));
+    setZoom((z) => { const n = Math.min(maxZoom, z + 0.2); zoomRef.current = n; return n; });
   };
-  const handleZoomOut = () => setZoom((z) => Math.max(0.2, z - 0.2));
+  const handleZoomOut = () => {
+    setZoom((z) => { const n = Math.max(0.2, z - 0.2); zoomRef.current = n; return n; });
+  };
   const handleResetView = () => {
+    zoomRef.current = 1;
     setZoom(1);
     setPan({ x: 0, y: 0 });
   };
@@ -182,7 +275,7 @@ export default function PublicViewPage() {
           <div
             ref={canvasRef}
             className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area select-none"
-            onWheel={handleWheel}
+
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -224,7 +317,7 @@ export default function PublicViewPage() {
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 transformOrigin: "center center",
-                transition: isPanningVisual ? "none" : "transform 0.1s ease-out",
+                transition: (isPanningVisual || isWheeling) ? "none" : "transform 0.1s ease-out",
               }}
             >
               <MermaidRenderer
