@@ -115,13 +115,16 @@ export default function PublicViewPage() {
       clearTimeout(wheelTimer);
 
       if (e.ctrlKey || e.metaKey) {
+        // Clamp deltaY so mouse wheel clicks (~100) don't cause extreme jumps.
+        const clampedDelta = Math.max(-15, Math.min(15, e.deltaY));
+
         // Track velocity for momentum
         const now = performance.now();
         const dt = now - lastWheelTime;
         lastWheelTime = now;
 
         if (dt > 0 && dt < 200) {
-          const instantVelocity = e.deltaY / dt;
+          const instantVelocity = clampedDelta / dt;
           zoomVelocity = zoomVelocity * 0.5 + instantVelocity * 0.5;
         } else {
           zoomVelocity = 0;
@@ -132,7 +135,7 @@ export default function PublicViewPage() {
         lastMy = e.clientY - rect.top - rect.height / 2;
 
         const oldZoom = zoomRef.current;
-        const zoomFactor = 1 - e.deltaY * 0.005;
+        const zoomFactor = 1 - clampedDelta * 0.005;
         const maxZoom = getCanvasSettings().maxZoomLevel;
         const newZoom = Math.min(maxZoom, Math.max(0.2, oldZoom * zoomFactor));
         const ratio = newZoom / oldZoom;

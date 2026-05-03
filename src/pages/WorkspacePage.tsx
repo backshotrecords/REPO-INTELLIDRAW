@@ -187,13 +187,17 @@ export default function WorkspacePage() {
       if (e.ctrlKey || e.metaKey) {
         // ── Pinch-to-zoom (trackpad) or Ctrl/Cmd + Scroll (mouse) ──
 
+        // Clamp deltaY so mouse wheel clicks (~100) don't cause extreme jumps.
+        // Trackpad pinch deltas (~1-5) pass through unaffected.
+        const clampedDelta = Math.max(-15, Math.min(15, e.deltaY));
+
         // Track velocity for momentum
         const now = performance.now();
         const dt = now - lastWheelTime;
         lastWheelTime = now;
 
         if (dt > 0 && dt < 200) {
-          const instantVelocity = e.deltaY / dt;
+          const instantVelocity = clampedDelta / dt;
           zoomVelocity = zoomVelocity * 0.5 + instantVelocity * 0.5; // smoothed
         } else {
           zoomVelocity = 0;
@@ -206,7 +210,7 @@ export default function WorkspacePage() {
 
         // Zoom towards cursor position
         const oldZoom = zoomRef.current;
-        const zoomFactor = 1 - e.deltaY * 0.005;
+        const zoomFactor = 1 - clampedDelta * 0.005;
         const maxZoom = getCanvasSettings().maxZoomLevel;
         const newZoom = Math.min(maxZoom, Math.max(0.2, oldZoom * zoomFactor));
         const ratio = newZoom / oldZoom;
