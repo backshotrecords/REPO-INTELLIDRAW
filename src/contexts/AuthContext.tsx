@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { apiGetMe, apiLogin, apiRegister, apiLogout, removeToken } from "../lib/api";
+import { apiGetMe, apiLogin, apiRegister, apiGoogleLogin, apiLogout, removeToken } from "../lib/api";
 import { AuthContext } from "./AuthContextDef";
 import type { User } from "./AuthContextDef";
 
@@ -48,6 +48,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(data.user);
   };
 
+  const loginWithGoogle = async (code: string, redirectUri: string) => {
+    const data = await apiGoogleLogin(code, redirectUri);
+    setUser(data.user);
+  };
+
   const register = async (email: string, password: string, displayName: string) => {
     const data = await apiRegister(email, password, displayName);
     setUser(data.user);
@@ -65,6 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated: !!user,
         isLoading,
         login,
+        loginWithGoogle,
         register,
         logout,
         refreshUser,

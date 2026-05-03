@@ -85,6 +85,17 @@ export function apiLogout() {
   removeToken();
 }
 
+export async function apiGoogleLogin(code: string, redirectUri: string) {
+  const res = await apiFetch("/auth/google", {
+    method: "POST",
+    body: JSON.stringify({ code, redirectUri }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Google login failed");
+  setToken(data.token);
+  return data;
+}
+
 // ===== Canvases =====
 
 export async function apiListCanvases() {
