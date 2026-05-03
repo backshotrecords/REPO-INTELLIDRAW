@@ -60,18 +60,76 @@ export default function PublicViewPage() {
     if (!el) return;
     let wheelTimer: ReturnType<typeof setTimeout>;
 
+    // Zoom momentum state
+    let zoomVelocity = 0;
+    let lastWheelTime = 0;
+    let lastMx = 0;
+    let lastMy = 0;
+    let momentumFrame = 0;
+    let wasZooming = false;
+
+    const startZoomMomentum = () => {
+      const DECAY = 0.92;
+      const MIN_VELOCITY = 0.0005;
+
+      const animate = () => {
+        zoomVelocity *= DECAY;
+
+        if (Math.abs(zoomVelocity) < MIN_VELOCITY) {
+          zoomVelocity = 0;
+          setIsWheeling(false);
+          return;
+        }
+
+        const zoomFactor = 1 - zoomVelocity * 16 * 0.005;
+        const maxZoom = getCanvasSettings().maxZoomLevel;
+        const oldZoom = zoomRef.current;
+        const newZoom = Math.min(maxZoom, Math.max(0.2, oldZoom * zoomFactor));
+
+        if (newZoom === oldZoom) {
+          zoomVelocity = 0;
+          setIsWheeling(false);
+          return;
+        }
+
+        const ratio = newZoom / oldZoom;
+        zoomRef.current = newZoom;
+        setZoom(newZoom);
+        setPan(p => ({
+          x: lastMx * (1 - ratio) + p.x * ratio,
+          y: lastMy * (1 - ratio) + p.y * ratio,
+        }));
+
+        momentumFrame = requestAnimationFrame(animate);
+      };
+
+      momentumFrame = requestAnimationFrame(animate);
+    };
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
 
+      cancelAnimationFrame(momentumFrame);
+
       setIsWheeling(true);
       clearTimeout(wheelTimer);
-      wheelTimer = setTimeout(() => setIsWheeling(false), 150);
 
       if (e.ctrlKey || e.metaKey) {
-        // Pinch-to-zoom or Ctrl/Cmd + Scroll → zoom to cursor
+        // Track velocity for momentum
+        const now = performance.now();
+        const dt = now - lastWheelTime;
+        lastWheelTime = now;
+
+        if (dt > 0 && dt < 200) {
+          const instantVelocity = e.deltaY / dt;
+          zoomVelocity = zoomVelocity * 0.5 + instantVelocity * 0.5;
+        } else {
+          zoomVelocity = 0;
+        }
+
         const rect = el.getBoundingClientRect();
-        const mx = e.clientX - rect.left - rect.width / 2;
-        const my = e.clientY - rect.top - rect.height / 2;
+        lastMx = e.clientX - rect.left - rect.width / 2;
+        lastMy = e.clientY - rect.top - rect.height / 2;
 
         const oldZoom = zoomRef.current;
         const zoomFactor = 1 - e.deltaY * 0.005;
@@ -82,18 +140,29 @@ export default function PublicViewPage() {
         zoomRef.current = newZoom;
         setZoom(newZoom);
         setPan(p => ({
-          x: mx * (1 - ratio) + p.x * ratio,
-          y: my * (1 - ratio) + p.y * ratio,
+          x: lastMx * (1 - ratio) + p.x * ratio,
+          y: lastMy * (1 - ratio) + p.y * ratio,
         }));
+        wasZooming = true;
       } else {
-        // Two-finger swipe or plain scroll → Pan
         setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+        wasZooming = false;
+        zoomVelocity = 0;
       }
+
+      wheelTimer = setTimeout(() => {
+        if (wasZooming && Math.abs(zoomVelocity) > 0.001) {
+          startZoomMomentum();
+        } else {
+          setIsWheeling(false);
+        }
+      }, 80);
     };
 
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       el.removeEventListener("wheel", onWheel);
+      cancelAnimationFrame(momentumFrame);
       clearTimeout(wheelTimer);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

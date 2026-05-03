@@ -127,21 +127,84 @@ export default function WorkspacePage() {
     if (!el) return;
     let wheelTimer: ReturnType<typeof setTimeout>;
 
+    // Zoom momentum state (lives inside effect — no stale closures)
+    let zoomVelocity = 0;
+    let lastWheelTime = 0;
+    let lastMx = 0;
+    let lastMy = 0;
+    let momentumFrame = 0;
+    let wasZooming = false;
+
+    const startZoomMomentum = () => {
+      const DECAY = 0.92;
+      const MIN_VELOCITY = 0.0005;
+
+      const animate = () => {
+        zoomVelocity *= DECAY;
+
+        if (Math.abs(zoomVelocity) < MIN_VELOCITY) {
+          zoomVelocity = 0;
+          setIsWheeling(false);
+          return;
+        }
+
+        // Convert velocity (deltaY/ms) back to a zoom factor (~16ms frame)
+        const zoomFactor = 1 - zoomVelocity * 16 * 0.005;
+        const maxZoom = getCanvasSettings().maxZoomLevel;
+        const oldZoom = zoomRef.current;
+        const newZoom = Math.min(maxZoom, Math.max(0.2, oldZoom * zoomFactor));
+
+        if (newZoom === oldZoom) {
+          zoomVelocity = 0;
+          setIsWheeling(false);
+          return;
+        }
+
+        const ratio = newZoom / oldZoom;
+        zoomRef.current = newZoom;
+        setZoom(newZoom);
+        setPan(p => ({
+          x: lastMx * (1 - ratio) + p.x * ratio,
+          y: lastMy * (1 - ratio) + p.y * ratio,
+        }));
+
+        momentumFrame = requestAnimationFrame(animate);
+      };
+
+      momentumFrame = requestAnimationFrame(animate);
+    };
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault(); // Block browser zoom & back/forward navigation
+
+      // Cancel any ongoing zoom momentum (new input overrides)
+      cancelAnimationFrame(momentumFrame);
 
       // Disable CSS transition during gesture input
       setIsWheeling(true);
       clearTimeout(wheelTimer);
-      wheelTimer = setTimeout(() => setIsWheeling(false), 150);
 
       if (e.ctrlKey || e.metaKey) {
         // ── Pinch-to-zoom (trackpad) or Ctrl/Cmd + Scroll (mouse) ──
-        // Zoom towards cursor position
-        const rect = el.getBoundingClientRect();
-        const mx = e.clientX - rect.left - rect.width / 2;
-        const my = e.clientY - rect.top - rect.height / 2;
 
+        // Track velocity for momentum
+        const now = performance.now();
+        const dt = now - lastWheelTime;
+        lastWheelTime = now;
+
+        if (dt > 0 && dt < 200) {
+          const instantVelocity = e.deltaY / dt;
+          zoomVelocity = zoomVelocity * 0.5 + instantVelocity * 0.5; // smoothed
+        } else {
+          zoomVelocity = 0;
+        }
+
+        // Store cursor position (used during momentum too)
+        const rect = el.getBoundingClientRect();
+        lastMx = e.clientX - rect.left - rect.width / 2;
+        lastMy = e.clientY - rect.top - rect.height / 2;
+
+        // Zoom towards cursor position
         const oldZoom = zoomRef.current;
         const zoomFactor = 1 - e.deltaY * 0.005;
         const maxZoom = getCanvasSettings().maxZoomLevel;
@@ -151,19 +214,32 @@ export default function WorkspacePage() {
         zoomRef.current = newZoom; // Update immediately for back-to-back events
         setZoom(newZoom);
         setPan(p => ({
-          x: mx * (1 - ratio) + p.x * ratio,
-          y: my * (1 - ratio) + p.y * ratio,
+          x: lastMx * (1 - ratio) + p.x * ratio,
+          y: lastMy * (1 - ratio) + p.y * ratio,
         }));
         setActiveNode(null);
+        wasZooming = true;
       } else {
         // ── Two-finger swipe (trackpad) or plain scroll (mouse) → Pan ──
         setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+        wasZooming = false;
+        zoomVelocity = 0;
       }
+
+      // Detect gesture end — start momentum or clear interaction state
+      wheelTimer = setTimeout(() => {
+        if (wasZooming && Math.abs(zoomVelocity) > 0.001) {
+          startZoomMomentum();
+        } else {
+          setIsWheeling(false);
+        }
+      }, 80);
     };
 
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       el.removeEventListener("wheel", onWheel);
+      cancelAnimationFrame(momentumFrame);
       clearTimeout(wheelTimer);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
