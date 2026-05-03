@@ -222,6 +222,7 @@ export default function WorkspacePage() {
       } else {
         // ── Two-finger swipe (trackpad) or plain scroll (mouse) → Pan ──
         setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+        setActiveNode(null);
         wasZooming = false;
         zoomVelocity = 0;
       }
