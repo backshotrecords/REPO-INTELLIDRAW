@@ -249,14 +249,24 @@ export default function WorkspacePage() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Safari: prevent native gesture events from zooming the browser ──
+  // ── Prevent browser zoom globally (Ctrl/Cmd + wheel or Safari gestures) ──
+  // The canvas-specific listener handles the actual canvas zoom, but the browser
+  // will still zoom if the cursor is over the sidebar, chat log, or header.
+  // This document-level listener blocks that regardless of cursor position.
   useEffect(() => {
-    const prevent = (e: Event) => e.preventDefault();
-    document.addEventListener("gesturestart", prevent, { passive: false } as AddEventListenerOptions);
-    document.addEventListener("gesturechange", prevent, { passive: false } as AddEventListenerOptions);
+    const preventBrowserZoom = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+      }
+    };
+    const preventGesture = (e: Event) => e.preventDefault();
+    document.addEventListener("wheel", preventBrowserZoom, { passive: false });
+    document.addEventListener("gesturestart", preventGesture, { passive: false } as AddEventListenerOptions);
+    document.addEventListener("gesturechange", preventGesture, { passive: false } as AddEventListenerOptions);
     return () => {
-      document.removeEventListener("gesturestart", prevent);
-      document.removeEventListener("gesturechange", prevent);
+      document.removeEventListener("wheel", preventBrowserZoom);
+      document.removeEventListener("gesturestart", preventGesture);
+      document.removeEventListener("gesturechange", preventGesture);
     };
   }, []);
 
