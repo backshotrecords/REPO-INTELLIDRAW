@@ -175,6 +175,11 @@ export default function WorkspacePage() {
     };
 
     const onWheel = (e: WheelEvent) => {
+      // Ignore wheel events originating from within the skills panel to allow it to scroll
+      if ((e.target as HTMLElement).closest(".skills-panel")) {
+        return;
+      }
+
       e.preventDefault(); // Block browser zoom & back/forward navigation
 
       // Cancel any ongoing zoom momentum (new input overrides)
@@ -870,11 +875,11 @@ export default function WorkspacePage() {
     }
     console.log('[NodeTap] ✅ Passed canvas-area guard');
 
-    // Don't hijack clicks on interactive elements (mic button, zoom buttons, file inputs, etc.)
+    // Don't hijack clicks on interactive elements or UI panels
     const target = e.target as HTMLElement;
-    const interactiveMatch = target.closest("button, a, input, label, textarea, select, [role='button']");
+    const interactiveMatch = target.closest("button, a, input, label, textarea, select, [role='button'], .skills-panel");
     if (interactiveMatch) {
-      console.log('[NodeTap] ❌ SUSPECT 2: Guard returned early — matched interactive element:', interactiveMatch.tagName, interactiveMatch.className);
+      console.log('[NodeTap] ❌ SUSPECT 2: Guard returned early — matched interactive element or panel:', interactiveMatch.tagName, interactiveMatch.className);
       return;
     }
     console.log('[NodeTap] ✅ Passed interactive-element guard');

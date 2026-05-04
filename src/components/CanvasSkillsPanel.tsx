@@ -114,7 +114,7 @@ export default function CanvasSkillsPanel({ canvasId, isOpen, onClose, onSkillTr
   if (!isOpen) return null;
 
   return (
-    <div className="absolute left-4 bottom-0 z-50 w-[340px] max-h-[70vh] bg-white/95 backdrop-blur-2xl rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.15)] border border-outline-variant/20 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 fade-in duration-200"
+    <div className="skills-panel absolute left-4 bottom-0 z-50 w-[340px] max-h-[70vh] bg-white/95 backdrop-blur-2xl rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.15)] border border-outline-variant/20 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 fade-in duration-200"
       style={{ bottom: "80px" }}>
       {/* Header */}
       <div className="px-5 py-4 border-b border-outline-variant/10 flex items-center justify-between shrink-0">
@@ -138,7 +138,7 @@ export default function CanvasSkillsPanel({ canvasId, isOpen, onClose, onSkillTr
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 no-scrollbar">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 custom-scrollbar">
         {loading ? (
           <div className="flex justify-center py-8"><div className="spinner w-6 h-6" /></div>
         ) : attachments.length === 0 ? (
