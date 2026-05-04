@@ -66,7 +66,37 @@ export default function WorkspacePage() {
   useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
   useEffect(() => { mermaidCodeRef.current = mermaidCode; }, [mermaidCode]);
   useEffect(() => { chatLoadingRef.current = chatLoading; }, [chatLoading]);
+
+  // ── Unread badge tracking ──
+  // Increment unread count when new messages arrive while chat is minimized
+  useEffect(() => {
+    const prevLen = prevChatLengthRef.current;
+    const newLen = chatHistory.length;
+
+    if (newLen > prevLen && prevLen > 0) {
+      // New messages arrived after initial load
+      if (!showChat) {
+        setUnreadCount(prev => prev + (newLen - prevLen));
+        // Trigger pop animation (toggle to force re-animation)
+        setBadgePop(false);
+        requestAnimationFrame(() => setBadgePop(true));
+      }
+    }
+
+    prevChatLengthRef.current = newLen;
+  }, [chatHistory.length, showChat]);
+
+  // Clear unread when chat is opened
+  useEffect(() => {
+    if (showChat) {
+      setUnreadCount(0);
+      setBadgePop(false);
+    }
+  }, [showChat]);
   const [showChat, setShowChat] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [badgePop, setBadgePop] = useState(false);
+  const prevChatLengthRef = useRef(0);
   const [showSkillsPanel, setShowSkillsPanel] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -1449,12 +1479,20 @@ export default function WorkspacePage() {
                 {/* Chat History Toggle (Mobile only) */}
                 <button
                   onClick={() => setShowChat(!showChat)}
-                  className={`md:hidden shrink-0 h-11 w-11 rounded-xl flex items-center justify-center transition-all ${showChat ? "bg-primary text-white" : "text-on-surface-variant hover:text-primary active:scale-95"
+                  className={`md:hidden relative shrink-0 h-11 w-11 rounded-xl flex items-center justify-center transition-all ${showChat ? "bg-primary text-white" : "text-on-surface-variant hover:text-primary active:scale-95"
                     }`}
                 >
                   <span className="material-symbols-outlined text-xl">
                     {showChat ? "keyboard_arrow_down" : "history"}
                   </span>
+                  {!showChat && unreadCount > 0 && (
+                    <span
+                      key={unreadCount}
+                      className={`unread-badge${badgePop ? " unread-badge-pop" : ""}`}
+                    >
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
                 </button>
 
                 {/* Paperclip — desktop inline (left side) */}
