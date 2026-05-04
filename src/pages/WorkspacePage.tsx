@@ -67,6 +67,11 @@ export default function WorkspacePage() {
   useEffect(() => { mermaidCodeRef.current = mermaidCode; }, [mermaidCode]);
   useEffect(() => { chatLoadingRef.current = chatLoading; }, [chatLoading]);
 
+  const [showChat, setShowChat] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [badgePop, setBadgePop] = useState(false);
+  const prevChatLengthRef = useRef(0);
+
   // ── Unread badge tracking ──
   // Increment unread count when new messages arrive while chat is minimized
   useEffect(() => {
@@ -93,10 +98,6 @@ export default function WorkspacePage() {
       setBadgePop(false);
     }
   }, [showChat]);
-  const [showChat, setShowChat] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [badgePop, setBadgePop] = useState(false);
-  const prevChatLengthRef = useRef(0);
   const [showSkillsPanel, setShowSkillsPanel] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
