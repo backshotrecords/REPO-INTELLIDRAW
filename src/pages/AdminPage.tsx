@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGenerateResetLink } from "../lib/api";
+import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel } from "../lib/api";
 
 // ─── Config Module Registry ─────────────────────────────
 // Add new config modules here — the sidebar auto-populates from this array.
 const CONFIG_MODULES: { key: string; label: string; icon: string }[] = [
+  { key: "models", label: "AI Models",           icon: "model_training" },
   { key: "sound",  label: "Sound Effects",       icon: "volume_up" },
   { key: "canvas", label: "Canvas Mechanics",    icon: "zoom_in" },
   { key: "rules",  label: "Sanitization Rules",  icon: "rule" },
@@ -28,6 +29,13 @@ interface Rule {
   created_at: string;
 }
 
+interface AIModel {
+  id: string;
+  model_id: string;
+  label: string;
+  added_at: string;
+}
+
 export default function AdminPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -38,7 +46,14 @@ export default function AdminPage() {
   const [adding, setAdding] = useState(false);
 
   // Collapsible sections
-  const [expandedSection, setExpandedSection] = useState<string | null>("sound");
+  const [expandedSection, setExpandedSection] = useState<string | null>("models");
+
+  // AI Models state
+  const [aiModels, setAiModels] = useState<AIModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [newModelId, setNewModelId] = useState("");
+  const [newModelLabel, setNewModelLabel] = useState("");
+  const [addingModel, setAddingModel] = useState(false);
 
   // Sound settings state
   const [soundSettings, setSoundSettings] = useState<SoundConfig>({
@@ -113,9 +128,22 @@ export default function AdminPage() {
     loadRules();
     loadSoundConfig();
     loadCanvasConfig();
+    loadAiModels();
   }, [user, navigate]);
 
   // ─── Data loaders ──────────────────────────────────────
+
+  const loadAiModels = async () => {
+    setModelsLoading(true);
+    try {
+      const data = await apiGetModels();
+      setAiModels(data.models || []);
+    } catch (err) {
+      console.error("Failed to load AI models:", err);
+    } finally {
+      setModelsLoading(false);
+    }
+  };
 
   const loadCanvasConfig = async () => {
     try {
@@ -158,6 +186,34 @@ export default function AdminPage() {
 
   const toggleSection = (key: string) =>
     setExpandedSection((prev) => (prev === key ? null : key));
+
+  // ─── AI Models handlers ───────────────────────────────
+
+  const handleAddModel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newModelId.trim()) return;
+    setAddingModel(true);
+    try {
+      await apiAddModel(newModelId.trim(), newModelLabel.trim() || newModelId.trim());
+      setNewModelId("");
+      setNewModelLabel("");
+      await loadAiModels();
+    } catch (err) {
+      console.error("Failed to add model:", err);
+    } finally {
+      setAddingModel(false);
+    }
+  };
+
+  const handleDeleteModel = async (id: string) => {
+    if (!confirm("Delete this model for all users?")) return;
+    try {
+      await apiDeleteModel(id);
+      await loadAiModels();
+    } catch (err) {
+      console.error("Failed to delete model:", err);
+    }
+  };
 
   // ─── Rules handlers ───────────────────────────────────
 
@@ -508,6 +564,94 @@ export default function AdminPage() {
 
         {/* ── Main content ─────────────────────────────────── */}
         <main className="flex-1 min-w-0 px-6 py-6 space-y-6">
+
+          {/* ═══ AI Models (collapsible) ════════════════════════ */}
+          <section
+            id="models"
+            ref={(el) => { sectionRefs.current["models"] = el; }}
+            className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden scroll-mt-24"
+          >
+            {renderAccordionHeader("models", "model_training", "AI Models", `${aiModels.length} model${aiModels.length !== 1 ? "s" : ""} available to all users`)}
+
+            <div
+              className="transition-all duration-300 ease-in-out overflow-hidden"
+              style={{
+                maxHeight: expandedSection === "models" ? "2000px" : "0",
+                opacity: expandedSection === "models" ? 1 : 0,
+              }}
+            >
+              <div className="px-5 pb-5 space-y-4 border-t border-outline-variant/10">
+                {/* Add model form */}
+                <form onSubmit={handleAddModel} className="flex flex-col sm:flex-row gap-3 pt-4">
+                  <input
+                    type="text"
+                    value={newModelId}
+                    onChange={(e) => setNewModelId(e.target.value)}
+                    placeholder="Model ID (e.g. gpt-4o)"
+                    className="flex-1 bg-surface-container-lowest border border-outline-variant/50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-sm font-mono"
+                    disabled={addingModel}
+                  />
+                  <input
+                    type="text"
+                    value={newModelLabel}
+                    onChange={(e) => setNewModelLabel(e.target.value)}
+                    placeholder="Label (optional)"
+                    className="flex-1 bg-surface-container-lowest border border-outline-variant/50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+                    disabled={addingModel}
+                  />
+                  <button
+                    type="submit"
+                    disabled={addingModel || !newModelId.trim()}
+                    className="bg-primary text-white font-semibold px-6 py-3 rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center gap-2 active:scale-95"
+                  >
+                    <span className="material-symbols-outlined text-sm">add</span>
+                    {addingModel ? "Adding..." : "Add Model"}
+                  </button>
+                </form>
+
+                {/* Models list */}
+                {modelsLoading ? (
+                  <div className="flex justify-center p-12">
+                    <span className="material-symbols-outlined animate-spin text-3xl text-primary">progress_activity</span>
+                  </div>
+                ) : aiModels.length === 0 ? (
+                  <div className="bg-surface-container-lowest rounded-2xl p-12 text-center border border-outline-variant/20 border-dashed">
+                    <span className="material-symbols-outlined text-4xl text-on-surface-variant/40 mb-2">model_training</span>
+                    <p className="text-on-surface-variant font-medium">No models configured yet.</p>
+                    <p className="text-sm text-on-surface-variant/60">Add a model above to make it available in everyone's model picker.</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {aiModels.map((model) => (
+                      <div
+                        key={model.id}
+                        className="flex items-center justify-between p-4 rounded-xl bg-white border border-outline-variant/30 shadow-sm transition-colors"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                            <span className="material-symbols-outlined text-primary text-base" style={{ fontVariationSettings: "'FILL' 1" }}>smart_toy</span>
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-on-surface font-mono">{model.model_id}</p>
+                            {model.label && model.label !== model.model_id && (
+                              <p className="text-xs text-on-surface-variant">{model.label}</p>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteModel(model.id)}
+                          className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container/30 rounded-lg transition-colors"
+                          title="Delete model"
+                        >
+                          <span className="material-symbols-outlined text-[20px]">delete</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
 
           {/* ═══ Sound Effects (collapsible) ═══════════════════ */}
           <section

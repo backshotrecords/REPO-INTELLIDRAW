@@ -97,13 +97,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 5. Create JWT
     const token = await createToken({ userId: newUser.id, email: newUser.email });
 
-    // 6. Create default model entries (same as regular registration)
-    await supabase.from("ai_models").insert([
-      { user_id: newUser.id, model_id: "gpt-4o", label: "GPT-4o" },
-      { user_id: newUser.id, model_id: "gpt-5.4", label: "High intelligence" },
-      { user_id: newUser.id, model_id: "gpt-5.4-mini", label: "Suuuuper Fast" },
-    ]);
-
     return res.status(201).json({
       token,
       user: {

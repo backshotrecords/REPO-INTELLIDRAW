@@ -119,7 +119,7 @@ export default function ModelPicker() {
     }
   };
 
-  const selectedModel = models.find((m) => m.id === activeModelId);
+  const selectedModel = models.find((m) => m.id === activeModelId) || models[0] || null;
 
   // Loading skeleton
   if (loading) {

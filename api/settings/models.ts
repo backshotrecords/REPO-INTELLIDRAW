@@ -10,16 +10,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const userId = authPayload.userId;
 
-  // GET /api/settings/models — List user's saved models
+  // GET /api/settings/models — List all global models (shared across users)
   if (req.method === "GET") {
     try {
       const { data: models, error } = await supabase
         .from("ai_models")
         .select("id, model_id, label, added_at")
-        .eq("user_id", userId)
         .order("added_at", { ascending: true });
 
-      // Also get active model ID
+      // Also get this user's active model ID
       const { data: user } = await supabase
         .from("users")
         .select("active_model_id")
@@ -40,8 +39,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  // POST /api/settings/models — Add a new model
+  // POST /api/settings/models — Add a new global model (admin only)
   if (req.method === "POST") {
+    // Admin check
+    const { data: adminUser } = await supabase
+      .from("users")
+      .select("is_global_admin")
+      .eq("id", userId)
+      .single();
+
+    if (!adminUser?.is_global_admin) {
+      return res.status(403).json({ error: "Forbidden: Admins only" });
+    }
+
     const { modelId, label } = req.body || {};
 
     if (!modelId) {
@@ -63,20 +73,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: "Failed to add model" });
       }
 
-      // If this is the user's first model, set it as active
-      const { data: user } = await supabase
-        .from("users")
-        .select("active_model_id")
-        .eq("id", userId)
-        .single();
-
-      if (!user?.active_model_id) {
-        await supabase
-          .from("users")
-          .update({ active_model_id: data.id })
-          .eq("id", userId);
-      }
-
       return res.status(201).json({ model: data });
     } catch (err) {
       console.error("Add model error:", err);
@@ -84,34 +80,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  // DELETE — handled via query param
+  // DELETE — handled via query param (admin only)
   if (req.method === "DELETE") {
+    // Admin check
+    const { data: adminUser } = await supabase
+      .from("users")
+      .select("is_global_admin")
+      .eq("id", userId)
+      .single();
+
+    if (!adminUser?.is_global_admin) {
+      return res.status(403).json({ error: "Forbidden: Admins only" });
+    }
+
     const modelDbId = req.query.modelId as string;
     if (!modelDbId) {
       return res.status(400).json({ error: "Model ID is required" });
     }
 
     try {
-      // Check if this is the active model
-      const { data: user } = await supabase
+      // Nullify active_model_id for ALL users who had this model selected
+      await supabase
         .from("users")
-        .select("active_model_id")
-        .eq("id", userId)
-        .single();
-
-      if (user?.active_model_id === modelDbId) {
-        // Unset active model
-        await supabase
-          .from("users")
-          .update({ active_model_id: null })
-          .eq("id", userId);
-      }
+        .update({ active_model_id: null })
+        .eq("active_model_id", modelDbId);
 
       const { error } = await supabase
         .from("ai_models")
         .delete()
-        .eq("id", modelDbId)
-        .eq("user_id", userId);
+        .eq("id", modelDbId);
 
       if (error) {
         return res.status(500).json({ error: "Failed to delete model" });

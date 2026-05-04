@@ -8,20 +8,10 @@ import {
   apiSaveApiKey,
   apiGetApiKey,
   apiTestConnection,
-  apiGetModels,
-  apiAddModel,
-  apiDeleteModel,
-  apiSetActiveModel,
   apiChangePassword,
   apiVerifyPassword,
 } from "../lib/api";
 
-interface AIModel {
-  id: string;
-  model_id: string;
-  label: string;
-  added_at: string;
-}
 
 export default function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
@@ -47,12 +37,6 @@ export default function SettingsPage() {
     message: string;
   } | null>(null);
 
-  // Models state
-  const [models, setModels] = useState<AIModel[]>([]);
-  const [activeModelId, setActiveModelId] = useState<string | null>(null);
-  const [newModelId, setNewModelId] = useState("");
-  const [newModelLabel, setNewModelLabel] = useState("");
-  const [addingModel, setAddingModel] = useState(false);
   const [copyMessage, setCopyMessage] = useState("");
 
   // Password change state
@@ -71,7 +55,6 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadSettings();
-    loadModels();
   }, []);
 
   // Cleanup debounce timer on unmount
@@ -155,15 +138,6 @@ export default function SettingsPage() {
     }
   };
 
-  const loadModels = async () => {
-    try {
-      const data = await apiGetModels();
-      setModels(data.models);
-      setActiveModelId(data.activeModelId);
-    } catch (err) {
-      console.error("Failed to load models:", err);
-    }
-  };
 
   const handleSaveProfile = async () => {
     setProfileSaving(true);
@@ -251,39 +225,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleAddModel = async () => {
-    if (!newModelId.trim()) return;
-    setAddingModel(true);
-    try {
-      await apiAddModel(newModelId.trim(), newModelLabel.trim() || newModelId.trim());
-      setNewModelId("");
-      setNewModelLabel("");
-      await loadModels();
-    } catch (err) {
-      console.error("Failed to add model:", err);
-    } finally {
-      setAddingModel(false);
-    }
-  };
-
-  const handleDeleteModel = async (id: string) => {
-    try {
-      await apiDeleteModel(id);
-      await loadModels();
-    } catch (err) {
-      console.error("Failed to delete model:", err);
-    }
-  };
-
-  const handleSetActiveModel = async (modelDbId: string) => {
-    try {
-      await apiSetActiveModel(modelDbId);
-      setActiveModelId(modelDbId);
-      await refreshUser();
-    } catch (err) {
-      console.error("Failed to set active model:", err);
-    }
-  };
 
   return (
     <div className="bg-background font-body text-on-surface min-h-screen pb-32">
@@ -641,103 +582,6 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Model Configuration */}
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="md:col-span-1">
-            <h3 className="text-xl font-headline font-bold text-primary">AI Models</h3>
-            <p className="text-sm text-on-surface-variant mt-2">
-              Add and switch between OpenAI models. The active model is used for all AI operations.
-            </p>
-          </div>
-          <div className="md:col-span-2">
-            <div className="bg-surface-container-lowest rounded-xl p-8 border border-outline-variant/15 shadow-sm space-y-6">
-              {/* Model list */}
-              <div className="space-y-3">
-                {models.map((model) => (
-                  <div
-                    key={model.id}
-                    className={`flex items-center justify-between p-4 rounded-xl transition-all ${
-                      activeModelId === model.id
-                        ? "bg-secondary/5 border-2 border-secondary/30"
-                        : "bg-surface-container-low hover:bg-surface-container-high border-2 border-transparent"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => handleSetActiveModel(model.id)}
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                          activeModelId === model.id
-                            ? "border-secondary bg-secondary"
-                            : "border-outline-variant"
-                        }`}
-                      >
-                        {activeModelId === model.id && (
-                          <div className="w-2 h-2 rounded-full bg-white" />
-                        )}
-                      </button>
-                      <div>
-                        <p className="text-sm font-bold text-on-surface font-mono">
-                          {model.model_id}
-                        </p>
-                        {model.label && model.label !== model.model_id && (
-                          <p className="text-xs text-on-surface-variant">{model.label}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {activeModelId === model.id && (
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-secondary bg-secondary/10 px-2 py-1 rounded-full">
-                          Active
-                        </span>
-                      )}
-                      <button
-                        onClick={() => handleDeleteModel(model.id)}
-                        className="p-1.5 text-on-surface-variant/50 hover:text-error transition-colors rounded-lg hover:bg-error-container/20"
-                      >
-                        <span className="material-symbols-outlined text-lg">close</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                {models.length === 0 && (
-                  <p className="text-sm text-on-surface-variant/50 text-center py-4">
-                    No models configured. Add one below.
-                  </p>
-                )}
-              </div>
-
-              {/* Add model form */}
-              <div className="pt-4 border-t border-outline-variant/10">
-                <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
-                  Add New Model
-                </p>
-                <div className="flex flex-col sm:flex-row flex-wrap gap-3">
-                  <input
-                    className="flex-1 bg-surface-container-high border-none rounded-lg px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-secondary/20 outline-none"
-                    placeholder="Model ID (e.g. gpt-4o)"
-                    value={newModelId}
-                    onChange={(e) => setNewModelId(e.target.value)}
-                  />
-                  <input
-                    className="flex-1 bg-surface-container-high border-none rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-secondary/20 outline-none"
-                    placeholder="Label (optional)"
-                    value={newModelLabel}
-                    onChange={(e) => setNewModelLabel(e.target.value)}
-                  />
-                  <button
-                    onClick={handleAddModel}
-                    disabled={addingModel || !newModelId.trim()}
-                    className="px-6 py-3 editorial-gradient text-white text-sm font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-50 whitespace-nowrap flex items-center justify-center gap-2"
-                  >
-                    <span className="material-symbols-outlined text-[20px]">add</span>
-                    {addingModel ? "Adding..." : "Add"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
 
         {/* Danger Zone */}
         <section className="grid grid-cols-1 md:grid-cols-3 gap-8">
