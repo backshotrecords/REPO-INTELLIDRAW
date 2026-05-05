@@ -191,7 +191,7 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex gap-4">
-            <div className="bg-surface-container-low px-6 py-4 rounded-xl flex items-center gap-4 group hover:bg-surface-container-highest transition-colors duration-300">
+            <div onClick={() => navigate("/guild")} className="bg-surface-container-low px-6 py-4 rounded-xl flex items-center gap-4 group hover:bg-surface-container-highest transition-colors duration-300 cursor-pointer">
               <div className="relative shrink-0">
                 <div className="w-14 h-14 bg-tertiary-fixed rounded-full flex items-center justify-center text-on-tertiary-fixed shadow-sm relative overflow-hidden">
                   <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>

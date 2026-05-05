@@ -1,0 +1,47 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ── Scoped Guild Page Styles ────────────────────────────────── */
+
+.guild-page {
+  font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #fafaf9; /* stone-50 */
+  color: #000;
+  overflow: hidden;
+}
+
+.guild-page .font-mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Custom scrollbar for expanded mobile cards */
+.guild-page .custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.guild-page .custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.guild-page .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 4px;
+}
+.guild-page .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
+/* Locked card overlay */
+.guild-card-locked {
+  position: relative;
+  pointer-events: none;
+  user-select: none;
+}
+.guild-card-locked > * {
+  filter: grayscale(100%) brightness(0.92);
+  opacity: 0.45;
+}
+.guild-card-locked .guild-lock-overlay {
+  filter: none;
+  opacity: 1;
+  pointer-events: auto;
+}

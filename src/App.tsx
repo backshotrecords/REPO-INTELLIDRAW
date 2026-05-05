@@ -9,6 +9,7 @@ import AdminPage from "./pages/AdminPage";
 import PublicViewPage from "./pages/PublicViewPage";
 import SkillsMarketplacePage from "./pages/SkillsMarketplacePage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import GuildPage from "./pages/GuildPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -102,6 +103,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <SkillsMarketplacePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/guild"
+        element={
+          <ProtectedRoute>
+            <GuildPage />
           </ProtectedRoute>
         }
       />
