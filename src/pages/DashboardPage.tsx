@@ -8,10 +8,10 @@ import { useMermaidThumbnails } from "../hooks/useMermaidThumbnails";
 
 const INITIAL_LEVELS = [
   { id: 1, threshold: 0, name: "Initiate", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="50" stroke="currentColor" stroke-width="2" />\n<circle cx="110" cy="110" r="6" fill="currentColor" stroke="none" />' },
-  { id: 2, threshold: 1, name: "Practitioner", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="55" stroke="currentColor" stroke-width="2" />\n<polygon points="110,75 145,135 75,135" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="110" cy="75" r="5" fill="currentColor" stroke="none" />\n<circle cx="145" cy="135" r="5" fill="currentColor" stroke="none" />\n<circle cx="75" cy="135" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="110" r="4" fill="currentColor" stroke="none" />' },
-  { id: 3, threshold: 3, name: "Architect", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<rect x="60" y="60" width="100" height="100" stroke="currentColor" stroke-width="2" fill="none" />\n<polygon points="110,75 145,110 110,145 75,110" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="110" cy="75" r="5" fill="currentColor" stroke="none" />\n<circle cx="145" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="145" r="5" fill="currentColor" stroke="none" />\n<circle cx="75" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="110" r="4" fill="currentColor" stroke="none" />' },
-  { id: 4, threshold: 10, name: "Researcher", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<rect x="60" y="60" width="100" height="100" stroke="currentColor" stroke-width="2" fill="none" />\n<polygon points="110,75 145,110 110,145 75,110" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="110" cy="75" r="4" fill="currentColor" stroke="none" />\n<circle cx="145" cy="110" r="4" fill="currentColor" stroke="none" />\n<circle cx="110" cy="145" r="4" fill="currentColor" stroke="none" />\n<circle cx="75" cy="110" r="4" fill="currentColor" stroke="none" />\n<path d="M30 110 A80 80 0 0 1 190 110" stroke="currentColor" stroke-width="2" fill="none" />\n<path d="M110 30 A80 80 0 0 1 110 190" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="25" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="195" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="25" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="195" r="5" fill="currentColor" stroke="none" />\n<line x1="75" y1="110" x2="25" y2="110" stroke="currentColor" stroke-width="1.5" />\n<line x1="145" y1="110" x2="195" y2="110" stroke="currentColor" stroke-width="1.5" />\n<line x1="110" y1="75" x2="110" y2="25" stroke="currentColor" stroke-width="1.5" />\n<line x1="110" y1="145" x2="110" y2="195" stroke="currentColor" stroke-width="1.5" />\n<circle cx="110" cy="110" r="4" fill="currentColor" stroke="none" />' },
-  { id: 5, threshold: 50, name: "Lead Researcher", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="4" />\n<circle cx="110" cy="110" r="62" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="46" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="30" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="16" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="6" fill="currentColor" stroke="none" />' }
+  { id: 2, threshold: 3, name: "Practitioner", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="55" stroke="currentColor" stroke-width="2" />\n<polygon points="110,75 145,135 75,135" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="110" cy="75" r="5" fill="currentColor" stroke="none" />\n<circle cx="145" cy="135" r="5" fill="currentColor" stroke="none" />\n<circle cx="75" cy="135" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="110" r="4" fill="currentColor" stroke="none" />' },
+  { id: 3, threshold: 10, name: "Architect", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<rect x="60" y="60" width="100" height="100" stroke="currentColor" stroke-width="2" fill="none" />\n<polygon points="110,75 145,110 110,145 75,110" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="110" cy="75" r="5" fill="currentColor" stroke="none" />\n<circle cx="145" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="145" r="5" fill="currentColor" stroke="none" />\n<circle cx="75" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="110" r="4" fill="currentColor" stroke="none" />' },
+  { id: 4, threshold: 50, name: "Researcher", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<rect x="60" y="60" width="100" height="100" stroke="currentColor" stroke-width="2" fill="none" />\n<polygon points="110,75 145,110 110,145 75,110" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="110" cy="75" r="4" fill="currentColor" stroke="none" />\n<circle cx="145" cy="110" r="4" fill="currentColor" stroke="none" />\n<circle cx="110" cy="145" r="4" fill="currentColor" stroke="none" />\n<circle cx="75" cy="110" r="4" fill="currentColor" stroke="none" />\n<path d="M30 110 A80 80 0 0 1 190 110" stroke="currentColor" stroke-width="2" fill="none" />\n<path d="M110 30 A80 80 0 0 1 110 190" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="25" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="195" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="25" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="195" r="5" fill="currentColor" stroke="none" />\n<line x1="75" y1="110" x2="25" y2="110" stroke="currentColor" stroke-width="1.5" />\n<line x1="145" y1="110" x2="195" y2="110" stroke="currentColor" stroke-width="1.5" />\n<line x1="110" y1="75" x2="110" y2="25" stroke="currentColor" stroke-width="1.5" />\n<line x1="110" y1="145" x2="110" y2="195" stroke="currentColor" stroke-width="1.5" />\n<circle cx="110" cy="110" r="4" fill="currentColor" stroke="none" />' },
+  { id: 5, threshold: 100, name: "Lead Researcher", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="4" />\n<circle cx="110" cy="110" r="62" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="46" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="30" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="16" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="6" fill="currentColor" stroke="none" />' }
 ];
 
 interface Canvas {
@@ -42,10 +42,10 @@ export default function DashboardPage() {
 
   const getAvatarStage = (flows: number) => {
     if (INITIAL_LEVELS.length === 0) return { level: 0, name: "No Levels", svg: "" };
-    
+
     const sorted = [...INITIAL_LEVELS].sort((a, b) => b.threshold - a.threshold);
     const current = sorted.find(l => flows >= l.threshold) || sorted[sorted.length - 1];
-    
+
     const ascending = [...INITIAL_LEVELS].sort((a, b) => a.threshold - b.threshold);
     const levelIndex = ascending.findIndex(l => l.id === current.id) + 1;
 
@@ -138,7 +138,7 @@ export default function DashboardPage() {
   const handleExport = () => {
     const selected = canvases.filter((c) => selectedForExport.has(c.id));
     if (selected.length === 0) return;
-    
+
     if (selected.length === 1) {
       if (exportOptions.markdown && !exportOptions.png) exportAsMarkdown(selected[0]);
       else if (!exportOptions.markdown && exportOptions.png) exportAsImage(selected[0]);
@@ -146,7 +146,7 @@ export default function DashboardPage() {
     } else {
       exportAsZip(selected, exportOptions);
     }
-    
+
     setExportMode(false);
     setSelectedForExport(new Set());
   };
@@ -196,12 +196,12 @@ export default function DashboardPage() {
                 <div className="w-14 h-14 bg-tertiary-fixed rounded-full flex items-center justify-center text-on-tertiary-fixed shadow-sm relative overflow-hidden">
                   <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                   <div className="relative z-10 transition-transform duration-500 group-hover:scale-110 flex items-center justify-center w-full h-full">
-                    <svg 
-                      viewBox="28 28 164 164" 
-                      fill="none" 
-                      stroke="currentColor" 
-                      strokeLinecap="round" 
-                      strokeLinejoin="round" 
+                    <svg
+                      viewBox="28 28 164 164"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                       className="w-full h-full"
                       dangerouslySetInnerHTML={{ __html: levelSvg }}
                     />
@@ -318,11 +318,10 @@ export default function DashboardPage() {
                 {exportMode && (
                   <div className="absolute top-4 right-4 z-20">
                     <div
-                      className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
-                        selectedForExport.has(canvas.id)
+                      className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${selectedForExport.has(canvas.id)
                           ? "bg-secondary border-secondary text-white"
                           : "border-outline-variant bg-white/80"
-                      }`}
+                        }`}
                     >
                       {selectedForExport.has(canvas.id) && (
                         <span className="material-symbols-outlined text-sm">check</span>
@@ -335,7 +334,7 @@ export default function DashboardPage() {
                 <div className="aspect-video relative overflow-hidden bg-surface-container-high rounded-t-xl">
                   {/* Public badge */}
                   {canvas.is_public && (
-                    <div 
+                    <div
                       className="absolute top-3 left-3 z-20 inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500/90 backdrop-blur-sm shadow-sm"
                       title="Public"
                     >

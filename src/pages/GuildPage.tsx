@@ -6,7 +6,7 @@ import "./GuildPage.css";
 
 /* ── Level Definitions ──────────────────────────────────────── */
 
-const LEVEL_THRESHOLDS = [0, 1, 3, 10, 50];
+const LEVEL_THRESHOLDS = [0, 3, 10, 50, 100];
 
 const levels = [
   {
@@ -562,9 +562,8 @@ export default function GuildPage() {
               {levels.map((_, idx) => (
                 <div
                   key={idx}
-                  className={`w-1.5 h-1.5 rounded-none transition-colors ${
-                    idx === currentIndex ? "bg-black" : "bg-gray-300"
-                  }`}
+                  className={`w-1.5 h-1.5 rounded-none transition-colors ${idx === currentIndex ? "bg-black" : "bg-gray-300"
+                    }`}
                 />
               ))}
             </div>
