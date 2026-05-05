@@ -6,6 +6,14 @@ import { apiListCanvases, apiCreateCanvas, apiDeleteCanvas } from "../lib/api";
 import { exportAsMarkdown, exportAsZip, exportAsImage } from "../utils/export";
 import { useMermaidThumbnails } from "../hooks/useMermaidThumbnails";
 
+const INITIAL_LEVELS = [
+  { id: 1, threshold: 0, name: "Initiate", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="50" stroke="currentColor" stroke-width="2" />\n<circle cx="110" cy="110" r="6" fill="currentColor" stroke="none" />' },
+  { id: 2, threshold: 1, name: "Practitioner", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="55" stroke="currentColor" stroke-width="2" />\n<polygon points="110,75 145,135 75,135" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="110" cy="75" r="5" fill="currentColor" stroke="none" />\n<circle cx="145" cy="135" r="5" fill="currentColor" stroke="none" />\n<circle cx="75" cy="135" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="110" r="4" fill="currentColor" stroke="none" />' },
+  { id: 3, threshold: 3, name: "Architect", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<rect x="60" y="60" width="100" height="100" stroke="currentColor" stroke-width="2" fill="none" />\n<polygon points="110,75 145,110 110,145 75,110" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="110" cy="75" r="5" fill="currentColor" stroke="none" />\n<circle cx="145" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="145" r="5" fill="currentColor" stroke="none" />\n<circle cx="75" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="110" r="4" fill="currentColor" stroke="none" />' },
+  { id: 4, threshold: 10, name: "Researcher", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<rect x="60" y="60" width="100" height="100" stroke="currentColor" stroke-width="2" fill="none" />\n<polygon points="110,75 145,110 110,145 75,110" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="110" cy="75" r="4" fill="currentColor" stroke="none" />\n<circle cx="145" cy="110" r="4" fill="currentColor" stroke="none" />\n<circle cx="110" cy="145" r="4" fill="currentColor" stroke="none" />\n<circle cx="75" cy="110" r="4" fill="currentColor" stroke="none" />\n<path d="M30 110 A80 80 0 0 1 190 110" stroke="currentColor" stroke-width="2" fill="none" />\n<path d="M110 30 A80 80 0 0 1 110 190" stroke="currentColor" stroke-width="2" fill="none" />\n<circle cx="25" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="195" cy="110" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="25" r="5" fill="currentColor" stroke="none" />\n<circle cx="110" cy="195" r="5" fill="currentColor" stroke="none" />\n<line x1="75" y1="110" x2="25" y2="110" stroke="currentColor" stroke-width="1.5" />\n<line x1="145" y1="110" x2="195" y2="110" stroke="currentColor" stroke-width="1.5" />\n<line x1="110" y1="75" x2="110" y2="25" stroke="currentColor" stroke-width="1.5" />\n<line x1="110" y1="145" x2="110" y2="195" stroke="currentColor" stroke-width="1.5" />\n<circle cx="110" cy="110" r="4" fill="currentColor" stroke="none" />' },
+  { id: 5, threshold: 50, name: "Lead Researcher", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="4" />\n<circle cx="110" cy="110" r="62" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="46" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="30" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="16" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="6" fill="currentColor" stroke="none" />' }
+];
+
 interface Canvas {
   id: string;
   title: string;
@@ -31,6 +39,20 @@ export default function DashboardPage() {
   const thumbnails = useMermaidThumbnails(canvases);
   const location = useLocation();
   const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  const getAvatarStage = (flows: number) => {
+    if (INITIAL_LEVELS.length === 0) return { level: 0, name: "No Levels", svg: "" };
+    
+    const sorted = [...INITIAL_LEVELS].sort((a, b) => b.threshold - a.threshold);
+    const current = sorted.find(l => flows >= l.threshold) || sorted[sorted.length - 1];
+    
+    const ascending = [...INITIAL_LEVELS].sort((a, b) => a.threshold - b.threshold);
+    const levelIndex = ascending.findIndex(l => l.id === current.id) + 1;
+
+    return { level: levelIndex, name: current.name, svg: current.svg };
+  };
+
+  const { level, name: levelName, svg: levelSvg } = getAvatarStage(canvases.length);
 
   // Highlight the recently closed canvas card
   useEffect(() => {
@@ -169,19 +191,32 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex gap-4">
-            <div className="bg-surface-container-low px-6 py-4 rounded-xl flex items-center gap-4">
-              <div className="bg-tertiary-fixed p-3 rounded-full">
-                <span
-                  className="material-symbols-outlined text-on-tertiary-fixed"
-                  style={{ fontVariationSettings: "'FILL' 1" }}
-                >
-                  auto_awesome
-                </span>
+            <div className="bg-surface-container-low px-6 py-4 rounded-xl flex items-center gap-4 group hover:bg-surface-container-highest transition-colors duration-300">
+              <div className="relative shrink-0">
+                <div className="w-14 h-14 bg-tertiary-fixed rounded-full flex items-center justify-center text-on-tertiary-fixed shadow-sm relative overflow-hidden">
+                  <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  <div className="relative z-10 transition-transform duration-500 group-hover:scale-110 flex items-center justify-center w-full h-full">
+                    <svg 
+                      viewBox="28 28 164 164" 
+                      fill="none" 
+                      stroke="currentColor" 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round" 
+                      className="w-full h-full"
+                      dangerouslySetInnerHTML={{ __html: levelSvg }}
+                    />
+                  </div>
+                </div>
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-surface border-[2.5px] border-surface-container-low group-hover:border-surface-container-highest transition-colors rounded-full flex items-center justify-center text-[10px] font-bold text-primary z-20 shadow-sm">
+                  {level}
+                </div>
               </div>
               <div>
-                <div className="text-2xl font-bold font-headline">{canvases.length}</div>
+                <div className="text-2xl font-bold font-headline">
+                  {canvases.length} {canvases.length === 1 ? 'Flow' : 'Flows'}
+                </div>
                 <div className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
-                  Active Flows
+                  {levelName}
                 </div>
               </div>
             </div>
