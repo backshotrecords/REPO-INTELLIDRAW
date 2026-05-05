@@ -219,8 +219,8 @@ const LevelCard: React.FC<{
         bg-white text-center outline-none
         border overflow-hidden
         transition-all duration-500 origin-top
-        ${!isMobile ? `absolute top-0 ${isExpanded ? "w-[140%] -left-[20%]" : "left-0 w-full"}` : ""}
-        ${isExpanded && !isMobile ? "border-black border-2 shadow-2xl z-50" : "border-gray-200 hover:border-black z-10"}
+        ${!isMobile ? `absolute top-0 ${isExpanded ? "w-[140%] left-1/2 -translate-x-1/2" : "left-0 w-full"}` : ""}
+        ${isExpanded && !isMobile ? "border-black border-2 shadow-2xl z-[60]" : "border-gray-200 hover:border-black z-10"}
         ${isExpanded && isMobile ? "h-[100dvh] w-screen max-h-none rounded-none border-0" : `rounded-2xl h-auto min-h-[360px] ${isExpanded && !isMobile ? "max-h-[580px]" : "max-h-[500px]"}`}
       `}
     >
@@ -444,7 +444,7 @@ export default function GuildPage() {
               {levels.map((level) => {
                 const isUnlocked = level.id <= userLevel;
                 return (
-                  <div key={level.id} className="relative w-full h-[360px]">
+                  <div key={level.id} className={`relative w-full h-[360px] ${expandedLevel === level.id ? "z-[60]" : "z-0"}`}>
                     {isUnlocked ? (
                       <LevelCard
                         level={level}
