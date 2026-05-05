@@ -219,7 +219,7 @@ const LevelCard: React.FC<{
         bg-white text-center outline-none
         border overflow-hidden
         transition-all duration-500 origin-top
-        ${!isMobile ? `absolute top-0 ${isExpanded ? "w-[140%] left-1/2 -translate-x-1/2" : "left-0 w-full"}` : ""}
+        ${!isMobile ? `absolute left-0 top-0 ${isExpanded ? "w-[140%] ml-[-20%]" : "w-full"}` : ""}
         ${isExpanded && !isMobile ? "border-black border-2 shadow-2xl z-[60]" : "border-gray-200 hover:border-black z-10"}
         ${isExpanded && isMobile ? "h-[100dvh] w-screen max-h-none rounded-none border-0" : `rounded-2xl h-auto min-h-[360px] ${isExpanded && !isMobile ? "max-h-[580px]" : "max-h-[500px]"}`}
       `}
@@ -573,7 +573,7 @@ export default function GuildPage() {
       </main>
 
       {/* Footer */}
-      <footer className="absolute bottom-0 left-0 right-0 w-full flex justify-between items-end p-6 md:p-8 z-10 pointer-events-none">
+      <footer className="absolute bottom-0 left-0 right-0 w-full flex justify-between items-end p-6 md:p-8 z-[5] pointer-events-none">
         <div className="font-mono text-[12px] text-gray-500 max-w-xs leading-relaxed uppercase tracking-widest hidden md:block">
           Sacred Geometry
           <br />
