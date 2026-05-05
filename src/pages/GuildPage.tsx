@@ -215,11 +215,11 @@ const LevelCard: React.FC<{
         scale: { type: "spring", stiffness: 260, damping: 22, mass: 0.9 },
       }}
       className={`
-        group flex w-full flex-col items-center
+        group flex flex-col items-center
         bg-white text-center outline-none
         border overflow-hidden
         transition-all duration-500 origin-top
-        ${!isMobile ? `absolute left-0 top-0 ${isExpanded ? "w-[140%] ml-[-20%]" : "w-full"}` : ""}
+        ${!isMobile ? `absolute top-0 ${isExpanded ? "-left-[20%] -right-[20%]" : "left-0 right-0"}` : "w-full"}
         ${isExpanded && !isMobile ? "border-black border-2 shadow-2xl z-[60]" : "border-gray-200 hover:border-black z-10"}
         ${isExpanded && isMobile ? "h-[100dvh] w-screen max-h-none rounded-none border-0" : `rounded-2xl h-auto min-h-[360px] ${isExpanded && !isMobile ? "max-h-[580px]" : "max-h-[500px]"}`}
       `}
