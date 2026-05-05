@@ -159,16 +159,16 @@ const LockedCard: React.FC<{
 
       {/* Locked info */}
       <div className="p-5 w-full flex flex-col items-center guild-lock-overlay">
-        <p className="text-[15px] tracking-[0.15em] uppercase font-bold text-gray-500">
+        <p className="text-[17px] tracking-[0.15em] uppercase font-bold text-gray-500">
           Level {level.id}
         </p>
-        <p className="mt-1.5 text-[11px] uppercase font-mono tracking-widest text-gray-400">
+        <p className="mt-1.5 text-[13px] uppercase font-mono tracking-widest text-gray-400">
           {level.subtitle}
         </p>
         <div className="mt-4 flex flex-col items-center gap-2">
           <svg
-            width="20"
-            height="20"
+            width="24"
+            height="24"
             viewBox="0 0 24 24"
             fill="none"
             stroke="#9ca3af"
@@ -179,10 +179,10 @@ const LockedCard: React.FC<{
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0110 0v4" />
           </svg>
-          <p className="text-[12px] font-mono text-gray-500 max-w-[180px] leading-relaxed text-center">
+          <p className="text-[14px] font-mono text-gray-500 max-w-[200px] leading-relaxed text-center">
             Create more flows to unlock this rank
           </p>
-          <p className="text-[11px] font-mono text-gray-400 tracking-wider">
+          <p className="text-[13px] font-mono text-gray-400 tracking-wider">
             Requires {level.threshold} {level.threshold === 1 ? "flow" : "flows"}
           </p>
         </div>
@@ -218,10 +218,10 @@ const LevelCard: React.FC<{
         group flex w-full flex-col items-center
         bg-white text-center outline-none
         border overflow-hidden
-        transition-colors duration-500 origin-top
-        ${!isMobile ? "absolute left-0 top-0 w-full" : ""}
+        transition-all duration-500 origin-top
+        ${!isMobile ? `absolute top-0 ${isExpanded ? "w-[140%] -left-[20%]" : "left-0 w-full"}` : ""}
         ${isExpanded && !isMobile ? "border-black border-2 shadow-2xl z-50" : "border-gray-200 hover:border-black z-10"}
-        ${isExpanded && isMobile ? "h-[100dvh] w-screen max-h-none rounded-none border-0" : "rounded-2xl max-h-[500px] h-auto min-h-[360px]"}
+        ${isExpanded && isMobile ? "h-[100dvh] w-screen max-h-none rounded-none border-0" : `rounded-2xl h-auto min-h-[360px] ${isExpanded && !isMobile ? "max-h-[580px]" : "max-h-[500px]"}`}
       `}
     >
       <motion.div
@@ -238,18 +238,18 @@ const LevelCard: React.FC<{
 
       <motion.div
         layout
-        className={`p-5 w-full flex flex-col items-center ${isExpanded && isMobile ? "flex-1 overflow-y-auto custom-scrollbar" : ""}`}
+        className={`p-5 w-full flex flex-col items-center ${isExpanded ? "flex-1 overflow-y-auto custom-scrollbar" : ""}`}
       >
-        <p className="text-[15px] tracking-[0.15em] uppercase font-bold text-black shrink-0">
+        <p className="text-[17px] tracking-[0.15em] uppercase font-bold text-black shrink-0">
           {level.title}
         </p>
-        <p className="mt-1.5 text-[11px] uppercase font-mono tracking-widest text-gray-600 shrink-0">
+        <p className="mt-1.5 text-[13px] uppercase font-mono tracking-widest text-gray-600 shrink-0">
           {level.subtitle}
         </p>
 
         <motion.p
           layout
-          className="mt-4 text-[13px] font-mono leading-relaxed text-gray-600 max-w-[200px] shrink-0 text-center"
+          className="mt-4 text-[15px] font-mono leading-relaxed text-gray-600 max-w-[220px] shrink-0 text-center"
         >
           {level.shortDesc}
         </motion.p>
@@ -274,7 +274,7 @@ const LevelCard: React.FC<{
             }}
             className="pt-4"
           >
-            <p className="text-[12px] font-mono leading-relaxed text-gray-700 text-left">
+            <p className="text-[14px] font-mono leading-relaxed text-gray-700 text-left">
               {level.fullDesc}
             </p>
           </motion.div>
@@ -332,7 +332,7 @@ export default function GuildPage() {
             <circle cx="110" cy="110" r="50" stroke="#ddd" strokeWidth="2" />
             <circle cx="110" cy="110" r="6" fill="#bbb" />
           </svg>
-          <p className="text-[12px] uppercase tracking-widest text-gray-500 font-mono">Loading Guild…</p>
+          <p className="text-[13px] uppercase tracking-widest text-gray-500 font-mono">Loading Guild…</p>
         </div>
       </div>
     );
@@ -426,11 +426,11 @@ export default function GuildPage() {
           <div className="w-5 h-5 border-[1.5px] border-black flex items-center justify-center">
             <div className="w-1.5 h-1.5 bg-black"></div>
           </div>
-          <span className="font-mono text-sm uppercase tracking-[0.25em] font-medium text-black">
+          <span className="font-mono text-base uppercase tracking-[0.25em] font-medium text-black">
             IntelliDraw Architectura
           </span>
         </button>
-        <div className="hidden md:block font-mono text-[11px] uppercase tracking-widest text-gray-500">
+        <div className="hidden md:block font-mono text-[12px] uppercase tracking-widest text-gray-500">
           Est. 2026 // Void System
         </div>
       </header>
@@ -464,7 +464,7 @@ export default function GuildPage() {
           /* ── Mobile: swipeable card stack ─────────────────────── */
           <div className="relative w-full max-w-[320px] h-[500px] flex items-center justify-center">
             <div
-              className={`absolute top-0 w-full text-center text-[11px] text-gray-500 uppercase font-mono tracking-widest ${expandedLevel ? "opacity-0" : "opacity-100"}`}
+              className={`absolute top-0 w-full text-center text-[12px] text-gray-500 uppercase font-mono tracking-widest ${expandedLevel ? "opacity-0" : "opacity-100"}`}
             >
               Swipe to navigate
             </div>
@@ -574,7 +574,7 @@ export default function GuildPage() {
 
       {/* Footer */}
       <footer className="absolute bottom-0 left-0 right-0 w-full flex justify-between items-end p-6 md:p-8 z-10 pointer-events-none">
-        <div className="font-mono text-[11px] text-gray-500 max-w-xs leading-relaxed uppercase tracking-widest hidden md:block">
+        <div className="font-mono text-[12px] text-gray-500 max-w-xs leading-relaxed uppercase tracking-widest hidden md:block">
           Sacred Geometry
           <br />
           The study of forms and their meaning.
