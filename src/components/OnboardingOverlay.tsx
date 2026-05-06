@@ -35,6 +35,7 @@ export default function OnboardingOverlay() {
   const [completing, setCompleting] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [animatingOut, setAnimatingOut] = useState(false);
+  const [gifLoaded, setGifLoaded] = useState(false);
 
   const fetchState = useCallback(async () => {
     try {
@@ -50,6 +51,7 @@ export default function OnboardingOverlay() {
   useEffect(() => {
     fetchState();
     setDismissed(false);
+    setGifLoaded(false);
   }, [location.pathname, fetchState]);
 
   // Determine if current page matches the tutorial's attached page
@@ -73,6 +75,7 @@ export default function OnboardingOverlay() {
       return () => clearTimeout(timer);
     } else {
       setVisible(false);
+      setGifLoaded(false);
     }
   }, [tutorial, pageMatches, dismissed]);
 
@@ -86,6 +89,7 @@ export default function OnboardingOverlay() {
         setVisible(false);
         setAnimatingOut(false);
         setDismissed(false);
+        setGifLoaded(false);
         fetchState(); // Check for next tutorial
       }, 400);
     } catch (err) {
@@ -195,11 +199,18 @@ export default function OnboardingOverlay() {
 
         {/* GIF */}
         {tutorial.gif_url && (
-          <div className="w-full bg-surface-container-low border-y border-outline-variant/10">
+          <div className="w-full bg-surface-container-low border-y border-outline-variant/10 relative">
+            {!gifLoaded && (
+              <div className="w-full h-52 flex items-center justify-center">
+                <div className="absolute inset-0 bg-surface-container-high animate-pulse" />
+                <span className="material-symbols-outlined animate-spin text-2xl text-on-surface-variant/40 relative z-10">progress_activity</span>
+              </div>
+            )}
             <img
               src={tutorial.gif_url}
               alt="Tutorial demonstration"
-              className="w-full max-h-72 object-contain"
+              className={`w-full max-h-72 object-contain transition-opacity duration-300 ${gifLoaded ? "opacity-100" : "opacity-0 h-0"}`}
+              onLoad={() => setGifLoaded(true)}
             />
           </div>
         )}
@@ -225,7 +236,7 @@ export default function OnboardingOverlay() {
           </div>
           <button
             onClick={handleComplete}
-            disabled={completing}
+            disabled={completing || (!!tutorial.gif_url && !gifLoaded)}
             className="bg-gradient-to-r from-primary to-primary/80 text-white font-bold text-sm px-6 py-3 rounded-xl hover:shadow-lg active:scale-95 transition-all duration-200 disabled:opacity-50 flex items-center gap-2"
           >
             <span
