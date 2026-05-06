@@ -1476,6 +1476,352 @@ app.delete("/api/groups/:id/members/:userId?", requireAuth(async (req, res) => {
 }));
 
 // ============================================================
+// ADMIN ONBOARDING TUTORIALS
+// ============================================================
+
+// GET: List all tutorials
+app.get("/api/admin/onboarding", requireAuth(async (req, res) => {
+  try {
+    const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();
+    if (!user?.is_global_admin) return res.status(403).json({ error: "Forbidden" });
+
+    const { data, error } = await supabase
+      .from("onboarding_tutorials")
+      .select("*")
+      .order("step_order", { ascending: true });
+
+    if (error) return res.status(500).json({ error: "Failed to fetch tutorials" });
+    return res.json({ tutorials: data || [] });
+  } catch (err) {
+    console.error("GET /api/admin/onboarding error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+// POST: Create tutorial
+app.post("/api/admin/onboarding", requireAuth(async (req, res) => {
+  try {
+    const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();
+    if (!user?.is_global_admin) return res.status(403).json({ error: "Forbidden" });
+
+    const { gif_file_data, gif_file_name, explanation_text, attached_page, step_order, force_existing_users } = req.body || {};
+
+    if (!explanation_text || !attached_page || step_order === undefined) {
+      return res.status(400).json({ error: "explanation_text, attached_page, and step_order are required" });
+    }
+
+    // Upload GIF to Supabase Storage
+    let gifUrl = null;
+    let gifFileName = null;
+
+    if (gif_file_data) {
+      const ext = gif_file_name?.match(/\.[^.]+$/)?.[0] || ".gif";
+      const storagePath = `onboarding-${Date.now()}${ext}`;
+      const buffer = Buffer.from(gif_file_data, "base64");
+
+      const { error: uploadErr } = await supabase.storage
+        .from("onboarding-gifs")
+        .upload(storagePath, buffer, { contentType: "image/gif", upsert: true });
+
+      if (uploadErr) {
+        console.error("GIF upload error:", uploadErr);
+        return res.status(500).json({ error: "Failed to upload GIF" });
+      }
+
+      const { data: publicUrlData } = supabase.storage.from("onboarding-gifs").getPublicUrl(storagePath);
+      gifUrl = publicUrlData.publicUrl;
+      gifFileName = gif_file_name || "onboarding.gif";
+    }
+
+    const { data: tutorial, error: insertErr } = await supabase
+      .from("onboarding_tutorials")
+      .insert({ step_order: Number(step_order), gif_url: gifUrl, gif_file_name: gifFileName, explanation_text, attached_page })
+      .select("*")
+      .single();
+
+    if (insertErr) {
+      console.error("Tutorial insert error:", insertErr);
+      return res.status(500).json({ error: "Failed to create tutorial" });
+    }
+
+    // Waiver logic
+    let waived_count = 0;
+    if (force_existing_users === false) {
+      const { data: states } = await supabase.from("user_onboarding_state").select("id, user_id, seen_onboarding");
+      if (states && states.length > 0) {
+        const { data: priorTutorials } = await supabase
+          .from("onboarding_tutorials").select("id")
+          .lte("step_order", Number(step_order)).neq("id", tutorial.id);
+
+        const priorIds = new Set((priorTutorials || []).map(t => t.id));
+
+        for (const state of states) {
+          const seen = state.seen_onboarding || {};
+          const allPriorSeen = priorIds.size > 0 && [...priorIds].every(pid => {
+            const entry = seen[pid];
+            return entry && (entry.status === "completed" || entry.status === "waived");
+          });
+
+          if (allPriorSeen) {
+            const updatedSeen = {
+              ...seen,
+              [tutorial.id]: { status: "waived", seen_at: null, content_updated_at_seen: null, waived_at: new Date().toISOString() },
+            };
+            await supabase.from("user_onboarding_state")
+              .update({ seen_onboarding: updatedSeen, updated_at: new Date().toISOString() })
+              .eq("id", state.id);
+            waived_count++;
+          }
+        }
+      }
+    }
+
+    return res.status(201).json({ tutorial, waived_count });
+  } catch (err) {
+    console.error("POST /api/admin/onboarding error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+// PUT: Update tutorial
+app.put("/api/admin/onboarding/:id", requireAuth(async (req, res) => {
+  try {
+    const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();
+    if (!user?.is_global_admin) return res.status(403).json({ error: "Forbidden" });
+
+    const tutorialId = req.params.id;
+    const { gif_file_data, gif_file_name, explanation_text, attached_page, step_order, force_existing_users } = req.body || {};
+
+    const { data: current, error: fetchErr } = await supabase
+      .from("onboarding_tutorials").select("*").eq("id", tutorialId).single();
+
+    if (fetchErr || !current) return res.status(404).json({ error: "Tutorial not found" });
+
+    const updates = { updated_at: new Date().toISOString() };
+    let contentChanged = false;
+
+    if (explanation_text !== undefined && explanation_text !== current.explanation_text) {
+      updates.explanation_text = explanation_text;
+      contentChanged = true;
+    }
+    if (attached_page !== undefined) updates.attached_page = attached_page;
+
+    // GIF replacement
+    if (gif_file_data) {
+      if (current.gif_url && current.gif_url.includes("/onboarding-gifs/")) {
+        const oldFileName = current.gif_url.split("/onboarding-gifs/").pop();
+        if (oldFileName) await supabase.storage.from("onboarding-gifs").remove([oldFileName]);
+      }
+
+      const ext = gif_file_name?.match(/\.[^.]+$/)?.[0] || ".gif";
+      const storagePath = `onboarding-${Date.now()}${ext}`;
+      const buffer = Buffer.from(gif_file_data, "base64");
+
+      const { error: uploadErr } = await supabase.storage
+        .from("onboarding-gifs")
+        .upload(storagePath, buffer, { contentType: "image/gif", upsert: true });
+
+      if (uploadErr) return res.status(500).json({ error: "Failed to upload GIF" });
+
+      const { data: publicUrlData } = supabase.storage.from("onboarding-gifs").getPublicUrl(storagePath);
+      updates.gif_url = publicUrlData.publicUrl;
+      updates.gif_file_name = gif_file_name || "onboarding.gif";
+      contentChanged = true;
+    }
+
+    if (contentChanged) updates.content_updated_at = new Date().toISOString();
+
+    // Step order change + waiver
+    let waived_count = 0;
+    if (step_order !== undefined && Number(step_order) !== current.step_order) {
+      updates.step_order = Number(step_order);
+
+      if (force_existing_users === false) {
+        const { data: states } = await supabase.from("user_onboarding_state").select("id, user_id, seen_onboarding");
+        if (states) {
+          for (const state of states) {
+            const seen = state.seen_onboarding || {};
+            const entry = seen[tutorialId];
+            if (!entry || !entry.status) {
+              const { data: priorTutorials } = await supabase
+                .from("onboarding_tutorials").select("id")
+                .lte("step_order", Number(step_order)).neq("id", tutorialId);
+
+              const priorIds = (priorTutorials || []).map(t => t.id);
+              const allPriorSeen = priorIds.length > 0 && priorIds.every(pid => {
+                const priorEntry = seen[pid];
+                return priorEntry && (priorEntry.status === "completed" || priorEntry.status === "waived");
+              });
+
+              if (allPriorSeen) {
+                const updatedSeen = {
+                  ...seen,
+                  [tutorialId]: { status: "waived", seen_at: null, content_updated_at_seen: null, waived_at: new Date().toISOString() },
+                };
+                await supabase.from("user_onboarding_state")
+                  .update({ seen_onboarding: updatedSeen, updated_at: new Date().toISOString() })
+                  .eq("id", state.id);
+                waived_count++;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const { data: updated, error: updateErr } = await supabase
+      .from("onboarding_tutorials").update(updates).eq("id", tutorialId).select("*").single();
+
+    if (updateErr) return res.status(500).json({ error: "Failed to update tutorial" });
+    return res.json({ tutorial: updated, content_changed: contentChanged, waived_count });
+  } catch (err) {
+    console.error("PUT /api/admin/onboarding/:id error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+// DELETE: Delete tutorial
+app.delete("/api/admin/onboarding/:id", requireAuth(async (req, res) => {
+  try {
+    const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();
+    if (!user?.is_global_admin) return res.status(403).json({ error: "Forbidden" });
+
+    const tutorialId = req.params.id;
+
+    // Clean up GIF storage
+    const { data: current } = await supabase.from("onboarding_tutorials").select("gif_url").eq("id", tutorialId).single();
+    if (current?.gif_url && current.gif_url.includes("/onboarding-gifs/")) {
+      const oldFileName = current.gif_url.split("/onboarding-gifs/").pop();
+      if (oldFileName) await supabase.storage.from("onboarding-gifs").remove([oldFileName]);
+    }
+
+    const { error } = await supabase.from("onboarding_tutorials").delete().eq("id", tutorialId);
+    if (error) return res.status(500).json({ error: "Failed to delete tutorial" });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /api/admin/onboarding/:id error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+// ============================================================
+// USER ONBOARDING STATE
+// ============================================================
+
+// GET: Get onboarding state + next required tutorial
+app.get("/api/onboarding/state", requireAuth(async (req, res) => {
+  try {
+    let { data: state } = await supabase
+      .from("user_onboarding_state").select("*")
+      .eq("user_id", req.auth.userId).single();
+
+    if (!state) {
+      const { data: newState, error: createErr } = await supabase
+        .from("user_onboarding_state")
+        .insert({ user_id: req.auth.userId, seen_onboarding: {} })
+        .select("*").single();
+
+      if (createErr) return res.status(500).json({ error: "Failed to initialize onboarding state" });
+      state = newState;
+    }
+
+    const { data: tutorials, error: tutErr } = await supabase
+      .from("onboarding_tutorials").select("*")
+      .order("step_order", { ascending: true });
+
+    if (tutErr) return res.status(500).json({ error: "Failed to fetch tutorials" });
+
+    const seen = state.seen_onboarding || {};
+    const allTutorials = tutorials || [];
+
+    let nextRequired = null;
+    let isRewatch = false;
+
+    for (const tutorial of allTutorials) {
+      const entry = seen[tutorial.id];
+
+      if (!entry) {
+        nextRequired = tutorial;
+        isRewatch = false;
+        break;
+      }
+
+      if (entry.status === "waived") continue;
+
+      if (entry.status === "completed") {
+        if (tutorial.content_updated_at && entry.content_updated_at_seen &&
+            new Date(tutorial.content_updated_at) > new Date(entry.content_updated_at_seen)) {
+          nextRequired = tutorial;
+          isRewatch = true;
+          break;
+        }
+        if (tutorial.content_updated_at && !entry.content_updated_at_seen) {
+          nextRequired = tutorial;
+          isRewatch = true;
+          break;
+        }
+        continue;
+      }
+    }
+
+    return res.json({
+      state,
+      next_required: nextRequired,
+      is_rewatch: isRewatch,
+      total_tutorials: allTutorials.length,
+      completed_count: Object.values(seen).filter(e => e.status === "completed" || e.status === "waived").length,
+    });
+  } catch (err) {
+    console.error("GET /api/onboarding/state error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+// POST: Mark tutorial as completed
+app.post("/api/onboarding/state", requireAuth(async (req, res) => {
+  try {
+    const { onboarding_id } = req.body || {};
+    if (!onboarding_id) return res.status(400).json({ error: "onboarding_id is required" });
+
+    const { data: tutorial } = await supabase
+      .from("onboarding_tutorials").select("content_updated_at")
+      .eq("id", onboarding_id).single();
+
+    if (!tutorial) return res.status(404).json({ error: "Tutorial not found" });
+
+    const { data: state } = await supabase
+      .from("user_onboarding_state").select("id, seen_onboarding")
+      .eq("user_id", req.auth.userId).single();
+
+    if (!state) return res.status(404).json({ error: "Onboarding state not found" });
+
+    const seen = state.seen_onboarding || {};
+    const now = new Date().toISOString();
+
+    const updatedSeen = {
+      ...seen,
+      [onboarding_id]: {
+        status: "completed",
+        seen_at: now,
+        content_updated_at_seen: tutorial.content_updated_at || now,
+        waived_at: null,
+      },
+    };
+
+    const { error: updateErr } = await supabase
+      .from("user_onboarding_state")
+      .update({ seen_onboarding: updatedSeen, updated_at: now })
+      .eq("id", state.id);
+
+    if (updateErr) return res.status(500).json({ error: "Failed to mark tutorial as completed" });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("POST /api/onboarding/state error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+// ============================================================
 // START SERVER
 // ============================================================
 const PORT = process.env.API_PORT || 3001;

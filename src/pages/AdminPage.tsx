@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel } from "../lib/api";
+import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel, apiGetOnboardingTutorials, apiCreateOnboardingTutorial, apiUpdateOnboardingTutorial, apiDeleteOnboardingTutorial } from "../lib/api";
 
 // ─── Config Module Registry ─────────────────────────────
 // Add new config modules here — the sidebar auto-populates from this array.
@@ -10,8 +10,29 @@ const CONFIG_MODULES: { key: string; label: string; icon: string }[] = [
   { key: "sound",  label: "Sound Effects",       icon: "volume_up" },
   { key: "canvas", label: "Canvas Mechanics",    icon: "zoom_in" },
   { key: "rules",  label: "Sanitization Rules",  icon: "rule" },
+  { key: "onboarding", label: "Onboarding Tutorials", icon: "school" },
   { key: "userreset", label: "User Account Reset", icon: "lock_reset" },
 ];
+
+const ATTACHABLE_PAGES = [
+  { value: "/dashboard", label: "Dashboard" },
+  { value: "canvas",     label: "Canvas (any)" },
+  { value: "/settings",  label: "Settings" },
+  { value: "/skills",    label: "Skills Marketplace" },
+  { value: "/guild",     label: "Guild Badges" },
+];
+
+interface OnboardingTutorial {
+  id: string;
+  step_order: number;
+  gif_url: string | null;
+  gif_file_name: string | null;
+  explanation_text: string;
+  attached_page: string;
+  content_updated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 interface SoundConfig {
   volume: number;
@@ -78,6 +99,25 @@ export default function AdminPage() {
   const [linkCopied, setLinkCopied] = useState(false);
   const zoomDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Onboarding tutorials state
+  const [obTutorials, setObTutorials] = useState<OnboardingTutorial[]>([]);
+  const [obLoading, setObLoading] = useState(true);
+  const [obAdding, setObAdding] = useState(false);
+  const [obNewText, setObNewText] = useState("");
+  const [obNewPage, setObNewPage] = useState("/dashboard");
+  const [obNewStep, setObNewStep] = useState(1);
+  const [obNewForce, setObNewForce] = useState(true);
+  const [obNewGifFile, setObNewGifFile] = useState<File | null>(null);
+  const obGifInputRef = useRef<HTMLInputElement | null>(null);
+  const [obEditId, setObEditId] = useState<string | null>(null);
+  const [obEditText, setObEditText] = useState("");
+  const [obEditPage, setObEditPage] = useState("");
+  const [obEditStep, setObEditStep] = useState(1);
+  const [obEditForce, setObEditForce] = useState(true);
+  const [obEditGifFile, setObEditGifFile] = useState<File | null>(null);
+  const obEditGifInputRef = useRef<HTMLInputElement | null>(null);
+  const [obSaving, setObSaving] = useState(false);
+
   // ─── Sidebar active-section tracking ───────────────────
   const [activeSection, setActiveSection] = useState<string>(CONFIG_MODULES[0].key);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -129,6 +169,7 @@ export default function AdminPage() {
     loadSoundConfig();
     loadCanvasConfig();
     loadAiModels();
+    loadOnboardingTutorials();
   }, [user, navigate]);
 
   // ─── Data loaders ──────────────────────────────────────
@@ -216,6 +257,86 @@ export default function AdminPage() {
   };
 
   // ─── Rules handlers ───────────────────────────────────
+
+  // ─── Onboarding handlers ─────────────────────────────
+
+  const loadOnboardingTutorials = async () => {
+    setObLoading(true);
+    try {
+      const data = await apiGetOnboardingTutorials();
+      setObTutorials(data || []);
+    } catch (err) {
+      console.error("Failed to load onboarding tutorials:", err);
+    } finally {
+      setObLoading(false);
+    }
+  };
+
+  const handleCreateOnboarding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!obNewText.trim()) return;
+    setObAdding(true);
+    try {
+      await apiCreateOnboardingTutorial({
+        gif_file: obNewGifFile || undefined,
+        explanation_text: obNewText.trim(),
+        attached_page: obNewPage,
+        step_order: obNewStep,
+        force_existing_users: obNewForce,
+      });
+      setObNewText("");
+      setObNewPage("/dashboard");
+      setObNewGifFile(null);
+      setObNewForce(true);
+      if (obGifInputRef.current) obGifInputRef.current.value = "";
+      await loadOnboardingTutorials();
+      // Auto-increment step for convenience
+      setObNewStep(obTutorials.length + 2);
+    } catch (err) {
+      console.error("Failed to create onboarding tutorial:", err);
+    } finally {
+      setObAdding(false);
+    }
+  };
+
+  const handleStartEditOnboarding = (tutorial: OnboardingTutorial) => {
+    setObEditId(tutorial.id);
+    setObEditText(tutorial.explanation_text);
+    setObEditPage(tutorial.attached_page);
+    setObEditStep(tutorial.step_order);
+    setObEditForce(true);
+    setObEditGifFile(null);
+  };
+
+  const handleSaveEditOnboarding = async () => {
+    if (!obEditId) return;
+    setObSaving(true);
+    try {
+      await apiUpdateOnboardingTutorial(obEditId, {
+        gif_file: obEditGifFile || undefined,
+        explanation_text: obEditText,
+        attached_page: obEditPage,
+        step_order: obEditStep,
+        force_existing_users: obEditForce,
+      });
+      setObEditId(null);
+      await loadOnboardingTutorials();
+    } catch (err) {
+      console.error("Failed to update onboarding tutorial:", err);
+    } finally {
+      setObSaving(false);
+    }
+  };
+
+  const handleDeleteOnboarding = async (id: string) => {
+    if (!confirm("Delete this onboarding tutorial? Users who have already completed it will not be affected.")) return;
+    try {
+      await apiDeleteOnboardingTutorial(id);
+      await loadOnboardingTutorials();
+    } catch (err) {
+      console.error("Failed to delete onboarding tutorial:", err);
+    }
+  };
 
   const handleAddRule = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -875,6 +996,257 @@ export default function AdminPage() {
               </div>
             </div>
           </section>
+          {/* ═══ Onboarding Tutorials (collapsible) ══════════════ */}
+          <section
+            id="onboarding"
+            ref={(el) => { sectionRefs.current["onboarding"] = el; }}
+            className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden scroll-mt-24"
+          >
+            {renderAccordionHeader("onboarding", "school", "Onboarding Tutorials", `${obTutorials.length} tutorial${obTutorials.length !== 1 ? "s" : ""} in the global sequence`)}
+
+            <div
+              className="transition-all duration-300 ease-in-out overflow-hidden"
+              style={{
+                maxHeight: expandedSection === "onboarding" ? "4000px" : "0",
+                opacity: expandedSection === "onboarding" ? 1 : 0,
+              }}
+            >
+              <div className="px-5 pb-5 space-y-5 border-t border-outline-variant/10">
+                {/* Create form */}
+                <form onSubmit={handleCreateOnboarding} className="space-y-4 pt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Step order */}
+                    <div>
+                      <label className="text-xs font-semibold text-on-surface-variant block mb-1.5">Step Order</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={obNewStep}
+                        onChange={(e) => setObNewStep(Number(e.target.value))}
+                        className="w-full bg-surface-container-lowest border border-outline-variant/50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+                      />
+                    </div>
+                    {/* Attached page */}
+                    <div>
+                      <label className="text-xs font-semibold text-on-surface-variant block mb-1.5">Attached Page</label>
+                      <select
+                        value={obNewPage}
+                        onChange={(e) => setObNewPage(e.target.value)}
+                        className="w-full bg-surface-container-lowest border border-outline-variant/50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+                      >
+                        {ATTACHABLE_PAGES.map((p) => (
+                          <option key={p.value} value={p.value}>{p.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Explanation text */}
+                  <div>
+                    <label className="text-xs font-semibold text-on-surface-variant block mb-1.5">Explanation Text</label>
+                    <textarea
+                      value={obNewText}
+                      onChange={(e) => setObNewText(e.target.value)}
+                      placeholder="Explain what this tutorial teaches the user..."
+                      rows={3}
+                      className="w-full bg-surface-container-lowest border border-outline-variant/50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-sm resize-none"
+                      disabled={obAdding}
+                    />
+                  </div>
+
+                  {/* GIF upload + force toggle + submit */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                    <div className="flex items-center gap-3 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => obGifInputRef.current?.click()}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-surface-container-high text-on-surface text-xs font-bold rounded-lg hover:bg-surface-container-highest transition-colors active:scale-95"
+                      >
+                        <span className="material-symbols-outlined text-sm">gif_box</span>
+                        {obNewGifFile ? obNewGifFile.name : "Upload GIF"}
+                      </button>
+                      <input
+                        ref={obGifInputRef}
+                        type="file"
+                        className="hidden"
+                        accept="image/gif,image/*"
+                        onChange={(e) => setObNewGifFile(e.target.files?.[0] || null)}
+                      />
+
+                      {/* Force toggle */}
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <button
+                          type="button"
+                          onClick={() => setObNewForce(!obNewForce)}
+                          className={`relative w-10 h-6 rounded-full transition-colors duration-200 ${obNewForce ? "bg-primary" : "bg-outline-variant/40"}`}
+                        >
+                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${obNewForce ? "translate-x-4" : ""}`} />
+                        </button>
+                        <span className="text-xs font-medium text-on-surface-variant">Force existing users</span>
+                      </label>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={obAdding || !obNewText.trim()}
+                      className="bg-primary text-white font-semibold px-6 py-3 rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center gap-2 active:scale-95"
+                    >
+                      <span className="material-symbols-outlined text-sm">add</span>
+                      {obAdding ? "Creating..." : "Create Tutorial"}
+                    </button>
+                  </div>
+                </form>
+
+                {/* Tutorial list */}
+                {obLoading ? (
+                  <div className="flex justify-center p-12">
+                    <span className="material-symbols-outlined animate-spin text-3xl text-primary">progress_activity</span>
+                  </div>
+                ) : obTutorials.length === 0 ? (
+                  <div className="bg-surface-container-lowest rounded-2xl p-12 text-center border border-outline-variant/20 border-dashed">
+                    <span className="material-symbols-outlined text-4xl text-on-surface-variant/40 mb-2">school</span>
+                    <p className="text-on-surface-variant font-medium">No onboarding tutorials yet.</p>
+                    <p className="text-sm text-on-surface-variant/60">Create one above to start building the onboarding sequence.</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {obTutorials.map((tutorial) => (
+                      <div
+                        key={tutorial.id}
+                        className="bg-white border border-outline-variant/30 rounded-xl shadow-sm overflow-hidden"
+                      >
+                        {obEditId === tutorial.id ? (
+                          /* ── Edit mode ──────────────────────── */
+                          <div className="p-4 space-y-3 bg-primary/5">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-[11px] font-semibold text-on-surface-variant block mb-1">Step Order</label>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={obEditStep}
+                                  onChange={(e) => setObEditStep(Number(e.target.value))}
+                                  className="w-full bg-white border border-outline-variant/50 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[11px] font-semibold text-on-surface-variant block mb-1">Attached Page</label>
+                                <select
+                                  value={obEditPage}
+                                  onChange={(e) => setObEditPage(e.target.value)}
+                                  className="w-full bg-white border border-outline-variant/50 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                                >
+                                  {ATTACHABLE_PAGES.map((p) => (
+                                    <option key={p.value} value={p.value}>{p.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <textarea
+                              value={obEditText}
+                              onChange={(e) => setObEditText(e.target.value)}
+                              rows={3}
+                              className="w-full bg-white border border-outline-variant/50 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                            />
+                            <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => obEditGifInputRef.current?.click()}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 bg-surface-container-high text-on-surface text-xs font-bold rounded-lg hover:bg-surface-container-highest transition-colors"
+                              >
+                                <span className="material-symbols-outlined text-sm">gif_box</span>
+                                {obEditGifFile ? obEditGifFile.name : "Replace GIF"}
+                              </button>
+                              <input
+                                ref={obEditGifInputRef}
+                                type="file"
+                                className="hidden"
+                                accept="image/gif,image/*"
+                                onChange={(e) => setObEditGifFile(e.target.files?.[0] || null)}
+                              />
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <button
+                                  type="button"
+                                  onClick={() => setObEditForce(!obEditForce)}
+                                  className={`relative w-10 h-6 rounded-full transition-colors duration-200 ${obEditForce ? "bg-primary" : "bg-outline-variant/40"}`}
+                                >
+                                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${obEditForce ? "translate-x-4" : ""}`} />
+                                </button>
+                                <span className="text-xs text-on-surface-variant">Force</span>
+                              </label>
+                              <div className="flex-1" />
+                              <button
+                                onClick={() => setObEditId(null)}
+                                className="text-xs font-bold text-on-surface-variant hover:text-on-surface px-3 py-2"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={handleSaveEditOnboarding}
+                                disabled={obSaving || !obEditText.trim()}
+                                className="bg-primary text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors active:scale-95"
+                              >
+                                {obSaving ? "Saving..." : "Save Changes"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* ── View mode ──────────────────────── */
+                          <div className="flex items-start gap-4 p-4">
+                            {/* Step number badge */}
+                            <div className="shrink-0 w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                              <span className="text-sm font-bold text-primary">{tutorial.step_order}</span>
+                            </div>
+
+                            {/* GIF thumbnail */}
+                            {tutorial.gif_url && (
+                              <div className="shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-surface-container-high border border-outline-variant/20">
+                                <img src={tutorial.gif_url} alt="" className="w-full h-full object-cover" />
+                              </div>
+                            )}
+
+                            {/* Content */}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-on-surface line-clamp-2">{tutorial.explanation_text}</p>
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <span className="text-[10px] font-bold uppercase tracking-wide bg-secondary-fixed text-on-secondary-fixed-variant px-1.5 py-0.5 rounded">
+                                  {ATTACHABLE_PAGES.find((p) => p.value === tutorial.attached_page)?.label || tutorial.attached_page}
+                                </span>
+                                {tutorial.content_updated_at && (
+                                  <span className="text-[10px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+                                    Content Updated
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => handleStartEditOnboarding(tutorial)}
+                                className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                                title="Edit tutorial"
+                              >
+                                <span className="material-symbols-outlined text-[20px]">edit</span>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteOnboarding(tutorial.id)}
+                                className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container/30 rounded-lg transition-colors"
+                                title="Delete tutorial"
+                              >
+                                <span className="material-symbols-outlined text-[20px]">delete</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
           {/* ═══ User Account Reset (collapsible) ════════════════ */}
           <section
             id="userreset"

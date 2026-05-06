@@ -763,3 +763,105 @@ export async function apiRemoveGroupMember(groupId: string, userId: string) {
   if (!res.ok) throw new Error(data.error || "Failed to remove member");
   return data;
 }
+
+// ===== Onboarding Tutorials (Admin) =====
+
+export async function apiGetOnboardingTutorials() {
+  const res = await apiFetch("/admin/onboarding");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch onboarding tutorials");
+  return data.tutorials;
+}
+
+export async function apiCreateOnboardingTutorial(opts: {
+  gif_file?: File;
+  explanation_text: string;
+  attached_page: string;
+  step_order: number;
+  force_existing_users: boolean;
+}) {
+  const body: Record<string, unknown> = {
+    explanation_text: opts.explanation_text,
+    attached_page: opts.attached_page,
+    step_order: opts.step_order,
+    force_existing_users: opts.force_existing_users,
+  };
+
+  if (opts.gif_file) {
+    const arrayBuffer = await opts.gif_file.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    body.gif_file_data = btoa(binary);
+    body.gif_file_name = opts.gif_file.name;
+  }
+
+  const res = await apiFetch("/admin/onboarding", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to create onboarding tutorial");
+  return data;
+}
+
+export async function apiUpdateOnboardingTutorial(
+  id: string,
+  opts: {
+    gif_file?: File;
+    explanation_text?: string;
+    attached_page?: string;
+    step_order?: number;
+    force_existing_users?: boolean;
+  }
+) {
+  const body: Record<string, unknown> = {};
+
+  if (opts.explanation_text !== undefined) body.explanation_text = opts.explanation_text;
+  if (opts.attached_page !== undefined) body.attached_page = opts.attached_page;
+  if (opts.step_order !== undefined) body.step_order = opts.step_order;
+  if (opts.force_existing_users !== undefined) body.force_existing_users = opts.force_existing_users;
+
+  if (opts.gif_file) {
+    const arrayBuffer = await opts.gif_file.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    body.gif_file_data = btoa(binary);
+    body.gif_file_name = opts.gif_file.name;
+  }
+
+  const res = await apiFetch(`/admin/onboarding/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update onboarding tutorial");
+  return data;
+}
+
+export async function apiDeleteOnboardingTutorial(id: string) {
+  const res = await apiFetch(`/admin/onboarding/${id}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to delete onboarding tutorial");
+  return data;
+}
+
+// ===== Onboarding State (User) =====
+
+export async function apiGetOnboardingState() {
+  const res = await apiFetch("/onboarding/state");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch onboarding state");
+  return data;
+}
+
+export async function apiCompleteOnboarding(onboardingId: string) {
+  const res = await apiFetch("/onboarding/state", {
+    method: "POST",
+    body: JSON.stringify({ onboarding_id: onboardingId }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to complete onboarding");
+  return data;
+}

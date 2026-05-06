@@ -10,6 +10,7 @@ import PublicViewPage from "./pages/PublicViewPage";
 import SkillsMarketplacePage from "./pages/SkillsMarketplacePage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import GuildPage from "./pages/GuildPage";
+import OnboardingOverlay from "./components/OnboardingOverlay";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -56,8 +57,13 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
+  const { isAuthenticated, isLoading } = useAuth();
+
   return (
-    <Routes>
+    <>
+      {/* Show onboarding overlay on all authenticated pages */}
+      {isAuthenticated && !isLoading && <OnboardingOverlay />}
+      <Routes>
       <Route
         path="/"
         element={
@@ -118,6 +124,7 @@ function AppRoutes() {
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }
 
