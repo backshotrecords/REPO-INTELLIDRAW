@@ -72,4 +72,13 @@ export async function initDatabase() {
   } catch {
     // Column may already exist
   }
+
+  // Migration: add is_banned column to users table
+  try {
+    await supabase.rpc("exec_sql", {
+      sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned BOOLEAN NOT NULL DEFAULT FALSE;`,
+    });
+  } catch {
+    // Column may already exist
+  }
 }

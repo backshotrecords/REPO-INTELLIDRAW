@@ -55,11 +55,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 3. Find existing user by email
     const { data: existingUser } = await supabase
       .from("users")
-      .select("id, email, display_name, active_model_id, is_global_admin")
+      .select("id, email, display_name, active_model_id, is_global_admin, is_banned")
       .eq("email", email)
       .single();
 
     if (existingUser) {
+      // Check if user is banned
+      if (existingUser.is_banned) {
+        return res.status(403).json({ error: "Your account has been suspended. Please contact an administrator." });
+      }
+
       // Existing user — auto-link: just log them in
       const token = await createToken({ userId: existingUser.id, email: existingUser.email });
 

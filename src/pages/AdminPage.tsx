@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel, apiGetOnboardingTutorials, apiCreateOnboardingTutorial, apiUpdateOnboardingTutorial, apiDeleteOnboardingTutorial } from "../lib/api";
+import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel, apiGetOnboardingTutorials, apiCreateOnboardingTutorial, apiUpdateOnboardingTutorial, apiDeleteOnboardingTutorial, apiAdminListUsers, apiAdminDeleteUser, apiAdminBanUser } from "../lib/api";
 
 // ─── Config Module Registry ─────────────────────────────
 // Add new config modules here — the sidebar auto-populates from this array.
@@ -12,6 +12,7 @@ const CONFIG_MODULES: { key: string; label: string; icon: string }[] = [
   { key: "rules",  label: "Sanitization Rules",  icon: "rule" },
   { key: "onboarding", label: "Onboarding Tutorials", icon: "school" },
   { key: "userreset", label: "User Account Reset", icon: "lock_reset" },
+  { key: "usermgmt", label: "User Management", icon: "manage_accounts" },
 ];
 
 const ATTACHABLE_PAGES = [
@@ -55,6 +56,16 @@ interface AIModel {
   model_id: string;
   label: string;
   added_at: string;
+}
+
+interface AdminUser {
+  id: string;
+  email: string;
+  display_name: string;
+  is_banned: boolean;
+  is_global_admin: boolean;
+  created_at: string;
+  canvas_count: number;
 }
 
 export default function AdminPage() {
@@ -118,6 +129,15 @@ export default function AdminPage() {
   const obEditGifInputRef = useRef<HTMLInputElement | null>(null);
   const [obSaving, setObSaving] = useState(false);
 
+  // User management state
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [userSearch, setUserSearch] = useState("");
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState<number>(0); // 0=none, 1=first confirm, 2=final confirm
+  const [deleteTargetUser, setDeleteTargetUser] = useState<AdminUser | null>(null);
+  const [banningUserId, setBanningUserId] = useState<string | null>(null);
+
   // ─── Sidebar active-section tracking ───────────────────
   const [activeSection, setActiveSection] = useState<string>(CONFIG_MODULES[0].key);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -170,6 +190,7 @@ export default function AdminPage() {
     loadCanvasConfig();
     loadAiModels();
     loadOnboardingTutorials();
+    loadAdminUsers();
   }, [user, navigate]);
 
   // ─── Data loaders ──────────────────────────────────────
@@ -448,6 +469,73 @@ export default function AdminPage() {
 
   const isCanvasCustom = soundSettings.soundUrl !== "/intellidraw-v2.mp3";
   const isVoiceCustom = soundSettings.voiceSoundUrl !== "/intellisend_v2.mp3";
+
+  // ─── User Management Handlers ─────────────────────────
+
+  const loadAdminUsers = async () => {
+    setUsersLoading(true);
+    try {
+      const data = await apiAdminListUsers();
+      setAdminUsers(data || []);
+    } catch (err) {
+      console.error("Failed to load users:", err);
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const handleBanUser = async (userId: string, ban: boolean) => {
+    setBanningUserId(userId);
+    try {
+      await apiAdminBanUser(userId, ban);
+      setAdminUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, is_banned: ban } : u))
+      );
+    } catch (err) {
+      console.error("Failed to ban/unban user:", err);
+    } finally {
+      setBanningUserId(null);
+    }
+  };
+
+  const handleStartDelete = (u: AdminUser) => {
+    setDeleteTargetUser(u);
+    setDeleteConfirmStep(1);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetUser) return;
+    if (deleteConfirmStep === 1) {
+      setDeleteConfirmStep(2);
+      return;
+    }
+    // Final delete
+    setDeletingUserId(deleteTargetUser.id);
+    try {
+      await apiAdminDeleteUser(deleteTargetUser.id);
+      setAdminUsers((prev) => prev.filter((u) => u.id !== deleteTargetUser.id));
+      setDeleteConfirmStep(0);
+      setDeleteTargetUser(null);
+    } catch (err) {
+      console.error("Failed to delete user:", err);
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirmStep(0);
+    setDeleteTargetUser(null);
+  };
+
+  const filteredUsers = adminUsers.filter((u) => {
+    if (!userSearch.trim()) return true;
+    const q = userSearch.toLowerCase();
+    return (
+      u.email.toLowerCase().includes(q) ||
+      u.display_name.toLowerCase().includes(q)
+    );
+  });
 
   // ─── User Reset Handler ───────────────────────────────
 
@@ -1337,6 +1425,264 @@ export default function AdminPage() {
               </div>
             </div>
           </section>
+
+          {/* ═══ User Management (collapsible) ═══════════════════ */}
+          <section
+            id="usermgmt"
+            ref={(el) => { sectionRefs.current["usermgmt"] = el; }}
+            className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden scroll-mt-24"
+          >
+            {renderAccordionHeader("usermgmt", "manage_accounts", "User Management", `${adminUsers.length} registered user${adminUsers.length !== 1 ? "s" : ""}`)}
+
+            <div
+              className="transition-all duration-300 ease-in-out overflow-hidden"
+              style={{
+                maxHeight: expandedSection === "usermgmt" ? "4000px" : "0",
+                opacity: expandedSection === "usermgmt" ? 1 : 0,
+              }}
+            >
+              <div className="px-5 pb-5 space-y-4 border-t border-outline-variant/10">
+                {/* Search bar */}
+                <div className="pt-4">
+                  <div className="relative">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/50 text-lg">search</span>
+                    <input
+                      type="text"
+                      value={userSearch}
+                      onChange={(e) => setUserSearch(e.target.value)}
+                      placeholder="Search by name or email..."
+                      className="w-full bg-surface-container-lowest border border-outline-variant/50 rounded-xl pl-10 pr-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+                    />
+                    {userSearch && (
+                      <button
+                        onClick={() => setUserSearch("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant/50 hover:text-on-surface-variant"
+                      >
+                        <span className="material-symbols-outlined text-lg">close</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* User list */}
+                {usersLoading ? (
+                  <div className="flex justify-center p-12">
+                    <span className="material-symbols-outlined animate-spin text-3xl text-primary">progress_activity</span>
+                  </div>
+                ) : filteredUsers.length === 0 ? (
+                  <div className="bg-surface-container-lowest rounded-2xl p-12 text-center border border-outline-variant/20 border-dashed">
+                    <span className="material-symbols-outlined text-4xl text-on-surface-variant/40 mb-2">person_off</span>
+                    <p className="text-on-surface-variant font-medium">
+                      {userSearch ? "No users match your search." : "No users found."}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    {filteredUsers.map((u) => {
+                      const isSelf = u.id === user?.id;
+                      const isBanning = banningUserId === u.id;
+                      const isDeleting = deletingUserId === u.id;
+
+                      return (
+                        <div
+                          key={u.id}
+                          className={`flex items-center gap-4 p-4 rounded-xl border transition-colors ${
+                            u.is_banned
+                              ? "bg-error-container/10 border-error/20"
+                              : "bg-white border-outline-variant/30"
+                          } ${isDeleting ? "opacity-50 pointer-events-none" : ""}`}
+                        >
+                          {/* Avatar */}
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                            u.is_banned
+                              ? "bg-error/10"
+                              : u.is_global_admin
+                                ? "bg-primary/10"
+                                : "bg-surface-container-high"
+                          }`}>
+                            <span
+                              className={`material-symbols-outlined text-lg ${
+                                u.is_banned
+                                  ? "text-error"
+                                  : u.is_global_admin
+                                    ? "text-primary"
+                                    : "text-on-surface-variant"
+                              }`}
+                              style={{ fontVariationSettings: "'FILL' 1" }}
+                            >
+                              {u.is_banned ? "block" : u.is_global_admin ? "shield_person" : "person"}
+                            </span>
+                          </div>
+
+                          {/* Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-bold text-on-surface truncate">{u.display_name}</p>
+                              {u.is_global_admin && (
+                                <span className="text-[10px] font-bold uppercase tracking-wide bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                                  Admin
+                                </span>
+                              )}
+                              {u.is_banned && (
+                                <span className="text-[10px] font-bold uppercase tracking-wide bg-error/10 text-error px-1.5 py-0.5 rounded">
+                                  Banned
+                                </span>
+                              )}
+                              {isSelf && (
+                                <span className="text-[10px] font-bold uppercase tracking-wide bg-secondary-fixed text-on-secondary-fixed-variant px-1.5 py-0.5 rounded">
+                                  You
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-on-surface-variant truncate">{u.email}</p>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-[11px] text-on-surface-variant/60">
+                                {u.canvas_count} canvas{u.canvas_count !== 1 ? "es" : ""}
+                              </span>
+                              <span className="text-[11px] text-on-surface-variant/40">•</span>
+                              <span className="text-[11px] text-on-surface-variant/60">
+                                Joined {new Date(u.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-1 shrink-0">
+                            {/* Ban/Unban */}
+                            <button
+                              onClick={() => {
+                                if (!u.is_banned) {
+                                  if (!confirm(`Ban ${u.display_name} (${u.email})? They will be unable to log in.`)) return;
+                                }
+                                handleBanUser(u.id, !u.is_banned);
+                              }}
+                              disabled={isSelf || isBanning}
+                              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed ${
+                                u.is_banned
+                                  ? "bg-green-50 text-green-700 hover:bg-green-100 border border-green-200"
+                                  : "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
+                              }`}
+                              title={isSelf ? "Cannot modify your own account" : u.is_banned ? "Unban user" : "Ban user"}
+                            >
+                              <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
+                                {isBanning ? "progress_activity" : u.is_banned ? "check_circle" : "block"}
+                              </span>
+                              {isBanning ? "..." : u.is_banned ? "Unban" : "Ban"}
+                            </button>
+
+                            {/* Delete */}
+                            <button
+                              onClick={() => handleStartDelete(u)}
+                              disabled={isSelf || isDeleting}
+                              className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container/30 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                              title={isSelf ? "Cannot delete your own account" : "Delete user and all data"}
+                            >
+                              <span className="material-symbols-outlined text-[20px]">
+                                {isDeleting ? "progress_activity" : "delete_forever"}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* ═══ Delete Confirmation Modal ═══════════════════════ */}
+          {deleteConfirmStep > 0 && deleteTargetUser && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+              <div className="bg-white rounded-2xl shadow-2xl border border-outline-variant/20 max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95">
+                {/* Header */}
+                <div className="p-5 bg-error/5 border-b border-error/10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-error/10 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-error text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+                        {deleteConfirmStep === 1 ? "warning" : "delete_forever"}
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-on-surface">
+                        {deleteConfirmStep === 1 ? "Delete User Account?" : "Final Confirmation"}
+                      </h3>
+                      <p className="text-xs text-on-surface-variant">{deleteTargetUser.email}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Body */}
+                <div className="p-5 space-y-3">
+                  {deleteConfirmStep === 1 ? (
+                    <p className="text-sm text-on-surface-variant leading-relaxed">
+                      This will <span className="font-bold text-error">permanently delete</span> the account for <span className="font-bold text-on-surface">{deleteTargetUser.display_name}</span> and all associated data:
+                    </p>
+                  ) : (
+                    <div className="bg-error/5 border border-error/20 rounded-xl p-4">
+                      <p className="text-sm font-bold text-error">⚠ This action is irreversible.</p>
+                      <p className="text-sm text-on-surface-variant mt-1">
+                        Are you absolutely sure you want to permanently destroy all data for <span className="font-bold">{deleteTargetUser.email}</span>?
+                      </p>
+                    </div>
+                  )}
+
+                  {deleteConfirmStep === 1 && (
+                    <ul className="text-sm text-on-surface-variant space-y-1.5 ml-1">
+                      <li className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-error/60">dashboard</span>
+                        All canvases ({deleteTargetUser.canvas_count})
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-error/60">auto_fix_high</span>
+                        All skills, shares, and attachments
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-error/60">history</span>
+                        All canvas commit history
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-error/60">group</span>
+                        All owned groups and memberships
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-error/60">settings</span>
+                        API keys and account settings
+                      </li>
+                    </ul>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center justify-end gap-3 p-5 border-t border-outline-variant/10 bg-surface-container-lowest/50">
+                  <button
+                    onClick={handleCancelDelete}
+                    className="px-4 py-2.5 text-sm font-bold text-on-surface-variant hover:text-on-surface rounded-xl hover:bg-surface-container-high transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmDelete}
+                    disabled={!!deletingUserId}
+                    className={`inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl transition-all active:scale-95 disabled:opacity-50 ${
+                      deleteConfirmStep === 2
+                        ? "bg-error text-white hover:bg-error/90"
+                        : "bg-error/10 text-error hover:bg-error/20 border border-error/30"
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
+                      {deletingUserId ? "progress_activity" : deleteConfirmStep === 2 ? "delete_forever" : "arrow_forward"}
+                    </span>
+                    {deletingUserId
+                      ? "Deleting..."
+                      : deleteConfirmStep === 2
+                        ? "Delete Permanently"
+                        : "Continue"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>

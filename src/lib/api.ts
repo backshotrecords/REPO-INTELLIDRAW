@@ -224,10 +224,10 @@ export async function apiGetSettings() {
   return data;
 }
 
-export async function apiUpdateProfile(displayName: string, email: string) {
+export async function apiUpdateProfile(displayName: string) {
   const res = await apiFetch("/settings", {
     method: "PUT",
-    body: JSON.stringify({ displayName, email }),
+    body: JSON.stringify({ displayName }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to update profile");
@@ -863,5 +863,33 @@ export async function apiCompleteOnboarding(onboardingId: string) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to complete onboarding");
+  return data;
+}
+
+// ===== Admin User Management =====
+
+export async function apiAdminListUsers() {
+  const res = await apiFetch("/admin/users");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch users");
+  return data.users;
+}
+
+export async function apiAdminDeleteUser(userId: string) {
+  const res = await apiFetch(`/admin/users?userId=${userId}`, {
+    method: "DELETE",
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to delete user");
+  return data;
+}
+
+export async function apiAdminBanUser(userId: string, is_banned: boolean) {
+  const res = await apiFetch("/admin/users", {
+    method: "PUT",
+    body: JSON.stringify({ userId, is_banned }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update user ban status");
   return data;
 }

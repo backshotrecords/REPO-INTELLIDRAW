@@ -364,8 +364,8 @@ export default function DashboardPage() {
                 {/* Card body */}
                 <div className="p-6">
                   <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="text-lg font-bold text-on-surface">{canvas.title}</h3>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-lg font-bold text-on-surface truncate" title={canvas.title}>{canvas.title}</h3>
                       <p className="text-sm text-on-surface-variant">
                         Modified {timeAgo(canvas.updated_at)}
                       </p>

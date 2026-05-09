@@ -550,6 +550,19 @@ export default function WorkspacePage() {
   const handleTitleSave = async () => {
     setEditingTitle(false);
     if (!canvasId) return;
+
+    // Treat an empty/whitespace-only title the same as unchanged — reset to default
+    const trimmed = title.trim();
+    if (!trimmed) {
+      setTitle("Untitled Canvas");
+      try {
+        await apiUpdateCanvas(canvasId, { title: "Untitled Canvas" });
+      } catch (err) {
+        console.error("Failed to save title:", err);
+      }
+      return;
+    }
+
     try {
       await apiUpdateCanvas(canvasId, { title });
     } catch (err) {
@@ -613,6 +626,22 @@ export default function WorkspacePage() {
     if (exitingRef.current) return;
     exitingRef.current = true;
 
+    // ── Flush unsaved code-editor changes ──
+    // If the user is in code view and edited the code, persist the changes
+    // (same logic as switching code → flowchart in handleViewSwitch)
+    if (activeView === "code" && mermaidCode !== codeOnEnterRef.current) {
+      flushPreviewMode();
+      const manualMsg: ChatMessage = {
+        role: "assistant",
+        content: "✏️ Canvas updated via code editor",
+        timestamp: new Date().toISOString(),
+      };
+      const newHistory = [...chatHistoryRef.current, manualMsg];
+      setChatHistory(newHistory);
+      autoSave(mermaidCode, newHistory);
+      createCommit(mermaidCode, "manual", "Manual code edit");
+    }
+
     if (!canvasId) {
       navigate("/dashboard");
       return;
@@ -640,7 +669,7 @@ export default function WorkspacePage() {
     }
 
     // Canvas has changes — check if it still has the default name
-    if (title === "Untitled Canvas") {
+    if (title === "Untitled Canvas" || !title.trim()) {
       setIsNaming(true);
       try {
         const suggestedName = await apiSuggestCanvasName(latestMermaidCodeRef.current);
@@ -656,7 +685,7 @@ export default function WorkspacePage() {
     }
 
     navigate("/dashboard", { state: { closedCanvasId: canvasId } });
-  }, [canvasId, title, navigate]);
+  }, [canvasId, title, navigate, activeView, mermaidCode, autoSave, createCommit, flushPreviewMode]);
 
   // History guard — intercept Android/browser back button
   const handleCanvasExitRef = useRef(handleCanvasExit);
@@ -1154,17 +1183,19 @@ export default function WorkspacePage() {
             </button>
             {editingTitle ? (
               <input
-                className="font-manrope font-extrabold text-lg tracking-tight text-primary bg-surface-container-high rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-secondary"
+                className="font-manrope font-extrabold text-lg tracking-tight text-primary bg-surface-container-high rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-secondary max-w-[50vw]"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 onBlur={handleTitleSave}
                 onKeyDown={(e) => e.key === "Enter" && handleTitleSave()}
+                maxLength={80}
                 autoFocus
               />
             ) : (
               <h1
                 onClick={() => setEditingTitle(true)}
-                className="font-manrope font-extrabold text-lg tracking-tight text-primary cursor-pointer hover:text-secondary transition-colors"
+                className="font-manrope font-extrabold text-lg tracking-tight text-primary cursor-pointer hover:text-secondary transition-colors truncate max-w-[50vw]"
+                title={title}
               >
                 {title}
               </h1>

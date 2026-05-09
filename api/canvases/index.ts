@@ -40,7 +40,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from("canvases")
         .insert({
           user_id: userId,
-          title: title || "Untitled Canvas",
+          title: (title ? String(title).slice(0, 80) : "Untitled Canvas"),
           mermaid_code: mermaidCode || "flowchart TD\n    A[Start] --> B[Next Step]",
           chat_history: [],
         })

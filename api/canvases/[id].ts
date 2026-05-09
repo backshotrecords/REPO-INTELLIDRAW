@@ -42,7 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     try {
       const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      if (title !== undefined) updateData.title = title;
+      if (title !== undefined) updateData.title = String(title).slice(0, 80);
       if (mermaidCode !== undefined) updateData.mermaid_code = mermaidCode;
       if (chatHistory !== undefined) updateData.chat_history = chatHistory;
       if (isPublic !== undefined) updateData.is_public = isPublic;

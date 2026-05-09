@@ -18,7 +18,7 @@ export default function SettingsPage() {
 
   // Profile state
   const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
+
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
 
@@ -128,7 +128,7 @@ export default function SettingsPage() {
     try {
       const data = await apiGetSettings();
       setDisplayName(data.user.displayName);
-      setEmail(data.user.email);
+
       setHasKey(data.user.hasApiKey);
       if (data.user.hasApiKey) {
         setApiKeyInput(""); // Don't show the actual key
@@ -143,7 +143,7 @@ export default function SettingsPage() {
     setProfileSaving(true);
     setProfileMessage("");
     try {
-      await apiUpdateProfile(displayName, email);
+      await apiUpdateProfile(displayName);
       await refreshUser();
       setProfileMessage("Profile updated successfully");
       setTimeout(() => setProfileMessage(""), 3000);
@@ -263,26 +263,13 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-on-surface-variant">Full Name</label>
-                  <input
-                    className="w-full bg-surface-container-high border-none rounded-lg px-4 py-3 focus:ring-2 focus:ring-secondary/20 transition-all outline-none"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-on-surface-variant">
-                    Email Address
-                  </label>
-                  <input
-                    className="w-full bg-surface-container-high border-none rounded-lg px-4 py-3 focus:ring-2 focus:ring-secondary/20 transition-all outline-none"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-on-surface-variant">Full Name</label>
+                <input
+                  className="w-full bg-surface-container-high border-none rounded-lg px-4 py-3 focus:ring-2 focus:ring-secondary/20 transition-all outline-none"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                />
               </div>
 
               {profileMessage && (

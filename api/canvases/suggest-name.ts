@@ -68,7 +68,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const raw = completion.choices[0]?.message?.content || "Untitled Canvas";
     // Strip surrounding quotes / trailing punctuation the model may add
-    const suggestedName = raw.replace(/^["']+|["']+$/g, "").trim() || "Untitled Canvas";
+    const suggestedName = (raw.replace(/^["']+|["']+$/g, "").trim() || "Untitled Canvas").slice(0, 80);
 
     return res.status(200).json({ suggestedName });
   } catch (err: unknown) {

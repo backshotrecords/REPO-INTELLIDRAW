@@ -18,7 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Find user by email
     const { data: user, error } = await supabase
       .from("users")
-      .select("id, email, password_hash, display_name, active_model_id, is_global_admin")
+      .select("id, email, password_hash, display_name, active_model_id, is_global_admin, is_banned")
       .eq("email", email.toLowerCase())
       .single();
 
@@ -30,6 +30,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    // Check if user is banned
+    if (user.is_banned) {
+      return res.status(403).json({ error: "Your account has been suspended. Please contact an administrator." });
     }
 
     // Create JWT

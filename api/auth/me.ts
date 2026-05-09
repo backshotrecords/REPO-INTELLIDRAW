@@ -15,12 +15,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { data: user, error } = await supabase
       .from("users")
-      .select("id, email, display_name, active_model_id, api_key_encrypted, is_global_admin")
+      .select("id, email, display_name, active_model_id, api_key_encrypted, is_global_admin, is_banned")
       .eq("id", authPayload.userId)
       .single();
 
     if (error || !user) {
       return res.status(404).json({ error: "User not found" });
+    }
+
+    // If user is banned, reject — this forces logout on active sessions
+    if (user.is_banned) {
+      return res.status(403).json({ error: "Your account has been suspended." });
     }
 
     return res.status(200).json({
