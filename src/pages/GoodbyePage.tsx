@@ -134,7 +134,7 @@ export default function GoodbyePage() {
               <>
                 <div className="border-t border-outline-variant/15 pt-6">
                   <label className="text-sm font-semibold text-on-surface block mb-2">
-                    Why did you leave? <span className="text-on-surface-variant font-normal">(optional)</span>
+                    Why did you leave? <span className="text-on-surface-variant font-normal">(final step)</span>
                   </label>
                   <textarea
                     id="exit-reason"
