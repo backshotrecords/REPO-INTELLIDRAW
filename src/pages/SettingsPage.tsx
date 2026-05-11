@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
@@ -10,11 +11,13 @@ import {
   apiTestConnection,
   apiChangePassword,
   apiVerifyPassword,
+  apiDeleteMyAccount,
 } from "../lib/api";
 
 
 export default function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
+  const navigate = useNavigate();
 
   // Profile state
   const [displayName, setDisplayName] = useState("");
@@ -52,6 +55,12 @@ export default function SettingsPage() {
   const [passwordChangeMessage, setPasswordChangeMessage] = useState("");
   const [passwordChangeError, setPasswordChangeError] = useState("");
   const verifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Account deletion state
+  const [deleteStep, setDeleteStep] = useState(0); // 0=hidden, 1=warning1, 2=warning2, 3=email-confirm
+  const [deleteEmailInput, setDeleteEmailInput] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     loadSettings();
@@ -225,6 +234,39 @@ export default function SettingsPage() {
     }
   };
 
+  // ── Account Deletion Handler ────────────────────────────
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    setIsDeleting(true);
+    setDeleteError("");
+
+    // Capture user info before deletion
+    const deletedName = user.displayName || "";
+    const deletedEmail = user.email || "";
+
+    try {
+      await apiDeleteMyAccount(deleteEmailInput.trim());
+      // Clear session and redirect to goodbye page
+      logout();
+      navigate("/goodbye", {
+        state: { name: deletedName, email: deletedEmail },
+        replace: true,
+      });
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete account");
+      setIsDeleting(false);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteStep(0);
+    setDeleteEmailInput("");
+    setDeleteError("");
+  };
+
+  const emailMatches =
+    deleteEmailInput.trim().toLowerCase() === (user?.email || "").toLowerCase() &&
+    deleteEmailInput.trim().length > 0;
 
   return (
     <div className="bg-background font-body text-on-surface min-h-screen pb-32">
@@ -594,9 +636,165 @@ export default function SettingsPage() {
                   Log Out
                 </button>
               </div>
+
+              {/* Delete Account */}
+              <div className="border-t border-error/10 pt-6">
+                <div className="flex items-center justify-between gap-6">
+                  <div>
+                    <p className="font-bold text-on-error-container">Delete My Account</p>
+                    <p className="text-sm text-on-error-container/70">
+                      Permanently delete your account and all associated data. This cannot be undone.
+                    </p>
+                  </div>
+                  <button
+                    id="delete-account-btn"
+                    onClick={() => setDeleteStep(1)}
+                    className="px-6 py-2.5 bg-error text-white font-bold rounded-xl hover:bg-error/90 transition-colors active:scale-95 whitespace-nowrap flex items-center gap-2"
+                  >
+                    <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>delete_forever</span>
+                    Delete My Account
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </section>
+
+        {/* ═══ Delete Account Confirmation Modal ══════════════════ */}
+        {deleteStep > 0 && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl border border-outline-variant/20 max-w-md w-full mx-4 overflow-hidden">
+              {/* Header */}
+              <div className="p-5 bg-error/5 border-b border-error/10">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-error/10 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-error text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+                      {deleteStep === 1 ? "warning" : deleteStep === 2 ? "delete_forever" : "mail"}
+                    </span>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-on-surface">
+                      {deleteStep === 1
+                        ? "Delete Your Account?"
+                        : deleteStep === 2
+                          ? "Final Warning"
+                          : "Confirm Your Identity"}
+                    </h3>
+                    <p className="text-xs text-on-surface-variant">{user?.email}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-3">
+                {deleteStep === 1 && (
+                  <>
+                    <p className="text-sm text-on-surface-variant leading-relaxed">
+                      This will <span className="font-bold text-error">permanently delete</span> your account and all associated data:
+                    </p>
+                    <ul className="text-sm text-on-surface-variant space-y-1.5 ml-1">
+                      <li className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-error/60">dashboard</span>
+                        All canvases and flowcharts
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-error/60">auto_fix_high</span>
+                        All skills, shares, and attachments
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-error/60">history</span>
+                        All canvas commit history
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-error/60">group</span>
+                        All owned groups and memberships
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-error/60">settings</span>
+                        API keys and account settings
+                      </li>
+                    </ul>
+                  </>
+                )}
+
+                {deleteStep === 2 && (
+                  <div className="bg-error/5 border border-error/20 rounded-xl p-4">
+                    <p className="text-sm font-bold text-error">⚠ This action is irreversible.</p>
+                    <p className="text-sm text-on-surface-variant mt-1">
+                      Are you absolutely sure you want to permanently destroy all of your data? There is no way to recover your account after this.
+                    </p>
+                  </div>
+                )}
+
+                {deleteStep === 3 && (
+                  <>
+                    <p className="text-sm text-on-surface-variant leading-relaxed">
+                      To confirm, please type your email address: <span className="font-bold text-on-surface">{user?.email}</span>
+                    </p>
+                    <input
+                      id="delete-email-confirm"
+                      type="email"
+                      value={deleteEmailInput}
+                      onChange={(e) => { setDeleteEmailInput(e.target.value); setDeleteError(""); }}
+                      placeholder="Type your email to confirm"
+                      className="w-full bg-surface-container-high border-none rounded-lg px-4 py-3 focus:ring-2 focus:ring-error/20 transition-all outline-none text-sm"
+                      autoComplete="off"
+                    />
+                    {deleteEmailInput.length > 0 && !emailMatches && (
+                      <p className="text-xs text-error font-medium flex items-center gap-1">
+                        <span className="material-symbols-outlined text-xs">close</span>
+                        Email does not match
+                      </p>
+                    )}
+                    {emailMatches && (
+                      <p className="text-xs text-emerald-600 font-medium flex items-center gap-1">
+                        <span className="material-symbols-outlined text-xs" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                        Email confirmed
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {deleteError && (
+                  <p className="text-sm text-error font-medium flex items-center gap-2">
+                    <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>error</span>
+                    {deleteError}
+                  </p>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 p-5 border-t border-outline-variant/10 bg-surface-container-lowest/50">
+                <button
+                  onClick={handleCancelDelete}
+                  className="px-4 py-2.5 text-sm font-bold text-on-surface-variant hover:text-on-surface rounded-xl hover:bg-surface-container-high transition-colors"
+                >
+                  Cancel
+                </button>
+                {deleteStep < 3 ? (
+                  <button
+                    onClick={() => setDeleteStep((s) => s + 1)}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl transition-all active:scale-95 bg-error/10 text-error hover:bg-error/20 border border-error/30"
+                  >
+                    <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>arrow_forward</span>
+                    Continue
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleDeleteAccount}
+                    disabled={!emailMatches || isDeleting}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl transition-all active:scale-95 disabled:opacity-50 bg-error text-white hover:bg-error/90"
+                  >
+                    <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
+                      {isDeleting ? "progress_activity" : "delete_forever"}
+                    </span>
+                    {isDeleting ? "Deleting..." : "Delete My Account"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       <BottomNav />

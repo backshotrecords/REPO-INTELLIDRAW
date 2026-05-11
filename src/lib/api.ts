@@ -893,3 +893,33 @@ export async function apiAdminBanUser(userId: string, is_banned: boolean) {
   if (!res.ok) throw new Error(data.error || "Failed to update user ban status");
   return data;
 }
+
+// ===== Self-Delete Account =====
+
+export async function apiDeleteMyAccount(email: string) {
+  const res = await apiFetch("/settings/delete-account", {
+    method: "DELETE",
+    body: JSON.stringify({ email }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to delete account");
+  return data;
+}
+
+// ===== Exit Interview (unauthenticated — account already deleted) =====
+
+export async function apiSubmitExitInterview(
+  email: string,
+  name: string,
+  reason: string
+) {
+  const res = await fetch(`${API_BASE}/settings/exit-interview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, name, reason }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to submit exit interview");
+  return data;
+}
+
