@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import bcrypt from "bcryptjs";
 import { supabase } from "../lib/db.js";
 import { createToken } from "../lib/auth.js";
+import { DEFAULT_CANVAS_TITLE, DEFAULT_MERMAID_CODE } from "../lib/defaultCanvas.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
@@ -44,6 +45,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       console.error("Register error:", error);
       return res.status(500).json({ error: "Failed to create account" });
     }
+
+    // Create default canvas
+    await supabase.from("canvases").insert({
+      user_id: user.id,
+      title: DEFAULT_CANVAS_TITLE,
+      mermaid_code: DEFAULT_MERMAID_CODE,
+      chat_history: [],
+    });
 
     // Create JWT
     const token = await createToken({ userId: user.id, email: user.email });

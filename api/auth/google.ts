@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { decodeJwt } from "jose";
 import { supabase } from "../lib/db.js";
 import { createToken } from "../lib/auth.js";
+import { DEFAULT_CANVAS_TITLE, DEFAULT_MERMAID_CODE } from "../lib/defaultCanvas.js";
 import crypto from "crypto";
 
 const GOOGLE_CLIENT_ID = process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
@@ -98,6 +99,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       console.error("Google register error:", insertError);
       return res.status(500).json({ error: "Failed to create account" });
     }
+
+    // Create default canvas
+    await supabase.from("canvases").insert({
+      user_id: newUser.id,
+      title: DEFAULT_CANVAS_TITLE,
+      mermaid_code: DEFAULT_MERMAID_CODE,
+      chat_history: [],
+    });
 
     // 5. Create JWT
     const token = await createToken({ userId: newUser.id, email: newUser.email });
