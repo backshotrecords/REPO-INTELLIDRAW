@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import { apiSubmitExitInterview } from "../lib/api";
+import { apiSubmitExitInterview, removeToken } from "../lib/api";
 
 /**
  * Goodbye page shown after account deletion.
@@ -11,6 +11,12 @@ export default function GoodbyePage() {
   const state = (location.state || {}) as { name?: string; email?: string };
   const userName = state.name || "friend";
   const userEmail = state.email || "";
+
+  // Clear the JWT session on mount — the user's account is already deleted,
+  // we just delayed token removal so ProtectedRoute wouldn't hijack navigation.
+  useEffect(() => {
+    removeToken();
+  }, []);
 
   // Exit interview state
   const [reason, setReason] = useState("");

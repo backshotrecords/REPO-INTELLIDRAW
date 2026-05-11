@@ -246,8 +246,9 @@ export default function SettingsPage() {
 
     try {
       await apiDeleteMyAccount(deleteEmailInput.trim());
-      // Clear session and redirect to goodbye page
-      logout();
+      // Navigate FIRST — don't logout() here or ProtectedRoute will
+      // redirect to "/" before the navigate can fire.
+      // The GoodbyePage clears the session on mount.
       navigate("/goodbye", {
         state: { name: deletedName, email: deletedEmail },
         replace: true,
