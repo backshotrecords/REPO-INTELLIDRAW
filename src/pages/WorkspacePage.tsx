@@ -150,15 +150,24 @@ export default function WorkspacePage() {
     fetchCanvasSettings();
   }, []);
 
-  // ── Native wheel listener: pinch-to-zoom + trackpad pan ──
-  // Must be native (not React onWheel) so we can use { passive: false }
-  // and actually preventDefault to block browser zoom.
-  useEffect(() => {
-    const el = canvasRef.current;
-    if (!el) return;
-    let wheelTimer: ReturnType<typeof setTimeout>;
+  // ── Native wheel listener via callback ref ──
+  // Uses a callback ref instead of useEffect so the listener is re-attached
+  // whenever React mounts a new canvas DOM element (view switch, reconciliation,
+  // screen sharing recompositing, etc.)
+  const wheelCleanupRef = useRef<(() => void) | null>(null);
 
-    // Zoom momentum state (lives inside effect — no stale closures)
+  const canvasCallbackRef = useCallback((el: HTMLDivElement | null) => {
+    // Tear down listener on old element (if any)
+    wheelCleanupRef.current?.();
+    wheelCleanupRef.current = null;
+
+    // Update the useRef so pointer handlers still work
+    canvasRef.current = el;
+
+    if (!el) return;
+
+    // ── Wheel handler + momentum state (scoped to this mount) ──
+    let wheelTimer: ReturnType<typeof setTimeout>;
     let zoomVelocity = 0;
     let lastWheelTime = 0;
     let lastMx = 0;
@@ -179,7 +188,6 @@ export default function WorkspacePage() {
           return;
         }
 
-        // Convert velocity (deltaY/ms) back to a zoom factor (~16ms frame)
         const zoomFactor = 1 - zoomVelocity * 16 * 0.005;
         const maxZoom = getCanvasSettings().maxZoomLevel;
         const oldZoom = zoomRef.current;
@@ -213,45 +221,37 @@ export default function WorkspacePage() {
 
       e.preventDefault(); // Block browser zoom & back/forward navigation
 
-      // Cancel any ongoing zoom momentum (new input overrides)
       cancelAnimationFrame(momentumFrame);
 
-      // Disable CSS transition during gesture input
       setIsWheeling(true);
       clearTimeout(wheelTimer);
 
       if (e.ctrlKey || e.metaKey) {
         // ── Pinch-to-zoom (trackpad) or Ctrl/Cmd + Scroll (mouse) ──
-
-        // Clamp deltaY so mouse wheel clicks (~100) don't cause extreme jumps.
-        // Trackpad pinch deltas (~1-5) pass through unaffected.
         const clampedDelta = Math.max(-15, Math.min(15, e.deltaY));
 
-        // Track velocity for momentum
         const now = performance.now();
         const dt = now - lastWheelTime;
         lastWheelTime = now;
 
         if (dt > 0 && dt < 200) {
           const instantVelocity = clampedDelta / dt;
-          zoomVelocity = zoomVelocity * 0.5 + instantVelocity * 0.5; // smoothed
+          zoomVelocity = zoomVelocity * 0.5 + instantVelocity * 0.5;
         } else {
           zoomVelocity = 0;
         }
 
-        // Store cursor position (used during momentum too)
         const rect = el.getBoundingClientRect();
         lastMx = e.clientX - rect.left - rect.width / 2;
         lastMy = e.clientY - rect.top - rect.height / 2;
 
-        // Zoom towards cursor position
         const oldZoom = zoomRef.current;
         const zoomFactor = 1 - clampedDelta * 0.005;
         const maxZoom = getCanvasSettings().maxZoomLevel;
         const newZoom = Math.min(maxZoom, Math.max(0.2, oldZoom * zoomFactor));
         const ratio = newZoom / oldZoom;
 
-        zoomRef.current = newZoom; // Update immediately for back-to-back events
+        zoomRef.current = newZoom;
         setZoom(newZoom);
         setPan(p => ({
           x: lastMx * (1 - ratio) + p.x * ratio,
@@ -267,7 +267,6 @@ export default function WorkspacePage() {
         zoomVelocity = 0;
       }
 
-      // Detect gesture end — start momentum or clear interaction state
       wheelTimer = setTimeout(() => {
         if (wasZooming && Math.abs(zoomVelocity) > 0.001) {
           startZoomMomentum();
@@ -278,7 +277,9 @@ export default function WorkspacePage() {
     };
 
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => {
+
+    // Store cleanup so it runs on next call (unmount or new element)
+    wheelCleanupRef.current = () => {
       el.removeEventListener("wheel", onWheel);
       cancelAnimationFrame(momentumFrame);
       clearTimeout(wheelTimer);
@@ -1323,7 +1324,7 @@ export default function WorkspacePage() {
             <>
             {/* Infinite canvas */}
             <div
-              ref={canvasRef}
+              ref={canvasCallbackRef}
               className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area select-none"
 
               onPointerDown={handlePointerDown}

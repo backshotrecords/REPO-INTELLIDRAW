@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import MermaidRenderer from "../components/MermaidRenderer";
 import { apiGetPublicCanvas } from "../lib/api";
@@ -54,13 +54,17 @@ export default function PublicViewPage() {
     loadPublicCanvas();
   }, [id]);
 
-  // ── Native wheel listener: pinch-to-zoom + trackpad pan ──
-  useEffect(() => {
-    const el = canvasRef.current;
-    if (!el) return;
-    let wheelTimer: ReturnType<typeof setTimeout>;
+  // ── Native wheel listener via callback ref ──
+  // Re-attaches whenever React mounts a new canvas DOM element
+  const wheelCleanupRef = useRef<(() => void) | null>(null);
 
-    // Zoom momentum state
+  const canvasCallbackRef = useCallback((el: HTMLDivElement | null) => {
+    wheelCleanupRef.current?.();
+    wheelCleanupRef.current = null;
+    canvasRef.current = el;
+    if (!el) return;
+
+    let wheelTimer: ReturnType<typeof setTimeout>;
     let zoomVelocity = 0;
     let lastWheelTime = 0;
     let lastMx = 0;
@@ -115,10 +119,8 @@ export default function PublicViewPage() {
       clearTimeout(wheelTimer);
 
       if (e.ctrlKey || e.metaKey) {
-        // Clamp deltaY so mouse wheel clicks (~100) don't cause extreme jumps.
         const clampedDelta = Math.max(-15, Math.min(15, e.deltaY));
 
-        // Track velocity for momentum
         const now = performance.now();
         const dt = now - lastWheelTime;
         lastWheelTime = now;
@@ -163,7 +165,8 @@ export default function PublicViewPage() {
     };
 
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => {
+
+    wheelCleanupRef.current = () => {
       el.removeEventListener("wheel", onWheel);
       cancelAnimationFrame(momentumFrame);
       clearTimeout(wheelTimer);
@@ -352,7 +355,7 @@ export default function PublicViewPage() {
       <main className="relative flex-1 flex overflow-hidden min-h-0">
         <div className="flex-1 flex flex-col overflow-hidden relative">
           <div
-            ref={canvasRef}
+            ref={canvasCallbackRef}
             className="flex-1 canvas-grid bg-surface relative overflow-hidden no-scrollbar touch-none canvas-area select-none"
 
             onPointerDown={handlePointerDown}
