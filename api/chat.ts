@@ -4,6 +4,28 @@ import { supabase } from "./lib/db.js";
 import { decrypt } from "./lib/crypto.js";
 import OpenAI from "openai";
 
+/** Read rolling chat history config from admin_config table */
+async function getChatConfig() {
+  const { data: rows } = await supabase
+    .from("admin_config")
+    .select("key, value")
+    .in("key", ["chat_rolling_enabled", "chat_rolling_window_length"]);
+
+  const cfg: Record<string, string> = {};
+  for (const row of rows || []) cfg[row.key] = row.value;
+
+  return {
+    rollingEnabled: (cfg.chat_rolling_enabled ?? "false") === "true",
+    windowLength: parseInt(cfg.chat_rolling_window_length ?? "10", 10),
+  };
+}
+
+/** Extract %% OBJECTIVES: ... comment from mermaid code */
+function extractObjectives(mermaidCode: string): string | null {
+  const match = mermaidCode.match(/%% OBJECTIVES:\s*(.+)/);
+  return match ? match[1].trim() : null;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -68,6 +90,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch { /* non-fatal */ }
     }
 
+    // Read rolling chat history config
+    const chatConfig = await getChatConfig();
+
+    // Extract existing objectives from the current mermaid code
+    const currentCode = mermaidCode || "flowchart TD\n    A[Start]";
+    const existingObjectives = extractObjectives(currentCode);
+    const objectivesContext = existingObjectives
+      ? `\n\nCURRENT USER OBJECTIVES SUMMARY:\n${existingObjectives}`
+      : "";
+
     // Build conversation history for context
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       {
@@ -76,9 +108,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 CURRENT MERMAID CODE:
 \`\`\`mermaid
-${mermaidCode || "flowchart TD\n    A[Start]"}
+${currentCode}
 \`\`\`
-
+${objectivesContext}
 INSTRUCTIONS:
 1. Respond conversationally to the user's request
 2. When you need to update the flowchart, include the COMPLETE updated Mermaid code in a fenced code block with the language identifier "mermaid"
@@ -86,13 +118,22 @@ INSTRUCTIONS:
 4. Use valid Mermaid syntax (flowchart TD, graph LR, etc.)
 5. Keep your conversational response concise but helpful
 6. If the user asks for changes, apply them and show the updated code
-7. Use descriptive node labels and proper flow connections${skillInstructions}`,
+7. Use descriptive node labels and proper flow connections
+8. IMPORTANT: At the very top of your mermaid code output, always include a single-line comment summarizing the user's current objectives and overall intent for this flowchart. Format: %% OBJECTIVES: <one-paragraph summary of what the user is building and their goals>. If a previous objectives summary exists above, update it to reflect the latest changes.${skillInstructions}`,
       },
     ];
 
-    // Add chat history for context (last 20 messages max)
-    const history = Array.isArray(chatHistory) ? chatHistory.slice(-20) : [];
-    for (const msg of history) {
+    // Apply rolling window to chat history
+    const fullHistory = Array.isArray(chatHistory) ? chatHistory : [];
+    let contextHistory: typeof fullHistory;
+
+    if (chatConfig.rollingEnabled && fullHistory.length > chatConfig.windowLength) {
+      contextHistory = fullHistory.slice(-chatConfig.windowLength);
+    } else {
+      contextHistory = fullHistory;
+    }
+
+    for (const msg of contextHistory) {
       messages.push({
         role: msg.role as "user" | "assistant",
         content: msg.content,
@@ -126,3 +167,4 @@ INSTRUCTIONS:
     return res.status(500).json({ error: errorMessage });
   }
 }
+

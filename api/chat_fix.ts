@@ -4,6 +4,22 @@ import { authenticateRequest } from "./lib/auth.js";
 import { supabase } from "./lib/db.js";
 import { decrypt } from "./lib/crypto.js";
 
+/** Read rolling chat history config from admin_config table */
+async function getChatConfig() {
+  const { data: rows } = await supabase
+    .from("admin_config")
+    .select("key, value")
+    .in("key", ["chat_rolling_enabled", "chat_rolling_window_length"]);
+
+  const cfg: Record<string, string> = {};
+  for (const row of rows || []) cfg[row.key] = row.value;
+
+  return {
+    rollingEnabled: (cfg.chat_rolling_enabled ?? "false") === "true",
+    windowLength: parseInt(cfg.chat_rolling_window_length ?? "10", 10),
+  };
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -92,12 +108,23 @@ THE PARSER ERROR WAS:
 ${errorMsg}
 
 Please fix the specific error mentioned above.
-ALSO: Check the rest of the code for any standard syntax issues that typically cause Mermaid to fail (e.g., unescaped parentheses in node string values).${rulesText}${skillText}`
+ALSO: Check the rest of the code for any standard syntax issues that typically cause Mermaid to fail (e.g., unescaped parentheses in node string values).
+IMPORTANT: If the code contains a %% OBJECTIVES: comment at the top, preserve it exactly as-is in your fixed output.${rulesText}${skillText}`
       }
     ];
 
-    const history = Array.isArray(chatHistory) ? chatHistory.slice(-10) : [];
-    for (const msg of history) {
+    // Apply rolling window to chat history
+    const chatConfig = await getChatConfig();
+    const fullHistory = Array.isArray(chatHistory) ? chatHistory : [];
+    let contextHistory: typeof fullHistory;
+
+    if (chatConfig.rollingEnabled && fullHistory.length > chatConfig.windowLength) {
+      contextHistory = fullHistory.slice(-chatConfig.windowLength);
+    } else {
+      contextHistory = fullHistory;
+    }
+
+    for (const msg of contextHistory) {
       messages.push({ role: msg.role, content: msg.content } as OpenAI.Chat.ChatCompletionMessageParam);
     }
 

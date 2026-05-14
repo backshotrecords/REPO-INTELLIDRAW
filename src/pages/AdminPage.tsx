@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel, apiGetOnboardingTutorials, apiCreateOnboardingTutorial, apiUpdateOnboardingTutorial, apiDeleteOnboardingTutorial, apiAdminListUsers, apiAdminDeleteUser, apiAdminBanUser } from "../lib/api";
+import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGetChatConfig, apiUpdateChatConfig, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel, apiGetOnboardingTutorials, apiCreateOnboardingTutorial, apiUpdateOnboardingTutorial, apiDeleteOnboardingTutorial, apiAdminListUsers, apiAdminDeleteUser, apiAdminBanUser } from "../lib/api";
 
 // ─── Config Module Registry ─────────────────────────────
 // Add new config modules here — the sidebar auto-populates from this array.
@@ -9,6 +9,7 @@ const CONFIG_MODULES: { key: string; label: string; icon: string }[] = [
   { key: "models", label: "AI Models",           icon: "model_training" },
   { key: "sound",  label: "Sound Effects",       icon: "volume_up" },
   { key: "canvas", label: "Canvas Mechanics",    icon: "zoom_in" },
+  { key: "chat",   label: "Chat History",        icon: "forum" },
   { key: "rules",  label: "Sanitization Rules",  icon: "rule" },
   { key: "onboarding", label: "Onboarding Tutorials", icon: "school" },
   { key: "userreset", label: "User Account Reset", icon: "lock_reset" },
@@ -102,6 +103,11 @@ export default function AdminPage() {
   // Canvas settings state
   const [maxZoomLevel, setMaxZoomLevel] = useState<number>(16);
 
+  // Chat config state
+  const [chatRollingEnabled, setChatRollingEnabled] = useState(false);
+  const [chatWindowLength, setChatWindowLength] = useState(10);
+  const chatWindowDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // User reset state
   const [resetEmail, setResetEmail] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -188,6 +194,7 @@ export default function AdminPage() {
     loadRules();
     loadSoundConfig();
     loadCanvasConfig();
+    loadChatConfig();
     loadAiModels();
     loadOnboardingTutorials();
     loadAdminUsers();
@@ -205,6 +212,37 @@ export default function AdminPage() {
     } finally {
       setModelsLoading(false);
     }
+  };
+
+  const loadChatConfig = async () => {
+    try {
+      const data = await apiGetChatConfig();
+      setChatRollingEnabled(data.rollingHistoryEnabled ?? false);
+      setChatWindowLength(data.rollingWindowLength ?? 10);
+    } catch (err) {
+      console.error("Failed to load chat config:", err);
+    }
+  };
+
+  const handleChatRollingToggle = async () => {
+    const newVal = !chatRollingEnabled;
+    setChatRollingEnabled(newVal);
+    try {
+      await apiUpdateChatConfig({ rollingHistoryEnabled: newVal });
+    } catch {
+      setChatRollingEnabled(!newVal);
+    }
+  };
+
+  const handleChatWindowChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseInt(e.target.value, 10);
+    if (isNaN(val)) return;
+    const clamped = Math.max(3, Math.min(50, val));
+    setChatWindowLength(clamped);
+    if (chatWindowDebounceRef.current) clearTimeout(chatWindowDebounceRef.current);
+    chatWindowDebounceRef.current = setTimeout(async () => {
+      try { await apiUpdateChatConfig({ rollingWindowLength: clamped }); } catch (err) { console.error("Failed to save chat window length:", err); }
+    }, 400);
   };
 
   const loadCanvasConfig = async () => {
@@ -992,6 +1030,92 @@ export default function AdminPage() {
                     />
                     <span className="text-xs font-medium text-on-surface-variant/60">20000%</span>
                   </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ═══ Chat History Config (collapsible) ═════════════════ */}
+          <section
+            id="chat"
+            ref={(el) => { sectionRefs.current["chat"] = el; }}
+            className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden scroll-mt-24"
+          >
+            {renderAccordionHeader("chat", "forum", "Chat History", chatRollingEnabled ? `Rolling window: ${chatWindowLength} messages` : "Sending full history to LLM")}
+
+            <div
+              className="transition-all duration-300 ease-in-out overflow-hidden"
+              style={{
+                maxHeight: expandedSection === "chat" ? "600px" : "0",
+                opacity: expandedSection === "chat" ? 1 : 0,
+              }}
+            >
+              <div className="px-5 pb-5 space-y-6 border-t border-outline-variant/10">
+                {/* Toggle: Rolling History */}
+                <div className="flex items-center justify-between pt-4">
+                  <div className="flex-1 min-w-0 mr-4">
+                    <p className="text-sm font-semibold text-on-surface">Rolling Chat History</p>
+                    <p className="text-xs text-on-surface-variant mt-0.5">
+                      When enabled, only the most recent messages are sent to the LLM for context. The full chat history remains visible to the user.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleChatRollingToggle}
+                    className={`relative w-12 h-7 rounded-full transition-colors duration-200 ${
+                      chatRollingEnabled ? "bg-primary" : "bg-outline-variant/30"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 ${
+                        chatRollingEnabled ? "translate-x-5" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Window Length (only visible when rolling is enabled) */}
+                <div
+                  className="transition-all duration-300 ease-in-out overflow-hidden"
+                  style={{
+                    maxHeight: chatRollingEnabled ? "200px" : "0",
+                    opacity: chatRollingEnabled ? 1 : 0,
+                  }}
+                >
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-sm font-semibold text-on-surface">Context Window Length</label>
+                      <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                        {chatWindowLength} messages
+                      </span>
+                    </div>
+                    <p className="text-xs text-on-surface-variant">
+                      Number of recent chat messages included as context for the LLM. Lower values reduce token usage; higher values give the LLM more conversational context.
+                    </p>
+                    <div className="flex items-center gap-3 mt-2">
+                      <span className="text-xs font-medium text-on-surface-variant/60">3</span>
+                      <input
+                        type="range"
+                        min="3"
+                        max="50"
+                        step="1"
+                        value={chatWindowLength}
+                        onChange={handleChatWindowChange}
+                        className="flex-1 h-2 rounded-full appearance-none cursor-pointer accent-primary"
+                        style={{
+                          background: `linear-gradient(to right, var(--md-sys-color-primary, #6750A4) 0%, var(--md-sys-color-primary, #6750A4) ${((chatWindowLength - 3) / 47) * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) ${((chatWindowLength - 3) / 47) * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) 100%)`,
+                        }}
+                      />
+                      <span className="text-xs font-medium text-on-surface-variant/60">50</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Info callout */}
+                <div className="flex items-start gap-2.5 p-3 bg-surface-container-lowest border border-outline-variant/15 rounded-xl">
+                  <span className="material-symbols-outlined text-base text-secondary mt-0.5" style={{ fontVariationSettings: "'FILL' 1" }}>info</span>
+                  <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                    The LLM always receives the current flowchart snapshot and user objectives summary regardless of chat history mode. This ensures continuity even when older messages are excluded from context.
+                  </p>
                 </div>
               </div>
             </div>

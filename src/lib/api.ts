@@ -482,6 +482,28 @@ export async function apiUpdateCanvasConfig(opts: {
   return data;
 }
 
+// ===== Admin Chat Config =====
+
+export async function apiGetChatConfig() {
+  const res = await apiFetch("/admin/chat-config");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch chat config");
+  return data;
+}
+
+export async function apiUpdateChatConfig(opts: {
+  rollingHistoryEnabled?: boolean;
+  rollingWindowLength?: number;
+}) {
+  const res = await apiFetch("/admin/chat-config", {
+    method: "PUT",
+    body: JSON.stringify(opts),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update chat config");
+  return data;
+}
+
 // ===== Admin User Reset =====
 
 export async function apiGenerateResetLink(email: string) {

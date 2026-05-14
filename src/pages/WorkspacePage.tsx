@@ -10,6 +10,7 @@ import CanvasSkillsPanel from "../components/CanvasSkillsPanel";
 import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit } from "../lib/api";
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
+import { fetchChatSettings } from "../lib/chatSettings";
 import type { ChatMessage, CanvasCommit } from "../types";
 
 const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
@@ -148,6 +149,7 @@ export default function WorkspacePage() {
   useEffect(() => {
     fetchSoundSettings();
     fetchCanvasSettings();
+    fetchChatSettings();
   }, []);
 
   // ── Native wheel listener via callback ref ──
