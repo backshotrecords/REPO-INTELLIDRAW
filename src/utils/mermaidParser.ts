@@ -365,102 +365,122 @@ function findNodeLabel(ast: MermaidAST, nodeId: string): string {
   return nodeId;
 }
 
-// ── View Code Generation ─────────────────────────────────────────
-
 /**
  * Generate Mermaid code for the ROOT view.
  * Subgraphs are collapsed into single compound nodes.
+ * ONLY emits nodes/edges that are valid at root level — no references to
+ * nodes buried inside subgraphs.
  */
 export function getRootViewCode(ast: MermaidAST): string {
+  if (ast.subgraphs.length === 0) {
+    // No subgraphs at all — return the original code unchanged
+    return ast.lines.join("\n");
+  }
+
   const output: string[] = [ast.headerLine];
 
-  // Collect classDef and class lines from source
-  const styleLines: string[] = [];
+  // Set of node IDs visible at root: root-level nodes + top-level subgraph IDs
+  const rootNodeSet = new Set(ast.rootNodes);
+  const topSgIds = new Set(ast.subgraphs.map(s => s.id));
+  const visibleAtRoot = new Set([...rootNodeSet, ...topSgIds]);
+
+  // 1. Emit %% comments from the top of the source
   for (const line of ast.lines) {
     const trimmed = line.trim();
-    if (/^classDef\s/i.test(trimmed) || /^class\s/i.test(trimmed) || /^style\s/i.test(trimmed)) {
-      styleLines.push(line);
+    if (trimmed.startsWith("%%")) {
+      output.push(line);
+    } else if (/^(flowchart|graph)\s/i.test(trimmed)) {
+      continue; // skip header, already emitted
+    } else {
+      break; // stop at first non-comment, non-header line
     }
   }
 
-  // Emit root-level node definitions
-  for (const line of ast.lines) {
-    const trimmed = line.trim();
+  // 2. Emit standalone node definitions for root-level nodes only
+  //    (scan source lines for definitions of nodes that are in rootNodeSet)
+  for (let i = 0; i < ast.lines.length; i++) {
+    const trimmed = ast.lines[i].trim();
     if (!trimmed || trimmed.startsWith("%%")) continue;
     if (/^(flowchart|graph)\s/i.test(trimmed)) continue;
-    if (/^subgraph\s/i.test(trimmed)) continue;
-    if (/^end\s*$/i.test(trimmed)) continue;
+    if (/^subgraph\s/i.test(trimmed) || /^end\s*$/i.test(trimmed)) continue;
     if (/^classDef\s/i.test(trimmed) || /^class\s/i.test(trimmed) || /^style\s/i.test(trimmed)) continue;
     if (/^click\s/i.test(trimmed) || /^linkStyle\s/i.test(trimmed)) continue;
     if (/^direction\s/i.test(trimmed)) continue;
 
-    // Check if this line is inside a subgraph
-    const lineIdx = ast.lines.indexOf(line);
-    if (isLineInsideSubgraph(lineIdx, ast)) continue;
+    // Skip lines inside any subgraph
+    if (isLineInsideSubgraph(i, ast)) continue;
 
-    output.push(line);
+    // Check if this is an edge line — if so, skip it (we'll handle edges separately)
+    if (parseEdge(trimmed)) continue;
+
+    // It's a node definition or other root-level line — emit it
+    output.push(ast.lines[i]);
   }
 
-  // Emit compound nodes for top-level subgraphs
+  // 3. Emit compound nodes for top-level subgraphs
   for (const sg of ast.subgraphs) {
-    output.push(`    ${sg.id}[["${sg.label}"]]:::compoundNode`);
+    const safeLabel = sg.label.replace(/"/g, "'");
+    output.push(`    ${sg.id}[["${safeLabel}"]]:::compoundNode`);
   }
 
-  // Emit edges that connect root-level items
-  // (Edges between a root node and a subgraph ID, or between root nodes)
-  const rootNodeSet = new Set(ast.rootNodes);
-  const topSgIds = new Set(ast.subgraphs.map(s => s.id));
+  // 4. Process ALL edges — redirect endpoints inside subgraphs to their
+  //    top-level subgraph compound node
+  const emittedEdges = new Set<string>();
 
   for (const edge of ast.edges) {
-    const fromIsRoot = rootNodeSet.has(edge.from) || topSgIds.has(edge.from);
-    const toIsRoot = rootNodeSet.has(edge.to) || topSgIds.has(edge.to);
+    let fromId = edge.from;
+    let toId = edge.to;
 
-    // Check if from/to is inside a subgraph but the edge connects at the subgraph level
-    const fromSgOwner = findOwnerSubgraph(edge.from, ast);
-    const toSgOwner = findOwnerSubgraph(edge.to, ast);
+    // If 'from' is inside a subgraph, redirect to the top-level subgraph
+    if (!visibleAtRoot.has(fromId)) {
+      const ownerSg = findOwnerSubgraph(fromId, ast);
+      if (ownerSg) {
+        fromId = getTopLevelParent(ownerSg, ast) || fromId;
+      } else {
+        continue; // can't resolve → skip
+      }
+    }
 
-    if (fromIsRoot && toIsRoot) {
-      // Both at root level — keep edge as-is
-      output.push(edge.rawLine);
-    } else if (fromIsRoot && toSgOwner && !toIsRoot) {
-      // Edge from root to inside a top-level subgraph → redirect to subgraph compound node
-      const topParent = getTopLevelParent(toSgOwner, ast);
-      if (topParent) {
-        const arrow = extractArrow(edge.rawLine);
-        output.push(`    ${edge.from} ${arrow} ${topParent}`);
+    // If 'to' is inside a subgraph, redirect to the top-level subgraph
+    if (!visibleAtRoot.has(toId)) {
+      const ownerSg = findOwnerSubgraph(toId, ast);
+      if (ownerSg) {
+        toId = getTopLevelParent(ownerSg, ast) || toId;
+      } else {
+        continue; // can't resolve → skip
       }
-    } else if (toIsRoot && fromSgOwner && !fromIsRoot) {
-      // Edge from inside a subgraph to root → redirect from subgraph compound node
-      const topParent = getTopLevelParent(fromSgOwner, ast);
-      if (topParent) {
-        const arrow = extractArrow(edge.rawLine);
-        output.push(`    ${topParent} ${arrow} ${edge.to}`);
-      }
-    } else if (fromSgOwner && toSgOwner && fromSgOwner !== toSgOwner) {
-      // Cross-subgraph edge — connect the two top-level compound nodes
-      const topFrom = getTopLevelParent(fromSgOwner, ast);
-      const topTo = getTopLevelParent(toSgOwner, ast);
-      if (topFrom && topTo && topFrom !== topTo) {
-        const arrow = extractArrow(edge.rawLine);
-        output.push(`    ${topFrom} ${arrow} ${topTo}`);
-      }
+    }
+
+    // Skip self-edges (e.g., both endpoints inside the same subgraph)
+    if (fromId === toId) continue;
+
+    // Deduplicate
+    const edgeKey = `${fromId}-->${toId}`;
+    if (emittedEdges.has(edgeKey)) continue;
+    emittedEdges.add(edgeKey);
+
+    const arrow = extractArrow(edge.rawLine);
+    output.push(`    ${fromId} ${arrow} ${toId}`);
+  }
+
+  // 5. Add compound node class definition
+  output.push(`    classDef compoundNode fill:#E6D6FF,stroke:#7B2CBF,stroke-width:2.5px,color:#2D0A4B,stroke-dasharray:8 4`);
+
+  // 6. Re-append original classDef/class/style lines
+  for (const line of ast.lines) {
+    const trimmed = line.trim();
+    if (/^classDef\s/i.test(trimmed) || /^class\s/i.test(trimmed) || /^style\s/i.test(trimmed)) {
+      output.push(line);
     }
   }
 
-  // Add compound node class definition
-  output.push(`    classDef compoundNode fill:#E6D6FF,stroke:#7B2CBF,stroke-width:2.5px,color:#2D0A4B,stroke-dasharray:8 4`);
-
-  // Re-append original style lines
-  for (const sl of styleLines) {
-    output.push(sl);
-  }
-
-  return deduplicateEdges(output).join("\n");
+  return output.join("\n");
 }
 
 /**
  * Generate Mermaid code for a SPECIFIC SCOPE view.
  * Includes direct nodes, child subgraphs (collapsed), and boundary stubs.
+ * ONLY emits edges where both endpoints are valid in this scope view.
  */
 export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
   code: string;
@@ -472,8 +492,14 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
   const output: string[] = [ast.headerLine];
   const boundaryNodeIds: string[] = [];
 
+  // Build the set of node IDs visible in this scope
+  const visibleNodes = new Set(sg.directNodes);
+  for (const child of sg.children) {
+    visibleNodes.add(child.id);
+  }
+
   // Emit lines from the subgraph body (between sourceStart+1 and sourceEnd-1)
-  // but skip nested subgraph internals (only keep the subgraph/end markers for child subgraphs)
+  // but skip nested subgraph internals and cross-scope edge lines
   const innerStart = sg.sourceStart + 1;
   const innerEnd = sg.sourceEnd;
   const childRanges = sg.children.map(c => ({ start: c.sourceStart, end: c.sourceEnd, id: c.id, label: c.label }));
@@ -490,23 +516,28 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
     if (childRange) {
       // Skip the child subgraph's internals — we'll emit it as a compound node
       if (i === childRange.start) {
-        // Emit compound node instead of the subgraph block
-        output.push(`    ${childRange.id}[["${childRange.label}"]]:::compoundNode`);
+        const safeLabel = childRange.label.replace(/"/g, "'");
+        output.push(`    ${childRange.id}[["${safeLabel}"]]:::compoundNode`);
       }
-      // Skip all other lines inside the child subgraph
+      continue;
+    }
+
+    // Check if this is an edge line — only emit if BOTH endpoints are visible in this scope
+    const edgeParsed = parseEdge(trimmed);
+    if (edgeParsed) {
+      const fromVisible = visibleNodes.has(edgeParsed.from);
+      const toVisible = visibleNodes.has(edgeParsed.to);
+      if (fromVisible && toVisible) {
+        output.push(ast.lines[i]); // fully internal edge — emit
+      }
+      // Cross-scope edges are handled below by boundary ref logic
       continue;
     }
 
     output.push(ast.lines[i]);
   }
 
-  // Emit edges internal to this scope
-  const insideNodes = new Set(sg.directNodes);
-  for (const child of sg.children) {
-    insideNodes.add(child.id);
-  }
-
-  // Add boundary reference stubs
+  // Add boundary reference stubs for cross-scope edges
   const boundaryRefs = getBoundaryRefs(ast, scopeId);
   const addedExternalNodes = new Set<string>();
 
