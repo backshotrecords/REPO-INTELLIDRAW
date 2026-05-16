@@ -449,7 +449,7 @@ export function getRootViewCode(ast: MermaidAST): string {
   // 3. Emit compound nodes for top-level subgraphs
   for (const sg of ast.subgraphs) {
     const safeLabel = sg.label.replace(/"/g, "'");
-    output.push(`    ${sg.id}[["${safeLabel}"]]:::compoundNode`);
+    output.push(`    ${sg.id}["\uD83D\uDCC2 ${safeLabel}"]:::compoundNode`);
   }
 
   // 4. Process ALL edges — redirect endpoints inside subgraphs to their
@@ -548,7 +548,7 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
       // Skip the child subgraph's internals — we'll emit it as a compound node
       if (i === childRange.start) {
         const safeLabel = childRange.label.replace(/"/g, "'");
-        output.push(`    ${childRange.id}[["${safeLabel}"]]:::compoundNode`);
+        output.push(`    ${childRange.id}["\uD83D\uDCC2 ${safeLabel}"]:::compoundNode`);
       }
       continue;
     }

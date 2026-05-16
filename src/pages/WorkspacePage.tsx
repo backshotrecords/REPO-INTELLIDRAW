@@ -539,11 +539,17 @@ export default function WorkspacePage() {
     autoSave(anchorCode, newHistory);
   }, [createCommit, autoSave]);
 
-  const handleSyntaxError = useCallback(async (_errorMsg: string, brokenCode: string) => {
+  const handleSyntaxError = useCallback(async (_errorMsg: string, _brokenCode: string) => {
     if (isFixing || chatLoading) return;
     flushPreviewMode();
     setIsFixing(true);
     setChatLoading(true);
+
+    // IMPORTANT: Always use the ORIGINAL mermaid source (single source of truth),
+    // never the filtered/scoped code that MermaidRenderer tried to render.
+    // The filtered code contains compound nodes and boundary stubs that aren't
+    // part of the real source and would corrupt it if saved.
+    const originalCode = mermaidCodeRef.current;
 
     const helperMessage: ChatMessage = {
       role: "assistant",
@@ -562,8 +568,8 @@ export default function WorkspacePage() {
     updatedHistoryForFix.push(helperMessage);
 
     setChatHistory(updatedHistoryForFix);
-    // Force a save to persist the crash flag to the DB immediately
-    autoSave(brokenCode, updatedHistoryForFix);
+    // Save the ORIGINAL code (not the filtered code) to persist the crash flag
+    autoSave(originalCode, updatedHistoryForFix);
 
     try {
       // Fetch admin sanitization rules
@@ -574,7 +580,8 @@ export default function WorkspacePage() {
         fixMessage += "\n\nAlso apply these sanitization rules:\n" + rules.map((r, i) => `${i + 1}. ${r}`).join("\n");
       }
 
-      const result = await apiChat(fixMessage, brokenCode, updatedHistoryForFix);
+      // Send the ORIGINAL source to the fix endpoint, not the filtered view
+      const result = await apiChat(fixMessage, originalCode, updatedHistoryForFix);
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
