@@ -639,22 +639,6 @@ function extractArrow(rawLine: string): string {
   return m ? m[1] : "-->";
 }
 
-/** Remove duplicate edges from the output lines. */
-function deduplicateEdges(lines: string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    // Only deduplicate edge-like lines
-    const isEdge = /[A-Za-z_]\w*\s+[-=.]+[->]/.test(trimmed);
-    if (isEdge) {
-      if (seen.has(trimmed)) continue;
-      seen.add(trimmed);
-    }
-    result.push(line);
-  }
-  return result;
-}
 
 /**
  * Find the scope that directly owns a given node ID.
