@@ -446,10 +446,11 @@ export function getRootViewCode(ast: MermaidAST): string {
     emittedNodeDefs.add(nodeId);
   }
 
-  // 3. Emit compound nodes for top-level subgraphs
+  // 3. Emit compound nodes for top-level subgraphs (simple nodes with folder emoji)
+  //    Visual styling (dashed border) is applied post-render by MermaidRenderer CSS
   for (const sg of ast.subgraphs) {
     const safeLabel = sg.label.replace(/"/g, "'");
-    output.push(`    ${sg.id}["\uD83D\uDCC2 ${safeLabel}"]:::compoundNode`);
+    output.push(`    ${sg.id}["\uD83D\uDCC2 ${safeLabel}"]`);
   }
 
   // 4. Process ALL edges — redirect endpoints inside subgraphs to their
@@ -492,8 +493,6 @@ export function getRootViewCode(ast: MermaidAST): string {
     output.push(`    ${fromId} ${arrow} ${toId}`);
   }
 
-  // 5. Add compound node class definition
-  output.push(`    classDef compoundNode fill:#E6D6FF,stroke:#7B2CBF,stroke-width:2.5px,color:#2D0A4B,stroke-dasharray:8 4`);
 
   // 6. Re-append original classDef/class/style lines (skip if inside a subgraph)
   for (let i = 0; i < ast.lines.length; i++) {
@@ -548,7 +547,7 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
       // Skip the child subgraph's internals — we'll emit it as a compound node
       if (i === childRange.start) {
         const safeLabel = childRange.label.replace(/"/g, "'");
-        output.push(`    ${childRange.id}["\uD83D\uDCC2 ${safeLabel}"]:::compoundNode`);
+        output.push(`    ${childRange.id}["\uD83D\uDCC2 ${safeLabel}"]`);
       }
       continue;
     }
@@ -590,8 +589,7 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
     }
   }
 
-  // Add class definitions
-  output.push(`    classDef compoundNode fill:#E6D6FF,stroke:#7B2CBF,stroke-width:2.5px,color:#2D0A4B,stroke-dasharray:8 4`);
+  // Add class definitions for external refs only
   output.push(`    classDef externalRef fill:#E5E5E5,stroke:#9A9A9A,stroke-width:1px,color:#666666,stroke-dasharray:5 3`);
 
   return { code: output.join("\n"), boundaryNodeIds };
