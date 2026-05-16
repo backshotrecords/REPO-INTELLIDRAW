@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import MermaidRenderer, { extractNodeId } from "../components/MermaidRenderer";
 import NodeActionOverlay from "../components/NodeActionOverlay";
 import type { NodeAction } from "../components/NodeActionOverlay";
+import ScopeBreadcrumb from "../components/ScopeBreadcrumb";
 import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
@@ -11,6 +12,8 @@ import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiCha
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { fetchChatSettings } from "../lib/chatSettings";
+import { parseMermaidAST, getRootViewCode, getScopeViewCode, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope } from "../utils/mermaidParser";
+import type { MermaidAST } from "../utils/mermaidParser";
 import type { ChatMessage, CanvasCommit } from "../types";
 
 const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
@@ -56,6 +59,14 @@ export default function WorkspacePage() {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [commits, setCommits] = useState<CanvasCommit[]>([]);
   const [activeView, setActiveView] = useState<"flowchart" | "code">("flowchart");
+
+  // ── Compound-node scope state ──
+  const [parsedAST, setParsedAST] = useState<MermaidAST | null>(null);
+  const [activeScopeId, setActiveScopeId] = useState<string | null>(null); // null = root
+  const [scopePath, setScopePath] = useState<Array<{ id: string; label: string }>>([]);
+  const activeScopeIdRef = useRef<string | null>(null);
+  const scopePathRef = useRef<Array<{ id: string; label: string }>>([]);
+  const [showCopyDropdown, setShowCopyDropdown] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
@@ -67,6 +78,56 @@ export default function WorkspacePage() {
   useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
   useEffect(() => { mermaidCodeRef.current = mermaidCode; }, [mermaidCode]);
   useEffect(() => { chatLoadingRef.current = chatLoading; }, [chatLoading]);
+  useEffect(() => { activeScopeIdRef.current = activeScopeId; }, [activeScopeId]);
+  useEffect(() => { scopePathRef.current = scopePath; }, [scopePath]);
+
+  // ── Re-parse AST when mermaidCode changes ──
+  useEffect(() => {
+    if (!mermaidCode?.trim()) {
+      setParsedAST(null);
+      return;
+    }
+    try {
+      const ast = parseMermaidAST(mermaidCode);
+      setParsedAST(ast);
+
+      // Validate active scope still exists
+      if (activeScopeIdRef.current && !ast.allSubgraphsFlat.has(activeScopeIdRef.current)) {
+        // Scope was deleted — fall back to nearest ancestor or root
+        const fallback = findNearestAncestor(ast, scopePathRef.current);
+        setActiveScopeId(fallback);
+        if (fallback) {
+          setScopePath(getScopePath(ast, fallback));
+        } else {
+          setScopePath([]);
+        }
+      } else if (activeScopeIdRef.current) {
+        // Update scope path in case labels changed
+        setScopePath(getScopePath(ast, activeScopeIdRef.current));
+      }
+    } catch (err) {
+      console.error("Mermaid parse error:", err);
+      setParsedAST(null);
+    }
+  }, [mermaidCode]);
+
+  // ── Compute filtered Mermaid code + boundary/compound node IDs ──
+  const { filteredCode, boundaryNodeIds, compoundNodeIds } = useMemo(() => {
+    if (!parsedAST) return { filteredCode: mermaidCode, boundaryNodeIds: [] as string[], compoundNodeIds: [] as string[] };
+
+    if (!activeScopeId) {
+      // Root view — collapse subgraphs to compound nodes
+      const code = getRootViewCode(parsedAST);
+      const compIds = parsedAST.subgraphs.map(sg => sg.id);
+      return { filteredCode: code, boundaryNodeIds: [] as string[], compoundNodeIds: compIds };
+    }
+
+    // Scoped view — show inner nodes + boundary stubs
+    const result = getScopeViewCode(parsedAST, activeScopeId);
+    const sg = parsedAST.allSubgraphsFlat.get(activeScopeId);
+    const compIds = sg ? sg.children.map(c => c.id) : [];
+    return { filteredCode: result.code, boundaryNodeIds: result.boundaryNodeIds, compoundNodeIds: compIds };
+  }, [parsedAST, activeScopeId, mermaidCode]);
 
   const [showChat, setShowChat] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -781,16 +842,68 @@ export default function WorkspacePage() {
   }, []);
 
   // Build the action list for the overlay (extensible — add new entries here)
+  // ── Scope navigation handlers ──
+  const handleEnterScope = useCallback((subgraphId: string) => {
+    if (!parsedAST) return;
+    setActiveScopeId(subgraphId);
+    setScopePath(getScopePath(parsedAST, subgraphId));
+    setActiveNode(null);
+    // Reset pan/zoom for the new scope
+    handleResetView();
+  }, [parsedAST]);
+
+  const handleScopeNavigate = useCallback((targetScopeId: string | null) => {
+    setActiveScopeId(targetScopeId);
+    if (targetScopeId && parsedAST) {
+      setScopePath(getScopePath(parsedAST, targetScopeId));
+    } else {
+      setScopePath([]);
+    }
+    setActiveNode(null);
+    handleResetView();
+  }, [parsedAST]);
+
+  // Check if tapped node is a boundary ref (greyed-out external node)
+  const isBoundaryNode = useCallback((nodeId: string): boolean => {
+    return boundaryNodeIds.includes(nodeId);
+  }, [boundaryNodeIds]);
+
+  // Navigate to the scope that owns a boundary node
+  const handleBoundaryNodeClick = useCallback((nodeId: string) => {
+    // Strip the _ext_ prefix to get the real node ID
+    const realId = nodeId.startsWith('_ext_') ? nodeId.slice(5) : nodeId;
+    if (!parsedAST) return;
+
+    // Find which scope owns the real node
+    const ownerScope = findNodeScope(parsedAST, realId);
+    if (ownerScope) {
+      handleScopeNavigate(ownerScope);
+    } else {
+      // Node is at root level
+      handleScopeNavigate(null);
+    }
+  }, [parsedAST, handleScopeNavigate]);
+
+  // Build the action list for the overlay (extensible — add new entries here)
+  const isCompoundNode = activeNode ? (parsedAST?.allSubgraphsFlat.has(activeNode.id) ?? false) : false;
+
   const nodeActions: NodeAction[] = activeNode
     ? [
         {
           id: "add-selection",
           icon: "add",
-          label: "Add to selection",
+          label: "Add to context",
           onClick: handleAddNodeSelection,
         },
-        // Future actions go here:
-        // { id: 'edit-label', icon: 'edit', label: 'Edit label', onClick: handleEditLabel },
+        // Show "Expand" only if this node is a subgraph (compound node)
+        ...(isCompoundNode
+          ? [{
+              id: "expand-scope",
+              icon: "open_in_full",
+              label: "Expand into scope",
+              onClick: () => handleEnterScope(activeNode.id),
+            }]
+          : []),
       ]
     : [];
 
@@ -827,7 +940,11 @@ export default function WorkspacePage() {
     setChatLoading(true);
 
     try {
-      const result = await apiChat(augmentedMessage, mermaidCodeRef.current, newHistory, canvasId || undefined);
+      const result = await apiChat(
+        augmentedMessage, mermaidCodeRef.current, newHistory, canvasId || undefined,
+        activeScopeIdRef.current,
+        scopePathRef.current.map(s => s.label)
+      );
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
@@ -1098,6 +1215,12 @@ export default function WorkspacePage() {
         console.log('[NodeTap] 🟢 svgId:', svgId, '→ nodeId:', nodeId);
 
         if (nodeId) {
+          // Check if this is a boundary (greyed-out external) node → navigate to its scope
+          if (isBoundaryNode(nodeId)) {
+            handleBoundaryNodeClick(nodeId);
+            return;
+          }
+
           // Re-query the node from live DOM — the stored nodeEl may be detached
           // (React re-renders between pointerDown and pointerUp, and
           // dangerouslySetInnerHTML re-creates the SVG elements)
@@ -1281,7 +1404,19 @@ export default function WorkspacePage() {
         {/* Canvas / Code area */}
         <div className="flex-1 flex flex-col overflow-hidden relative">
           {/* Floating view toggle toolbar */}
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 md:z-40 pointer-events-auto transition-all duration-300">
+          {/* Scope breadcrumb (between header and toggle bar) */}
+          {activeScopeId && scopePath.length > 0 && (
+            <div className="absolute top-4 left-4 z-10 md:z-40 pointer-events-auto">
+              <div className="bg-white/80 backdrop-blur-xl rounded-full border border-outline-variant/20 px-2 py-1 shadow-lg shadow-black/5 max-w-[calc(100vw-200px)]">
+                <ScopeBreadcrumb
+                  scopePath={scopePath}
+                  onNavigate={handleScopeNavigate}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className={`absolute ${activeScopeId ? 'top-14' : 'top-4'} left-1/2 -translate-x-1/2 z-10 md:z-40 pointer-events-auto transition-all duration-300`}>
             <div className="inline-flex items-center bg-white/80 backdrop-blur-xl rounded-full border border-outline-variant/20 px-1 py-1 gap-0.5 shadow-lg shadow-black/5">
               <button
                 onClick={() => handleViewSwitch("flowchart")}
@@ -1309,17 +1444,65 @@ export default function WorkspacePage() {
 
               <div className="w-px h-5 bg-outline-variant/20" />
 
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(mermaidCode);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-                }}
-                className="inline-flex items-center gap-1 px-3 py-2 rounded-full text-xs font-semibold text-on-surface-variant hover:bg-surface-container-high/60 transition-all duration-200"
-                title="Copy Mermaid code"
-              >
-                <span className="material-symbols-outlined text-base">{copied ? "check" : "content_copy"}</span>
-              </button>
+              {/* Copy button — dual-mode when inside a scope */}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    if (activeScopeId && parsedAST) {
+                      setShowCopyDropdown(prev => !prev);
+                    } else {
+                      navigator.clipboard.writeText(mermaidCode);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1500);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-full text-xs font-semibold text-on-surface-variant hover:bg-surface-container-high/60 transition-all duration-200"
+                  title={activeScopeId ? "Copy code..." : "Copy Mermaid code"}
+                >
+                  <span className="material-symbols-outlined text-base">{copied ? "check" : "content_copy"}</span>
+                  {activeScopeId && (
+                    <span className="material-symbols-outlined text-xs" style={{ marginLeft: -2 }}>expand_more</span>
+                  )}
+                </button>
+
+                {/* Copy mode dropdown */}
+                {showCopyDropdown && activeScopeId && parsedAST && (
+                  <>
+                    {/* Backdrop to close dropdown */}
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowCopyDropdown(false)}
+                    />
+                    <div className="copy-mode-dropdown z-50">
+                      <button
+                        className="copy-mode-option"
+                        onClick={() => {
+                          const scopeCode = extractScopeCode(parsedAST, activeScopeId);
+                          navigator.clipboard.writeText(scopeCode);
+                          setCopied(true);
+                          setShowCopyDropdown(false);
+                          setTimeout(() => setCopied(false), 1500);
+                        }}
+                      >
+                        <span className="material-symbols-outlined text-sm">filter_alt</span>
+                        Copy Current Scope
+                      </button>
+                      <button
+                        className="copy-mode-option"
+                        onClick={() => {
+                          navigator.clipboard.writeText(mermaidCode);
+                          setCopied(true);
+                          setShowCopyDropdown(false);
+                          setTimeout(() => setCopied(false), 1500);
+                        }}
+                      >
+                        <span className="material-symbols-outlined text-sm">select_all</span>
+                        Copy Full Project
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
           {activeView === "flowchart" ? (
@@ -1385,12 +1568,14 @@ export default function WorkspacePage() {
                 }}
               >
                 <MermaidRenderer
-                  code={mermaidCode}
+                  code={filteredCode}
                   className="min-h-[400px] min-w-[300px]"
                   onSyntaxError={handleSyntaxError}
                   isFixing={isFixing}
                   activeNodeId={activeNode?.id ?? null}
                   selectedNodeIds={selectedNodes.map((n) => n.id)}
+                  boundaryNodeIds={boundaryNodeIds}
+                  compoundNodeIds={compoundNodeIds}
                 />
               </div>
 

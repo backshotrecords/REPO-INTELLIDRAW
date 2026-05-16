@@ -36,7 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { message, mermaidCode, chatHistory, canvasId } = req.body;
+  const { message, mermaidCode, chatHistory, canvasId, activeScopeId, scopePath } = req.body;
 
   if (!message) {
     return res.status(400).json({ error: "Message is required" });
@@ -100,6 +100,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ? `\n\nCURRENT USER OBJECTIVES SUMMARY:\n${existingObjectives}`
       : "";
 
+    // Build scope context if user is inside a subgraph
+    let scopeContext = "";
+    if (activeScopeId) {
+      const scopePathStr = Array.isArray(scopePath) ? scopePath.join(' > ') : 'Root';
+      scopeContext = `\n\nACTIVE SCOPE CONTEXT:\nThe user is currently viewing a specific subgraph scope within the full flowchart.\n- Active Scope ID: ${activeScopeId}\n- Scope Path (breadcrumb): ${scopePathStr}\n- The user's edits are focused on this scope, but you MUST output the COMPLETE updated Mermaid code (the entire project, not just the active scope).\n- When making changes to the active scope, be careful not to break nodes/edges in other scopes.\n- Subgraph boundaries (subgraph ... end) define scope structure. Do not remove or rename subgraph IDs unless explicitly asked.`;
+    }
+
     // Build conversation history for context
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       {
@@ -110,7 +117,7 @@ CURRENT MERMAID CODE:
 \`\`\`mermaid
 ${currentCode}
 \`\`\`
-${objectivesContext}
+${objectivesContext}${scopeContext}
 INSTRUCTIONS:
 1. Respond conversationally to the user's request
 2. When you need to update the flowchart, include the COMPLETE updated Mermaid code in a fenced code block with the language identifier "mermaid"

@@ -146,3 +146,30 @@ export async function exportAsZip(canvases: CanvasData[], options: ExportOptions
   const blob = await zip.generateAsync({ type: "blob" });
   saveAs(blob, "IntelliDraw_Canvases.zip");
 }
+
+// ===== Scoped Export Helpers =====
+
+/**
+ * Export a scoped portion of a canvas (active scope + descendants) as Markdown.
+ */
+export function exportScopeAsMarkdown(canvas: CanvasData, scopeCode: string, scopeLabel: string): void {
+  const content = `# ${canvas.title} — ${scopeLabel}\n\n\`\`\`mermaid\n${scopeCode}\n\`\`\`\n`;
+  const blob = new Blob([content], { type: "text/markdown" });
+  const fileName = `${canvas.title.replace(/[^a-zA-Z0-9]/g, "_")}_${scopeLabel.replace(/[^a-zA-Z0-9]/g, "_")}.md`;
+  saveAs(blob, fileName);
+}
+
+/**
+ * Export a scoped portion of a canvas as a PNG.
+ */
+export async function exportScopeAsImage(canvas: CanvasData, scopeCode: string, scopeLabel: string): Promise<void> {
+  try {
+    const scopeCanvas: CanvasData = { title: `${canvas.title} — ${scopeLabel}`, mermaid_code: scopeCode };
+    const blob = await convertToImageBlob(scopeCanvas);
+    const fileName = `${canvas.title.replace(/[^a-zA-Z0-9]/g, "_")}_${scopeLabel.replace(/[^a-zA-Z0-9]/g, "_")}.png`;
+    saveAs(blob, fileName);
+  } catch (err) {
+    console.error("Scoped export image failed:", err);
+    alert("Failed to export scoped image. Ensure your flowchart code is valid.");
+  }
+}

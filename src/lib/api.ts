@@ -188,11 +188,13 @@ export async function apiChat(
   message: string,
   mermaidCode: string,
   chatHistory: Array<{ role: string; content: string }>,
-  canvasId?: string
+  canvasId?: string,
+  activeScopeId?: string | null,
+  scopePath?: string[]
 ) {
   const res = await apiFetch("/chat", {
     method: "POST",
-    body: JSON.stringify({ message, mermaidCode, chatHistory, canvasId }),
+    body: JSON.stringify({ message, mermaidCode, chatHistory, canvasId, activeScopeId, scopePath }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Chat failed");

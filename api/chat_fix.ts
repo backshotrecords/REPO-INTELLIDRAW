@@ -109,7 +109,8 @@ ${errorMsg}
 
 Please fix the specific error mentioned above.
 ALSO: Check the rest of the code for any standard syntax issues that typically cause Mermaid to fail (e.g., unescaped parentheses in node string values).
-IMPORTANT: If the code contains a %% OBJECTIVES: comment at the top, preserve it exactly as-is in your fixed output.${rulesText}${skillText}`
+IMPORTANT: If the code contains a %% OBJECTIVES: comment at the top, preserve it exactly as-is in your fixed output.
+IMPORTANT: If the code contains subgraph ... end blocks, preserve their structure, IDs, and nesting exactly as-is. Only fix syntax errors within them.${rulesText}${skillText}`
       }
     ];
 

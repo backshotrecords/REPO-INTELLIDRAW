@@ -10,6 +10,10 @@ interface MermaidRendererProps {
   activeNodeId?: string | null;
   /** Node IDs currently selected (pills exist) */
   selectedNodeIds?: string[];
+  /** Node IDs that are greyed-out external boundary references */
+  boundaryNodeIds?: string[];
+  /** Node IDs that are compound nodes (collapsed subgraphs) */
+  compoundNodeIds?: string[];
 }
 
 // Configure mermaid once
@@ -65,6 +69,7 @@ export function extractNodeId(svgElementId: string): string | null {
 export default function MermaidRenderer({
   code, className = "", onSyntaxError, isFixing = false,
   activeNodeId, selectedNodeIds,
+  boundaryNodeIds, compoundNodeIds,
 }: MermaidRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -150,8 +155,22 @@ export default function MermaidRenderer({
       } else {
         node.classList.remove("node-selected");
       }
+
+      // External boundary reference state (greyed out)
+      if (boundaryNodeIds?.includes(nodeId)) {
+        node.classList.add("node-external-ref");
+      } else {
+        node.classList.remove("node-external-ref");
+      }
+
+      // Compound node state (collapsed subgraph)
+      if (compoundNodeIds?.includes(nodeId)) {
+        node.classList.add("node-compound");
+      } else {
+        node.classList.remove("node-compound");
+      }
     });
-  }, [svgHtml, activeNodeId, selectedNodeIds]);
+  }, [svgHtml, activeNodeId, selectedNodeIds, boundaryNodeIds, compoundNodeIds]);
 
   if (error) {
     return (
