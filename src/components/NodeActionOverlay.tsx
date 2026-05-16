@@ -162,7 +162,7 @@ export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeAc
                 {action.icon}
               </span>
             </button>
-            <div className={`node-action-tooltip ${isIn ? "node-action-tooltip-auto" : ""}`}>{action.label}</div>
+            <div className={`node-action-tooltip ${placeLeft ? 'tooltip-left' : 'tooltip-right'} ${isIn ? "node-action-tooltip-auto" : ""}`}>{action.label}</div>
           </div>
         );
       })}

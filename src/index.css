@@ -998,12 +998,11 @@
   transform: scale(0.95);
 }
 
-/* Tooltip above the action button */
+/* Tooltip beside the action button (facing away from the node) */
 .node-action-tooltip {
   position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  top: 50%;
+  transform: translateY(-50%);
   white-space: nowrap;
   padding: 4px 10px;
   background: #1e1e2e;
@@ -1017,14 +1016,33 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-.node-action-tooltip::after {
+/* Tooltip to the right (buttons are right of node → tooltip extends further right) */
+.node-action-tooltip.tooltip-right {
+  left: calc(100% + 8px);
+}
+.node-action-tooltip.tooltip-right::after {
   content: '';
   position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 50%;
+  right: 100%;
+  transform: translateY(-50%);
   border: 5px solid transparent;
-  border-top-color: #1e1e2e;
+  border-right-color: #1e1e2e;
+}
+
+/* Tooltip to the left (buttons are left of node → tooltip extends further left) */
+.node-action-tooltip.tooltip-left {
+  right: calc(100% + 8px);
+  left: auto;
+}
+.node-action-tooltip.tooltip-left::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+  border-left-color: #1e1e2e;
 }
 
 .node-action-btn-wrapper:hover .node-action-tooltip {
