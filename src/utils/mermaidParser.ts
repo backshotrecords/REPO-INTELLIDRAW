@@ -212,30 +212,44 @@ export function parseMermaidAST(code: string): MermaidAST {
 /**
  * Parse a single line to extract edge information.
  * Handles: A --> B, A -->|label| B, A -- text --> B, A -.-> B, A ==> B, etc.
+ * Also handles inline node definitions: A --> B[label], A --> DEC{choice}, etc.
+ *
+ * Strategy: find the arrow pattern first, then extract the ID tokens
+ * on each side (ignoring any trailing shape brackets like [label], {text}, etc.)
  */
-function parseEdge(line: string): { from: string; to: string; label?: string } | null {
-  // Pattern: FROM (arrow with optional label) TO
-  // Arrows: -->, --->, -.->,-.->, ==>, ===>, --> |text|, -- text -->
-  const edgeRegex = /^([A-Za-z_]\w*)\s*(?:--\s+"([^"]*)"\s*-->|--\s+([^-=.>|]+?)\s*-->|-->?\|([^|]*)\|\s*|[-=.]+>?\s*\|([^|]*)\|\s*|[-]{2,}>|[-.]{2,}>|[=]{2,}>|[-]{2,}[->]+)\s*([A-Za-z_]\w*)/;
-  const match = line.match(edgeRegex);
+function parseEdge(line: string): { from: string; to: string; label?: string; rawLine: string } | null {
+  // Arrow patterns to search for (ordered by specificity)
+  const arrowPatterns: RegExp[] = [
+    /-->\|([^|]*)\|/,    // -->|label|
+    /-\.->\|([^|]*)\|/,  // -.->|label|
+    /==>\|([^|]*)\|/,    // ==>|label|
+    /--\s+"([^"]*)"\s*-->/, // -- "text" -->
+    /--\s+([^-\s].*?)\s*-->/, // -- text -->
+    /-\.->/, // -.->
+    /==>/,               // ==>
+    /-->/,               // -->
+    /---/,               // ---
+  ];
 
-  if (match) {
-    const from = match[1];
-    const to = match[6];
-    const label = match[2] || match[3] || match[4] || match[5] || undefined;
-    if (from && to) return { from, to, label: label?.trim() };
-  }
+  for (const arrowRx of arrowPatterns) {
+    const arrowMatch = line.match(arrowRx);
+    if (!arrowMatch) continue;
 
-  // Simpler fallback: look for ID (some arrow pattern) ID
-  const simpleMatch = line.match(/^([A-Za-z_]\w*)\s+[-=.]+[->|]+.*?\s+([A-Za-z_]\w*)\s*$/);
-  if (simpleMatch) {
-    return { from: simpleMatch[1], to: simpleMatch[2] };
-  }
+    const arrowStart = arrowMatch.index!;
+    const arrowEnd = arrowStart + arrowMatch[0].length;
 
-  // Even more permissive: any line with an arrow between two identifiers
-  const permissiveMatch = line.match(/([A-Za-z_]\w*)\s*[-=.]*(?:->|-->|==>|-\.->|---)[-=.>]*(?:\|[^|]*\|)?\s*([A-Za-z_]\w*)/);
-  if (permissiveMatch) {
-    return { from: permissiveMatch[1], to: permissiveMatch[2] };
+    // Extract FROM: last ID token before the arrow
+    const beforeArrow = line.substring(0, arrowStart);
+    const fromMatch = beforeArrow.match(/([A-Za-z_]\w*)\s*$/);
+    if (!fromMatch) continue;
+
+    // Extract TO: first ID token after the arrow
+    const afterArrow = line.substring(arrowEnd);
+    const toMatch = afterArrow.match(/^\s*([A-Za-z_]\w*)/);
+    if (!toMatch) continue;
+
+    const label = arrowMatch[1]?.trim() || undefined;
+    return { from: fromMatch[1], to: toMatch[1], label, rawLine: line };
   }
 
   return null;
