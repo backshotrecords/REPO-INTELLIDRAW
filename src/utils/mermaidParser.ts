@@ -614,6 +614,41 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
     }
   }
 
+  // Emit classDef/class/style lines from the FULL source that apply to visible nodes.
+  // classDef lines define styles (safe to always emit).
+  // class/style lines reference specific nodes — only emit for visible ones.
+  for (let i = 0; i < ast.lines.length; i++) {
+    const trimmed = ast.lines[i].trim();
+
+    // classDef lines are safe — they only DEFINE styles, don't reference nodes
+    if (/^classDef\s/i.test(trimmed)) {
+      output.push(ast.lines[i]);
+      continue;
+    }
+
+    // class lines reference specific nodes: `class A,B,C className`
+    // Only emit if ALL referenced nodes are visible in this scope
+    if (/^class\s/i.test(trimmed)) {
+      const classMatch = trimmed.match(/^class\s+(.+?)\s+\S+$/i);
+      if (classMatch) {
+        const nodeIds = classMatch[1].split(',').map(s => s.trim());
+        const allVisible = nodeIds.every(id => visibleNodes.has(id));
+        if (allVisible) {
+          output.push(ast.lines[i]);
+        }
+      }
+      continue;
+    }
+
+    // style lines reference a specific node: `style A fill:...`
+    if (/^style\s/i.test(trimmed)) {
+      const styleMatch = trimmed.match(/^style\s+(\S+)/i);
+      if (styleMatch && visibleNodes.has(styleMatch[1])) {
+        output.push(ast.lines[i]);
+      }
+    }
+  }
+
   return { code: output.join("\n"), boundaryNodeIds };
 }
 
