@@ -366,6 +366,40 @@ function findNodeLabel(ast: MermaidAST, nodeId: string): string {
 }
 
 /**
+ * Find the full node definition string (e.g., `A["Start Here"]`) from the source.
+ * Handles nodes defined inline with edges (e.g., `A[Start] --> B[Next]`).
+ * Returns just the node definition part (ID + shape brackets + label), or null.
+ */
+function findNodeDefinitionString(ast: MermaidAST, nodeId: string): string | null {
+  const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // Match nodeId followed by any shape bracket: [], (), {}, [[]], (()) etc.
+  // Captures the full definition including nested brackets
+  const defPatterns = [
+    // Double brackets: [[label]]
+    new RegExp(`(?:^|\\s|-->|==>|-.->)\\s*(${escaped}\\[\\[[^\\]]*\\]\\])`, "m"),
+    // Double parens: ((label))
+    new RegExp(`(?:^|\\s|-->|==>|-.->)\\s*(${escaped}\\(\\([^)]*\\)\\))`, "m"),
+    // Standard brackets: [label], (label), {label}, >label], etc.
+    new RegExp(`(?:^|\\s|-->|==>|-.->)\\s*(${escaped}\\s*\\[[^\\]]*\\])`, "m"),
+    new RegExp(`(?:^|\\s|-->|==>|-.->)\\s*(${escaped}\\s*\\([^)]*\\))`, "m"),
+    new RegExp(`(?:^|\\s|-->|==>|-.->)\\s*(${escaped}\\s*\\{[^}]*\\})`, "m"),
+  ];
+
+  for (const line of ast.lines) {
+    const trimmed = line.trim();
+    for (const pattern of defPatterns) {
+      const match = trimmed.match(pattern);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Generate Mermaid code for the ROOT view.
  * Subgraphs are collapsed into single compound nodes.
  * ONLY emits nodes/edges that are valid at root level — no references to
@@ -389,32 +423,27 @@ export function getRootViewCode(ast: MermaidAST): string {
     const trimmed = line.trim();
     if (trimmed.startsWith("%%")) {
       output.push(line);
-    } else if (/^(flowchart|graph)\s/i.test(trimmed)) {
-      continue; // skip header, already emitted
+    } else if (/^(flowchart|graph)\s/i.test(trimmed) || !trimmed) {
+      continue; // skip header and blanks
     } else {
-      break; // stop at first non-comment, non-header line
+      break; // stop at first content line
     }
   }
 
-  // 2. Emit standalone node definitions for root-level nodes only
-  //    (scan source lines for definitions of nodes that are in rootNodeSet)
-  for (let i = 0; i < ast.lines.length; i++) {
-    const trimmed = ast.lines[i].trim();
-    if (!trimmed || trimmed.startsWith("%%")) continue;
-    if (/^(flowchart|graph)\s/i.test(trimmed)) continue;
-    if (/^subgraph\s/i.test(trimmed) || /^end\s*$/i.test(trimmed)) continue;
-    if (/^classDef\s/i.test(trimmed) || /^class\s/i.test(trimmed) || /^style\s/i.test(trimmed)) continue;
-    if (/^click\s/i.test(trimmed) || /^linkStyle\s/i.test(trimmed)) continue;
-    if (/^direction\s/i.test(trimmed)) continue;
-
-    // Skip lines inside any subgraph
-    if (isLineInsideSubgraph(i, ast)) continue;
-
-    // Check if this is an edge line — if so, skip it (we'll handle edges separately)
-    if (parseEdge(trimmed)) continue;
-
-    // It's a node definition or other root-level line — emit it
-    output.push(ast.lines[i]);
+  // 2. Emit node definitions for each root-level node.
+  //    Nodes are often defined inline with edges (e.g., `A[Start] --> B[Next]`),
+  //    so we scan the full source for the first occurrence of each node's
+  //    label/shape definition and emit it as a standalone definition.
+  const emittedNodeDefs = new Set<string>();
+  for (const nodeId of ast.rootNodes) {
+    if (emittedNodeDefs.has(nodeId)) continue;
+    const def = findNodeDefinitionString(ast, nodeId);
+    if (def) {
+      output.push(`    ${def}`);
+    } else {
+      output.push(`    ${nodeId}`); // bare node fallback
+    }
+    emittedNodeDefs.add(nodeId);
   }
 
   // 3. Emit compound nodes for top-level subgraphs
@@ -466,11 +495,13 @@ export function getRootViewCode(ast: MermaidAST): string {
   // 5. Add compound node class definition
   output.push(`    classDef compoundNode fill:#E6D6FF,stroke:#7B2CBF,stroke-width:2.5px,color:#2D0A4B,stroke-dasharray:8 4`);
 
-  // 6. Re-append original classDef/class/style lines
-  for (const line of ast.lines) {
-    const trimmed = line.trim();
+  // 6. Re-append original classDef/class/style lines (skip if inside a subgraph)
+  for (let i = 0; i < ast.lines.length; i++) {
+    const trimmed = ast.lines[i].trim();
     if (/^classDef\s/i.test(trimmed) || /^class\s/i.test(trimmed) || /^style\s/i.test(trimmed)) {
-      output.push(line);
+      if (!isLineInsideSubgraph(i, ast)) {
+        output.push(ast.lines[i]);
+      }
     }
   }
 
