@@ -367,166 +367,118 @@ function findNodeLabel(ast: MermaidAST, nodeId: string): string {
 }
 
 /**
- * Find the full node definition string (e.g., `A["Start Here"]`) from the source.
- * Handles nodes defined inline with edges (e.g., `A[Start] --> B[Next]`).
- * Returns just the node definition part (ID + shape brackets + label), or null.
- */
-function findNodeDefinitionString(ast: MermaidAST, nodeId: string): string | null {
-  const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-  // Match nodeId followed by any shape bracket: [], (), {}, [[]], (()) etc.
-  // Captures the full definition including nested brackets
-  const defPatterns = [
-    // Double brackets: [[label]]
-    new RegExp(`(?:^|\\s|-->|==>|-.->)\\s*(${escaped}\\[\\[[^\\]]*\\]\\])`, "m"),
-    // Double parens: ((label))
-    new RegExp(`(?:^|\\s|-->|==>|-.->)\\s*(${escaped}\\(\\([^)]*\\)\\))`, "m"),
-    // Standard brackets: [label], (label), {label}, >label], etc.
-    new RegExp(`(?:^|\\s|-->|==>|-.->)\\s*(${escaped}\\s*\\[[^\\]]*\\])`, "m"),
-    new RegExp(`(?:^|\\s|-->|==>|-.->)\\s*(${escaped}\\s*\\([^)]*\\))`, "m"),
-    new RegExp(`(?:^|\\s|-->|==>|-.->)\\s*(${escaped}\\s*\\{[^}]*\\})`, "m"),
-  ];
-
-  for (const line of ast.lines) {
-    const trimmed = line.trim();
-    for (const pattern of defPatterns) {
-      const match = trimmed.match(pattern);
-      if (match && match[1]) {
-        return match[1].trim();
-      }
-    }
-  }
-
-  return null;
-}
-
-/**
  * Generate Mermaid code for the ROOT view.
  * Subgraphs are collapsed into single compound nodes.
- * ONLY emits nodes/edges that are valid at root level — no references to
- * nodes buried inside subgraphs.
+ *
+ * LINE-WALK approach: walks the original source lines and passes them through
+ * unchanged, except for:
+ *   - Subgraph blocks → replaced with a compound node line
+ *   - Edge lines referencing nodes inside subgraphs → redirected to subgraph ID
+ *   - class/style lines referencing collapsed nodes → filtered out
+ * Everything else (node definitions, comments, etc.) stays exactly as written.
  */
 export function getRootViewCode(ast: MermaidAST): string {
   if (ast.subgraphs.length === 0) {
-    // No subgraphs at all — return the original code unchanged
     return ast.lines.join("\n");
   }
 
-  const output: string[] = [ast.headerLine];
+  const output: string[] = [];
 
   // Set of node IDs visible at root: root-level nodes + top-level subgraph IDs
   const rootNodeSet = new Set(ast.rootNodes);
   const topSgIds = new Set(ast.subgraphs.map(s => s.id));
   const visibleAtRoot = new Set([...rootNodeSet, ...topSgIds]);
 
-  // 1. Emit %% comments from the top of the source
-  for (const line of ast.lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("%%")) {
-      output.push(line);
-    } else if (/^(flowchart|graph)\s/i.test(trimmed) || !trimmed) {
-      continue; // skip header and blanks
-    } else {
-      break; // stop at first content line
-    }
-  }
+  // Build a quick lookup: top-level subgraph line ranges
+  const topSgRanges = ast.subgraphs.map(sg => ({
+    start: sg.sourceStart,
+    end: sg.sourceEnd,
+    id: sg.id,
+    label: sg.label,
+  }));
 
-  // 2. Emit node definitions for each root-level node.
-  //    Nodes are often defined inline with edges (e.g., `A[Start] --> B[Next]`),
-  //    so we scan the full source for the first occurrence of each node's
-  //    label/shape definition and emit it as a standalone definition.
-  const emittedNodeDefs = new Set<string>();
-  for (const nodeId of ast.rootNodes) {
-    if (emittedNodeDefs.has(nodeId)) continue;
-    const def = findNodeDefinitionString(ast, nodeId);
-    if (def) {
-      output.push(`    ${def}`);
-    } else {
-      output.push(`    ${nodeId}`); // bare node fallback
-    }
-    emittedNodeDefs.add(nodeId);
-  }
+  // Edge deduplication for redirected cross-subgraph edges
+  const emittedRedirectedEdges = new Set<string>();
 
-  // 3. Emit compound nodes for top-level subgraphs (simple nodes with folder emoji)
-  //    Visual styling (dashed border) is applied post-render by MermaidRenderer CSS
-  for (const sg of ast.subgraphs) {
-    const safeLabel = sg.label.replace(/"/g, "'");
-    output.push(`    ${sg.id}["\uD83D\uDCC2 ${safeLabel}"]`);
-  }
-
-  // 4. Process ALL edges — redirect endpoints inside subgraphs to their
-  //    top-level subgraph compound node
-  const emittedEdges = new Set<string>();
-
-  for (const edge of ast.edges) {
-    let fromId = edge.from;
-    let toId = edge.to;
-
-    // If 'from' is inside a subgraph, redirect to the top-level subgraph
-    if (!visibleAtRoot.has(fromId)) {
-      const ownerSg = findOwnerSubgraph(fromId, ast);
-      if (ownerSg) {
-        fromId = getTopLevelParent(ownerSg, ast) || fromId;
-      } else {
-        continue; // can't resolve → skip
-      }
-    }
-
-    // If 'to' is inside a subgraph, redirect to the top-level subgraph
-    if (!visibleAtRoot.has(toId)) {
-      const ownerSg = findOwnerSubgraph(toId, ast);
-      if (ownerSg) {
-        toId = getTopLevelParent(ownerSg, ast) || toId;
-      } else {
-        continue; // can't resolve → skip
-      }
-    }
-
-    // Skip self-edges (e.g., both endpoints inside the same subgraph)
-    if (fromId === toId) continue;
-
-    // Deduplicate
-    const edgeKey = `${fromId}-->${toId}`;
-    if (emittedEdges.has(edgeKey)) continue;
-    emittedEdges.add(edgeKey);
-
-    const arrow = extractArrow(edge.rawLine);
-    output.push(`    ${fromId} ${arrow} ${toId}`);
-  }
-
-
-  // 5. Re-append original classDef/class/style lines (only for visible nodes)
   for (let i = 0; i < ast.lines.length; i++) {
     const trimmed = ast.lines[i].trim();
-    if (isLineInsideSubgraph(i, ast)) continue;
 
-    // classDef lines are safe — they only DEFINE styles, don't reference nodes
-    if (/^classDef\s/i.test(trimmed)) {
-      output.push(ast.lines[i]);
+    // Check if this line starts a top-level subgraph block
+    const sgRange = topSgRanges.find(r => i === r.start);
+    if (sgRange) {
+      // Emit a compound node in place of the entire subgraph block
+      const safeLabel = sgRange.label.replace(/"/g, "'");
+      output.push(`    ${sgRange.id}["\uD83D\uDCC2 ${safeLabel}"]`);
+      // Skip all lines until the matching 'end'
+      i = sgRange.end;
       continue;
     }
 
-    // class lines reference specific nodes: `class A,B,C className`
-    // Only emit if ALL referenced nodes are visible at root level
+    // Safety: skip if somehow inside a subgraph
+    if (isLineInsideSubgraph(i, ast)) continue;
+
+    // Handle edge lines: check if endpoints need redirecting
+    const edgeParsed = parseEdge(trimmed);
+    if (edgeParsed) {
+      const fromVisible = visibleAtRoot.has(edgeParsed.from);
+      const toVisible = visibleAtRoot.has(edgeParsed.to);
+
+      if (fromVisible && toVisible) {
+        // Both endpoints at root level — keep the original line as-is
+        // (preserves inline node definitions like `A[Start] --> B[Next]`)
+        output.push(ast.lines[i]);
+      } else {
+        // One or both endpoints inside subgraphs — emit a redirected edge
+        let fromId = edgeParsed.from;
+        let toId = edgeParsed.to;
+
+        if (!fromVisible) {
+          const owner = findOwnerSubgraph(fromId, ast);
+          fromId = owner ? (getTopLevelParent(owner, ast) || fromId) : fromId;
+        }
+        if (!toVisible) {
+          const owner = findOwnerSubgraph(toId, ast);
+          toId = owner ? (getTopLevelParent(toId, ast) || toId) : toId;
+        }
+
+        // Skip self-edges (both endpoints collapsed into the same subgraph)
+        if (fromId === toId) continue;
+
+        // Deduplicate redirected edges
+        const edgeKey = `${fromId}-->${toId}`;
+        if (emittedRedirectedEdges.has(edgeKey)) continue;
+        emittedRedirectedEdges.add(edgeKey);
+
+        const arrow = extractArrow(ast.lines[i]);
+        output.push(`    ${fromId} ${arrow} ${toId}`);
+      }
+      continue;
+    }
+
+    // class lines: only emit if ALL referenced nodes are visible at root
     if (/^class\s/i.test(trimmed)) {
       const classMatch = trimmed.match(/^class\s+(.+?)\s+\S+$/i);
       if (classMatch) {
         const nodeIds = classMatch[1].split(',').map(s => s.trim());
-        const allVisible = nodeIds.every(id => visibleAtRoot.has(id));
-        if (allVisible) {
+        if (nodeIds.every(id => visibleAtRoot.has(id))) {
           output.push(ast.lines[i]);
         }
       }
       continue;
     }
 
-    // style lines reference a specific node: `style A fill:...`
+    // style lines: only emit if the referenced node is visible at root
     if (/^style\s/i.test(trimmed)) {
       const styleMatch = trimmed.match(/^style\s+(\S+)/i);
       if (styleMatch && visibleAtRoot.has(styleMatch[1])) {
         output.push(ast.lines[i]);
       }
+      continue;
     }
+
+    // Everything else — pass through unchanged
+    // (header, comments, node definitions, classDef, linkStyle, etc.)
+    output.push(ast.lines[i]);
   }
 
   return output.join("\n");
