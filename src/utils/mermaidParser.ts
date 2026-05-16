@@ -75,15 +75,16 @@ export function parseMermaidAST(code: string): MermaidAST {
     // Skip comments and empty lines
     if (trimmed.startsWith("%%") || trimmed === "") continue;
 
-    // Detect subgraph start
-    const sgMatch = trimmed.match(/^subgraph\s+(\S+)(?:\s*\[([^\]]*)\])?/i);
+    // Detect subgraph start — ID capture stops at whitespace or '[' to handle
+    // both `subgraph ID[Label]` (no space) and `subgraph ID [Label]` (with space)
+    const sgMatch = trimmed.match(/^subgraph\s+([^\s[]+)(?:\s*\[([^\]]*)\])?/i);
     if (sgMatch) {
       const sgId = sgMatch[1];
       // Label: either the bracketed label, or the ID itself, or text after ID
       let sgLabel = sgMatch[2] || "";
       if (!sgLabel) {
         // Check for `subgraph ID text here` pattern (label without brackets)
-        const altMatch = trimmed.match(/^subgraph\s+(\S+)\s+(.+)$/i);
+        const altMatch = trimmed.match(/^subgraph\s+([^\s[]+)\s+(.+)$/i);
         sgLabel = altMatch ? altMatch[2].trim() : sgId;
       }
       // Strip surrounding quotes from label
@@ -494,11 +495,35 @@ export function getRootViewCode(ast: MermaidAST): string {
   }
 
 
-  // 6. Re-append original classDef/class/style lines (skip if inside a subgraph)
+  // 5. Re-append original classDef/class/style lines (only for visible nodes)
   for (let i = 0; i < ast.lines.length; i++) {
     const trimmed = ast.lines[i].trim();
-    if (/^classDef\s/i.test(trimmed) || /^class\s/i.test(trimmed) || /^style\s/i.test(trimmed)) {
-      if (!isLineInsideSubgraph(i, ast)) {
+    if (isLineInsideSubgraph(i, ast)) continue;
+
+    // classDef lines are safe — they only DEFINE styles, don't reference nodes
+    if (/^classDef\s/i.test(trimmed)) {
+      output.push(ast.lines[i]);
+      continue;
+    }
+
+    // class lines reference specific nodes: `class A,B,C className`
+    // Only emit if ALL referenced nodes are visible at root level
+    if (/^class\s/i.test(trimmed)) {
+      const classMatch = trimmed.match(/^class\s+(.+?)\s+\S+$/i);
+      if (classMatch) {
+        const nodeIds = classMatch[1].split(',').map(s => s.trim());
+        const allVisible = nodeIds.every(id => visibleAtRoot.has(id));
+        if (allVisible) {
+          output.push(ast.lines[i]);
+        }
+      }
+      continue;
+    }
+
+    // style lines reference a specific node: `style A fill:...`
+    if (/^style\s/i.test(trimmed)) {
+      const styleMatch = trimmed.match(/^style\s+(\S+)/i);
+      if (styleMatch && visibleAtRoot.has(styleMatch[1])) {
         output.push(ast.lines[i]);
       }
     }
@@ -575,22 +600,19 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
     const extId = `_ext_${ref.externalNodeId}`;
     if (!addedExternalNodes.has(ref.externalNodeId)) {
       addedExternalNodes.add(ref.externalNodeId);
-      // Emit greyed-out stub node
+      // Emit greyed-out stub node (no Mermaid class — CSS applied post-render)
       const safeLabel = ref.externalLabel.replace(/"/g, "'");
-      output.push(`    ${extId}["${safeLabel}"]:::externalRef`);
+      output.push(`    ${extId}["${safeLabel}"]`);
       boundaryNodeIds.push(extId);
     }
 
-    // Emit the boundary edge
+    // Emit the boundary edge (dotted)
     if (ref.direction === "incoming") {
       output.push(`    ${extId} -.-> ${ref.insideNodeId}`);
     } else {
       output.push(`    ${ref.insideNodeId} -.-> ${extId}`);
     }
   }
-
-  // Add class definitions for external refs only
-  output.push(`    classDef externalRef fill:#E5E5E5,stroke:#9A9A9A,stroke-width:1px,color:#666666,stroke-dasharray:5 3`);
 
   return { code: output.join("\n"), boundaryNodeIds };
 }
