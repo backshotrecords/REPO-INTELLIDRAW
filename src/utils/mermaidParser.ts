@@ -457,7 +457,8 @@ export function getRootViewCode(ast: MermaidAST): string {
         emittedRedirectedEdges.add(edgeKey);
 
         const arrow = extractArrow(ast.lines[i]);
-        output.push(`    ${fromId} ${arrow} ${toId}`);
+        const labelPart = edgeParsed.label ? `|${edgeParsed.label}|` : '';
+        output.push(`    ${fromId} ${arrow}${labelPart} ${toId}`);
       }
       continue;
     }
