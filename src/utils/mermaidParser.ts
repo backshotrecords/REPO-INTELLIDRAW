@@ -355,12 +355,14 @@ function findNodeLabel(ast: MermaidAST, nodeId: string): string {
   for (const line of ast.lines) {
     const trimmed = line.trim();
     const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Match nodeId followed by a shape bracket, anywhere in the line
+    // (handles inline definitions like `INTRO --> DEC{Decision node}`)
     const match = trimmed.match(
-      new RegExp(`^${escaped}\\s*[\\[\\(\\{<"]([^\\]\\)\\}>"]*)`)
+      new RegExp(`(?:^|\\s|>)\\s*${escaped}\\s*([\\[\\(\\{<"])([^\\]\\)\\}>"]*)`)
     );
     if (match) {
       // Strip HTML tags from labels
-      return match[1].replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim() || nodeId;
+      return match[2].replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim() || nodeId;
     }
   }
   return nodeId;
