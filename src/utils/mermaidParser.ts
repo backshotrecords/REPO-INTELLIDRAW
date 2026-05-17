@@ -445,7 +445,7 @@ export function getRootViewCode(ast: MermaidAST): string {
         }
         if (!toVisible) {
           const owner = findOwnerSubgraph(toId, ast);
-          toId = owner ? (getTopLevelParent(toId, ast) || toId) : toId;
+          toId = owner ? (getTopLevelParent(owner, ast) || toId) : toId;
         }
 
         // Skip self-edges (both endpoints collapsed into the same subgraph)
