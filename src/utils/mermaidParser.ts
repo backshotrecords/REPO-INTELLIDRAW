@@ -323,6 +323,8 @@ export function getBoundaryRefs(ast: MermaidAST, scopeId: string): BoundaryRef[]
 
   for (let i = 0; i < ast.edges.length; i++) {
     const edge = ast.edges[i];
+    // Skip invisible links (~~~) — they're layout-only, not semantic connections
+    if (/~{3,}/.test(edge.rawLine)) continue;
     const fromInside = insideNodes.has(edge.from) || sg.id === edge.from;
     const toInside = insideNodes.has(edge.to) || sg.id === edge.to;
 
@@ -430,6 +432,9 @@ export function getRootViewCode(ast: MermaidAST): string {
         // (preserves inline node definitions like `A[Start] --> B[Next]`)
         output.push(ast.lines[i]);
       } else {
+        // Skip invisible links (~~~) — don't redirect to compound nodes
+        if (/~{3,}/.test(ast.lines[i])) continue;
+
         // One or both endpoints inside subgraphs — emit a redirected edge
         let fromId = edgeParsed.from;
         let toId = edgeParsed.to;
