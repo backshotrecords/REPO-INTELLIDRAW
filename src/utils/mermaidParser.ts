@@ -211,48 +211,34 @@ export function parseMermaidAST(code: string): MermaidAST {
 
 /**
  * Parse a single line to extract edge information.
- * Handles: A --> B, A -->|label| B, A -- text --> B, A -.-> B, A ==> B, etc.
+ * Handles all common arrow styles: -->, -.->, ==>, -->|label|, etc.
  * Also handles inline node definitions: A --> B[label], A --> DEC{choice}, etc.
  *
- * Strategy: find the arrow pattern first, then extract the ID tokens
- * on each side (ignoring any trailing shape brackets like [label], {text}, etc.)
+ * Strategy: find the arrow, skip any |label|, grab the ID on each side.
  */
 function parseEdge(line: string): { from: string; to: string; label?: string; rawLine: string } | null {
-  // Arrow patterns to search for (ordered by specificity)
-  const arrowPatterns: RegExp[] = [
-    /-->\|([^|]*)\|/,    // -->|label|
-    /-\.->\|([^|]*)\|/,  // -.->|label|
-    /==>\|([^|]*)\|/,    // ==>|label|
-    /--\s+"([^"]*)"\s*-->/, // -- "text" -->
-    /--\s+([^-\s].*?)\s*-->/, // -- text -->
-    /-\.->/, // -.->
-    /==>/,               // ==>
-    /-->/,               // -->
-    /---/,               // ---
-  ];
+  // Find any arrow: 2+ chars of [-=.] ending with >
+  const arrowMatch = line.match(/([-=.]{2,}>)/);
+  if (!arrowMatch) return null;
 
-  for (const arrowRx of arrowPatterns) {
-    const arrowMatch = line.match(arrowRx);
-    if (!arrowMatch) continue;
+  const arrowStart = arrowMatch.index!;
+  const arrowEnd = arrowStart + arrowMatch[0].length;
 
-    const arrowStart = arrowMatch.index!;
-    const arrowEnd = arrowStart + arrowMatch[0].length;
+  // Extract FROM: last ID token before the arrow
+  const beforeArrow = line.substring(0, arrowStart);
+  const fromMatch = beforeArrow.match(/([A-Za-z_]\w*)\s*$/);
+  if (!fromMatch) return null;
 
-    // Extract FROM: last ID token before the arrow
-    const beforeArrow = line.substring(0, arrowStart);
-    const fromMatch = beforeArrow.match(/([A-Za-z_]\w*)\s*$/);
-    if (!fromMatch) continue;
+  // Extract TO: first ID token after the arrow, skipping optional |label|
+  const afterArrow = line.substring(arrowEnd);
+  const toMatch = afterArrow.match(/^(?:\s*\|[^|]*\|)?\s*([A-Za-z_]\w*)/);
+  if (!toMatch) return null;
 
-    // Extract TO: first ID token after the arrow
-    const afterArrow = line.substring(arrowEnd);
-    const toMatch = afterArrow.match(/^\s*([A-Za-z_]\w*)/);
-    if (!toMatch) continue;
+  // Extract label from |label| if present after arrow
+  const labelMatch = afterArrow.match(/^\s*\|([^|]*)\|/);
+  const label = labelMatch ? labelMatch[1].trim() : undefined;
 
-    const label = arrowMatch[1]?.trim() || undefined;
-    return { from: fromMatch[1], to: toMatch[1], label, rawLine: line };
-  }
-
-  return null;
+  return { from: fromMatch[1], to: toMatch[1], label, rawLine: line };
 }
 
 /** Check if a nodeId is defined inside a child subgraph (not at the current scope level). */
