@@ -217,8 +217,8 @@ export function parseMermaidAST(code: string): MermaidAST {
  * Strategy: find the arrow, skip any |label|, grab the ID on each side.
  */
 function parseEdge(line: string): { from: string; to: string; label?: string; rawLine: string } | null {
-  // Find any arrow: 2+ chars of [-=.] ending with >
-  const arrowMatch = line.match(/([-=.]{2,}>)/);
+  // Find any arrow: 2+ chars of [-=.] ending with >, or ~~~ (invisible link)
+  const arrowMatch = line.match(/([-=.]{2,}>|~{3,})/);
   if (!arrowMatch) return null;
 
   const arrowStart = arrowMatch.index!;
