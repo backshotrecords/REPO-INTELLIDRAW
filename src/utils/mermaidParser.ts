@@ -224,9 +224,10 @@ function parseEdge(line: string): { from: string; to: string; label?: string; ra
   const arrowStart = arrowMatch.index!;
   const arrowEnd = arrowStart + arrowMatch[0].length;
 
-  // Extract FROM: last ID token before the arrow
+  // Extract FROM: first ID token before the arrow
+  // (first, not last — handles inline defs like `A[Start] -->` and labels like `A -- text -->`)
   const beforeArrow = line.substring(0, arrowStart);
-  const fromMatch = beforeArrow.match(/([A-Za-z_]\w*)\s*$/);
+  const fromMatch = beforeArrow.match(/([A-Za-z_]\w*)/);
   if (!fromMatch) return null;
 
   // Extract TO: first ID token after the arrow, skipping optional |label|
@@ -251,6 +252,18 @@ function isInsideChildSubgraph(
     if (getAllNodesInSubgraph(child, allFlat).has(nodeId)) return true;
   }
   return false;
+}
+
+/** Find which child subgraph (if any) contains a given node. Returns the child subgraph ID or null. */
+function findChildContaining(
+  nodeId: string,
+  parent: SubgraphNode,
+  allFlat: Map<string, SubgraphNode>
+): string | null {
+  for (const child of parent.children) {
+    if (getAllNodesInSubgraph(child, allFlat).has(nodeId)) return child.id;
+  }
+  return null;
 }
 
 /** Recursively collect all node IDs inside a subgraph and its descendants. */
@@ -519,6 +532,7 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
   const innerStart = sg.sourceStart + 1;
   const innerEnd = sg.sourceEnd;
   const childRanges = sg.children.map(c => ({ start: c.sourceStart, end: c.sourceEnd, id: c.id, label: c.label }));
+  const scopeRedirectedEdges = new Set<string>();
 
   for (let i = innerStart; i < innerEnd; i++) {
     const trimmed = ast.lines[i].trim();
@@ -538,15 +552,43 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
       continue;
     }
 
-    // Check if this is an edge line — only emit if BOTH endpoints are visible in this scope
+    // Check if this is an edge line
     const edgeParsed = parseEdge(trimmed);
     if (edgeParsed) {
       const fromVisible = visibleNodes.has(edgeParsed.from);
       const toVisible = visibleNodes.has(edgeParsed.to);
+
       if (fromVisible && toVisible) {
-        output.push(ast.lines[i]); // fully internal edge — emit
+        output.push(ast.lines[i]); // fully internal edge — emit as-is
+      } else {
+        // Check if non-visible endpoints are inside child subgraphs → redirect
+        let fromId = edgeParsed.from;
+        let toId = edgeParsed.to;
+        let hasRedirect = false;
+
+        if (!fromVisible) {
+          const childOwner = findChildContaining(edgeParsed.from, sg, ast.allSubgraphsFlat);
+          if (childOwner) { fromId = childOwner; hasRedirect = true; }
+        }
+        if (!toVisible) {
+          const childOwner = findChildContaining(edgeParsed.to, sg, ast.allSubgraphsFlat);
+          if (childOwner) { toId = childOwner; hasRedirect = true; }
+        }
+
+        if (hasRedirect && fromId !== toId) {
+          // Skip invisible links (~~~)
+          if (!/~{3,}/.test(ast.lines[i])) {
+            const edgeKey = `${fromId}-->${toId}`;
+            if (!scopeRedirectedEdges.has(edgeKey)) {
+              scopeRedirectedEdges.add(edgeKey);
+              const arrow = extractArrow(ast.lines[i]);
+              const labelPart = edgeParsed.label ? `|${edgeParsed.label}|` : '';
+              output.push(`    ${fromId} ${arrow}${labelPart} ${toId}`);
+            }
+          }
+        }
+        // Truly external edges are handled below by boundary ref logic
       }
-      // Cross-scope edges are handled below by boundary ref logic
       continue;
     }
 
