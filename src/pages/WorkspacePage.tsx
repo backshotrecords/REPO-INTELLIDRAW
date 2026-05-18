@@ -118,7 +118,6 @@ export default function WorkspacePage() {
     if (!activeScopeId) {
       // Root view — collapse subgraphs to compound nodes
       const code = getRootViewCode(parsedAST);
-      console.log("[DEBUG getRootViewCode output]:\n", code);
       const compIds = parsedAST.subgraphs.map(sg => sg.id);
       return { filteredCode: code, boundaryNodeIds: [] as string[], compoundNodeIds: compIds };
     }

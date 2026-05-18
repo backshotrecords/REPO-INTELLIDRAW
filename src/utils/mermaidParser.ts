@@ -439,7 +439,6 @@ export function getRootViewCode(ast: MermaidAST): string {
     if (edgeParsed) {
       const fromVisible = visibleAtRoot.has(edgeParsed.from);
       const toVisible = visibleAtRoot.has(edgeParsed.to);
-      console.log(`[DEBUG edge] "${trimmed}" from=${edgeParsed.from}(${fromVisible}) to=${edgeParsed.to}(${toVisible})`);
 
       if (fromVisible && toVisible) {
         // Both endpoints at root level — keep the original line as-is
@@ -600,6 +599,10 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
   const addedExternalNodes = new Set<string>();
 
   for (const ref of boundaryRefs) {
+    // Skip refs where the inside endpoint is the scope itself
+    // (e.g., `A --> B` where B is the current scope — this is the container, not an inner node)
+    if (ref.insideNodeId === scopeId) continue;
+
     const extId = `_ext_${ref.externalNodeId}`;
     if (!addedExternalNodes.has(ref.externalNodeId)) {
       addedExternalNodes.add(ref.externalNodeId);
