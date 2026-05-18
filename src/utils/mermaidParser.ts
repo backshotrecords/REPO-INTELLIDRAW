@@ -407,12 +407,14 @@ export function getRootViewCode(ast: MermaidAST): string {
   const visibleAtRoot = new Set([...rootNodeSet, ...topSgIds]);
 
   // Build a quick lookup: top-level subgraph line ranges
-  const topSgRanges = ast.subgraphs.map(sg => ({
-    start: sg.sourceStart,
-    end: sg.sourceEnd,
-    id: sg.id,
-    label: sg.label,
-  }));
+  const topSgRanges = ast.subgraphs
+    .filter(sg => sg.sourceEnd >= 0) // skip incomplete subgraphs (no 'end' yet)
+    .map(sg => ({
+      start: sg.sourceStart,
+      end: sg.sourceEnd,
+      id: sg.id,
+      label: sg.label,
+    }));
 
   // Edge deduplication for redirected cross-subgraph edges
   const emittedRedirectedEdges = new Set<string>();
@@ -727,7 +729,8 @@ function getTopLevelParent(sgId: string, ast: MermaidAST): string | null {
 
 /** Extract the arrow syntax from an edge line (e.g., "-->", "-.->", "==>"). */
 function extractArrow(rawLine: string): string {
-  const m = rawLine.match(/([-=.]+>|[-=.]+[->]+)/);
+  // Only match arrows that end with >, avoiding bare '--' matches
+  const m = rawLine.match(/([-=.]{2,}>)/);
   return m ? m[1] : "-->";
 }
 
