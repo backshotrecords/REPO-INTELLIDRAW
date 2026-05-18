@@ -270,11 +270,7 @@ function parseAllEdges(line: string): ParsedEdge[] {
   return edges;
 }
 
-/** Convenience: parse only the first edge from a line. */
-function parseEdge(line: string): ParsedEdge | null {
-  const all = parseAllEdges(line);
-  return all.length > 0 ? all[0] : null;
-}
+
 
 /** Check if a nodeId is defined inside a child subgraph (not at the current scope level). */
 function isInsideChildSubgraph(
@@ -816,12 +812,6 @@ function getTopLevelParent(sgId: string, ast: MermaidAST): string | null {
   return current.id;
 }
 
-/** Extract the arrow syntax from an edge line (e.g., "-->", "-.->", "==>"). */
-function extractArrow(rawLine: string): string {
-  // Only match arrows that end with >, avoiding bare '--' matches
-  const m = rawLine.match(/([-=.]{2,}>)/);
-  return m ? m[1] : "-->";
-}
 
 
 /**
