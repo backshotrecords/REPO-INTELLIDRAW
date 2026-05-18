@@ -426,6 +426,7 @@ export function getRootViewCode(ast: MermaidAST): string {
     if (edgeParsed) {
       const fromVisible = visibleAtRoot.has(edgeParsed.from);
       const toVisible = visibleAtRoot.has(edgeParsed.to);
+      console.log(`[DEBUG edge] "${trimmed}" from=${edgeParsed.from}(${fromVisible}) to=${edgeParsed.to}(${toVisible})`);
 
       if (fromVisible && toVisible) {
         // Both endpoints at root level — keep the original line as-is
