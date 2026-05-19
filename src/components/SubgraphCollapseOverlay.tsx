@@ -83,7 +83,11 @@ export default function SubgraphCollapseOverlay({
    */
   const scanSubgraphToggles = useCallback(() => {
     if (!diagramLayerRef.current || !parsedAST) {
+      listenerCleanupRef.current?.();
+      listenerCleanupRef.current = null;
+      targetsRef.current = [];
       setTogglePositions([]);
+      setVisibleToggleKey(null);
       return;
     }
 
@@ -192,6 +196,9 @@ export default function SubgraphCollapseOverlay({
 
     targetsRef.current = targets;
     setTogglePositions(positions);
+    if (positions.length === 0) {
+      setVisibleToggleKey(null);
+    }
 
     const hoveredTarget = targets.find(target => target.element.matches(":hover"));
     if (hoveredTarget && !isCanvasInteracting) {
@@ -201,10 +208,31 @@ export default function SubgraphCollapseOverlay({
 
   // Re-scan when the SVG re-renders (filteredCode changes) or transform changes
   useEffect(() => {
-    // Small delay to let Mermaid finish rendering
+    const raf = requestAnimationFrame(() => {
+      scanSubgraphToggles();
+    });
     const timer = setTimeout(scanSubgraphToggles, 150);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
   }, [filteredCode, scanSubgraphToggles]);
+
+  useEffect(() => {
+    const layerEl = diagramLayerRef.current;
+    if (!layerEl) return;
+
+    const observer = new MutationObserver(() => {
+      requestAnimationFrame(scanSubgraphToggles);
+    });
+
+    observer.observe(layerEl, {
+      childList: true,
+      subtree: true,
+    });
+
+    return () => observer.disconnect();
+  }, [diagramLayerRef, scanSubgraphToggles]);
 
   useEffect(() => {
     scanSubgraphToggles();
