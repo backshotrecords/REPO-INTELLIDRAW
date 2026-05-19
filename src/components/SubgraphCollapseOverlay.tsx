@@ -193,6 +193,11 @@ export default function SubgraphCollapseOverlay({
 
     targetsRef.current = targets;
     setTogglePositions(positions);
+
+    const hoveredTarget = targets.find(target => target.element.matches(":hover"));
+    if (hoveredTarget) {
+      showToggle(`${hoveredTarget.mode}-${hoveredTarget.subgraphId}`);
+    }
   }, [canvasRef, parsedAST, collapsedSubgraphIds, showToggle, hideToggle]);
 
   // Re-scan when the SVG re-renders (filteredCode changes) or transform changes
