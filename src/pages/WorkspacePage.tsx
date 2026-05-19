@@ -255,6 +255,7 @@ export default function WorkspacePage() {
   const [isWheeling, setIsWheeling] = useState(false); // disables transition during wheel input
   const lastPanPos = useRef({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
+  const diagramLayerRef = useRef<HTMLDivElement>(null);
   const codeOnEnterRef = useRef("");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitingRef = useRef(false);
@@ -1690,7 +1691,8 @@ export default function WorkspacePage() {
 
               {/* Rendered diagram */}
               <div
-                className="min-h-full w-full flex items-center justify-center"
+                ref={diagramLayerRef}
+                className="min-h-full w-full flex items-center justify-center relative"
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                   transformOrigin: "center center",
@@ -1707,28 +1709,25 @@ export default function WorkspacePage() {
                   boundaryNodeIds={boundaryNodeIds}
                   compoundNodeIds={compoundNodeIds}
                 />
-              </div>
 
-              {/* Floating collapse buttons for expanded subgraphs */}
-              <SubgraphCollapseOverlay
-                canvasRef={canvasRef}
-                parsedAST={parsedAST}
-                collapsedSubgraphIds={collapsedSubgraphIds}
-                onCollapse={(sgId) => {
-                  setCollapsedSubgraphIds(prev => new Set([...prev, sgId]));
-                }}
-                onExpand={(sgId) => {
-                  setCollapsedSubgraphIds(prev => {
-                    const next = new Set(prev);
-                    next.delete(sgId);
-                    return next;
-                  });
-                }}
-                panX={pan.x}
-                panY={pan.y}
-                zoom={zoom}
-                filteredCode={filteredCode}
-              />
+                {/* Floating expand/collapse buttons for subgraphs */}
+                <SubgraphCollapseOverlay
+                  diagramLayerRef={diagramLayerRef}
+                  parsedAST={parsedAST}
+                  collapsedSubgraphIds={collapsedSubgraphIds}
+                  onCollapse={(sgId) => {
+                    setCollapsedSubgraphIds(prev => new Set([...prev, sgId]));
+                  }}
+                  onExpand={(sgId) => {
+                    setCollapsedSubgraphIds(prev => {
+                      const next = new Set(prev);
+                      next.delete(sgId);
+                      return next;
+                    });
+                  }}
+                  filteredCode={filteredCode}
+                />
+              </div>
 
               {/* Skills Panel */}
               {canvasId && (

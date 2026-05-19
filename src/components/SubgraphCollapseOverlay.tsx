@@ -27,27 +27,21 @@ interface ToggleTarget {
 }
 
 interface SubgraphCollapseOverlayProps {
-  canvasRef: RefObject<HTMLDivElement | null>;
+  diagramLayerRef: RefObject<HTMLDivElement | null>;
   parsedAST: MermaidAST | null;
   collapsedSubgraphIds: Set<string>;
   onCollapse: (subgraphId: string) => void;
   onExpand: (subgraphId: string) => void;
-  panX: number;
-  panY: number;
-  zoom: number;
   /** Changes whenever the rendered SVG changes — triggers re-scan */
   filteredCode: string;
 }
 
 export default function SubgraphCollapseOverlay({
-  canvasRef,
+  diagramLayerRef,
   parsedAST,
   collapsedSubgraphIds,
   onCollapse,
   onExpand,
-  panX,
-  panY,
-  zoom,
   filteredCode,
 }: SubgraphCollapseOverlayProps) {
   const [togglePositions, setTogglePositions] = useState<TogglePosition[]>([]);
@@ -83,16 +77,16 @@ export default function SubgraphCollapseOverlay({
    * against our AST's subgraph labels to identify which cluster is which.
    */
   const scanSubgraphToggles = useCallback(() => {
-    if (!canvasRef.current || !parsedAST) {
+    if (!diagramLayerRef.current || !parsedAST) {
       setTogglePositions([]);
       return;
     }
 
-    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const layerRect = diagramLayerRef.current.getBoundingClientRect();
     const positions: TogglePosition[] = [];
     const targets: ToggleTarget[] = [];
 
-    const clusters = canvasRef.current.querySelectorAll(".cluster");
+    const clusters = diagramLayerRef.current.querySelectorAll(".cluster");
 
     // Build label → subgraph ID map for expanded subgraphs only
     const labelToSg = new Map<string, { id: string; label: string }>();
@@ -127,8 +121,8 @@ export default function SubgraphCollapseOverlay({
 
       // Get the cluster rect position relative to the canvas container
       const clusterRect = cluster.getBoundingClientRect();
-      const x = clusterRect.right - canvasRect.left - 8; // 8px padding from right edge
-      const y = clusterRect.top - canvasRect.top + 4;     // 4px from top edge
+      const x = clusterRect.right - layerRect.left - 8; // 8px padding from right edge
+      const y = clusterRect.top - layerRect.top + 4;    // 4px from top edge
 
       positions.push({
         subgraphId: matched.id,
@@ -144,7 +138,7 @@ export default function SubgraphCollapseOverlay({
       labelToSg.delete(normalizedLabel);
     });
 
-    const compoundNodes = canvasRef.current.querySelectorAll(".node.node-compound");
+    const compoundNodes = diagramLayerRef.current.querySelectorAll(".node.node-compound");
     compoundNodes.forEach(node => {
       const nodeId = extractNodeId((node as SVGElement).id || "");
       if (!nodeId || !collapsedSubgraphIds.has(nodeId)) return;
@@ -153,8 +147,8 @@ export default function SubgraphCollapseOverlay({
       if (!subgraph) return;
 
       const nodeRect = node.getBoundingClientRect();
-      const x = nodeRect.right - canvasRect.left - 8;
-      const y = nodeRect.top - canvasRect.top + 4;
+      const x = nodeRect.right - layerRect.left - 8;
+      const y = nodeRect.top - layerRect.top + 4;
 
       positions.push({
         subgraphId: nodeId,
@@ -198,7 +192,7 @@ export default function SubgraphCollapseOverlay({
     if (hoveredTarget) {
       showToggle(`${hoveredTarget.mode}-${hoveredTarget.subgraphId}`);
     }
-  }, [canvasRef, parsedAST, collapsedSubgraphIds, showToggle, hideToggle]);
+  }, [diagramLayerRef, parsedAST, collapsedSubgraphIds, showToggle, hideToggle]);
 
   // Re-scan when the SVG re-renders (filteredCode changes) or transform changes
   useEffect(() => {
@@ -206,11 +200,6 @@ export default function SubgraphCollapseOverlay({
     const timer = setTimeout(scanSubgraphToggles, 150);
     return () => clearTimeout(timer);
   }, [filteredCode, scanSubgraphToggles]);
-
-  // Also re-scan on pan/zoom changes (positions are relative to canvas)
-  useEffect(() => {
-    scanSubgraphToggles();
-  }, [panX, panY, zoom, scanSubgraphToggles]);
 
   useEffect(() => {
     return () => {
@@ -233,7 +222,7 @@ export default function SubgraphCollapseOverlay({
           style={{
             left: `${pos.x}px`,
             top: `${pos.y}px`,
-            transform: `translateX(-100%) scale(${zoom})`, // anchor right edge to x position
+            transform: "translateX(-100%)", // anchor right edge to x position
             transformOrigin: "top right",
           }}
           onPointerMove={() => showToggle(`${pos.mode}-${pos.subgraphId}`)}
