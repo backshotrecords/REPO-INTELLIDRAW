@@ -54,6 +54,7 @@ export default function SubgraphCollapseOverlay({
   const [visibleToggleKey, setVisibleToggleKey] = useState<string | null>(null);
   const targetsRef = useRef<ToggleTarget[]>([]);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listenerCleanupRef = useRef<(() => void) | null>(null);
 
   const clearIdleTimer = useCallback(() => {
     if (idleTimerRef.current) {
@@ -69,6 +70,11 @@ export default function SubgraphCollapseOverlay({
       setVisibleToggleKey(null);
       idleTimerRef.current = null;
     }, 3000);
+  }, [clearIdleTimer]);
+
+  const hideToggle = useCallback(() => {
+    setVisibleToggleKey(null);
+    clearIdleTimer();
   }, [clearIdleTimer]);
 
   /**
@@ -160,9 +166,34 @@ export default function SubgraphCollapseOverlay({
       targets.push({ subgraphId: nodeId, mode: "expand", element: node });
     });
 
+    listenerCleanupRef.current?.();
+    const cleanups = targets.map((target) => {
+      const key = `${target.mode}-${target.subgraphId}`;
+      const handlePointerEnter = () => showToggle(key);
+      const handlePointerMove = () => showToggle(key);
+      const handlePointerLeave = (event: Event) => {
+        const nextTarget = (event as PointerEvent).relatedTarget;
+        if (nextTarget instanceof Element && nextTarget.closest(".subgraph-toggle-btn")) {
+          return;
+        }
+        hideToggle();
+      };
+
+      target.element.addEventListener("pointerenter", handlePointerEnter);
+      target.element.addEventListener("pointermove", handlePointerMove);
+      target.element.addEventListener("pointerleave", handlePointerLeave);
+
+      return () => {
+        target.element.removeEventListener("pointerenter", handlePointerEnter);
+        target.element.removeEventListener("pointermove", handlePointerMove);
+        target.element.removeEventListener("pointerleave", handlePointerLeave);
+      };
+    });
+    listenerCleanupRef.current = () => cleanups.forEach(cleanup => cleanup());
+
     targetsRef.current = targets;
     setTogglePositions(positions);
-  }, [canvasRef, parsedAST, collapsedSubgraphIds]);
+  }, [canvasRef, parsedAST, collapsedSubgraphIds, showToggle, hideToggle]);
 
   // Re-scan when the SVG re-renders (filteredCode changes) or transform changes
   useEffect(() => {
@@ -177,59 +208,11 @@ export default function SubgraphCollapseOverlay({
   }, [panX, panY, zoom, scanSubgraphToggles]);
 
   useEffect(() => {
-    const canvasEl = canvasRef.current;
-    if (!canvasEl || togglePositions.length === 0) return;
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const eventTarget = event.target instanceof Element ? event.target : null;
-
-      if (eventTarget?.closest(".subgraph-toggle-btn")) {
-        return;
-      }
-
-      const target = targetsRef.current.find((entry) => {
-        const rect = entry.element.getBoundingClientRect();
-        if (
-          event.clientX < rect.left ||
-          event.clientX > rect.right ||
-          event.clientY < rect.top ||
-          event.clientY > rect.bottom
-        ) {
-          return false;
-        }
-
-        if (entry.mode === "collapse") {
-          const hoveredNode = eventTarget?.closest(".node");
-          return !hoveredNode;
-        }
-
-        return eventTarget?.closest(".node.node-compound") === entry.element;
-      });
-
-      if (target) {
-        showToggle(`${target.mode}-${target.subgraphId}`);
-      } else if (!canvasEl.querySelector(".subgraph-toggle-btn:hover")) {
-        setVisibleToggleKey(null);
-        clearIdleTimer();
-      }
-    };
-
-    const handlePointerLeave = () => {
-      setVisibleToggleKey(null);
+    return () => {
+      listenerCleanupRef.current?.();
+      listenerCleanupRef.current = null;
       clearIdleTimer();
     };
-
-    canvasEl.addEventListener("pointermove", handlePointerMove);
-    canvasEl.addEventListener("pointerleave", handlePointerLeave);
-
-    return () => {
-      canvasEl.removeEventListener("pointermove", handlePointerMove);
-      canvasEl.removeEventListener("pointerleave", handlePointerLeave);
-    };
-  }, [canvasRef, togglePositions.length, showToggle, clearIdleTimer]);
-
-  useEffect(() => {
-    return () => clearIdleTimer();
   }, [clearIdleTimer]);
 
   if (togglePositions.length === 0) return null;
