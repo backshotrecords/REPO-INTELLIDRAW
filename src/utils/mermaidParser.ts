@@ -611,18 +611,16 @@ export function getRootViewWithCollapseState(
   const output: string[] = [];
   const compoundNodeIds: string[] = [];
 
-  // Build visibility set: root nodes + collapsed compound IDs + all nodes inside expanded subgraphs
+  // Build visibility set: root nodes + collapsed compound IDs + visible nodes inside expanded subgraphs
   const visibleNodes = new Set(ast.rootNodes);
   for (const sg of ast.subgraphs) {
     if (collapsedSubgraphIds.has(sg.id)) {
       visibleNodes.add(sg.id); // compound node
       compoundNodeIds.push(sg.id);
     } else {
-      // Expanded: add all nodes recursively inside this subgraph
-      for (const nid of getAllNodesInSubgraph(sg, ast.allSubgraphsFlat)) {
-        visibleNodes.add(nid);
-      }
+      // Expanded: add nodes, but respect nested collapsed subgraphs
       visibleNodes.add(sg.id); // subgraph ID itself
+      addVisibleNodesRecursive(sg, collapsedSubgraphIds, visibleNodes, compoundNodeIds, ast.allSubgraphsFlat);
     }
   }
 
@@ -658,14 +656,42 @@ export function getRootViewWithCollapseState(
       continue;
     }
 
-    // If inside an EXPANDED subgraph, pass through unchanged
+    // If inside an EXPANDED subgraph, check for nested collapsed children
     // (but skip if inside a COLLAPSED subgraph — it was already handled)
     const containingSg = topSgRanges.find(r => i > r.start && i <= r.end);
     if (containingSg) {
       if (containingSg.collapsed) {
         continue; // already emitted as compound node
       }
-      // Inside expanded subgraph — pass through
+      // Inside expanded subgraph — check if this line starts a nested subgraph
+      // that should be collapsed
+      const nestedSg = ast.allSubgraphsFlat.get(
+        [...ast.allSubgraphsFlat.values()].find(
+          sg => sg.sourceStart === i && collapsedSubgraphIds.has(sg.id)
+        )?.id || ''
+      );
+      if (nestedSg && collapsedSubgraphIds.has(nestedSg.id)) {
+        // Nested subgraph is collapsed — emit compound node and skip to end
+        const safeLabel = nestedSg.label.replace(/"/g, "'");
+        output.push(`    ${nestedSg.id}["\uD83D\uDCC2 ${safeLabel}"]`);
+        i = nestedSg.sourceEnd;
+        continue;
+      }
+      // Check if we're inside a nested collapsed subgraph (deeper than start line)
+      // i.e., this line is between a collapsed nested subgraph's start+1 and end
+      let insideCollapsedNested = false;
+      for (const sg of ast.allSubgraphsFlat.values()) {
+        if (sg.id === containingSg.id) continue; // skip the parent
+        if (collapsedSubgraphIds.has(sg.id) &&
+            i > sg.sourceStart && i <= sg.sourceEnd) {
+          insideCollapsedNested = true;
+          break;
+        }
+      }
+      if (insideCollapsedNested) {
+        continue; // skip — inside a collapsed nested subgraph
+      }
+      // Pass through line unchanged
       output.push(ast.lines[i]);
       continue;
     }
@@ -972,6 +998,36 @@ export function extractScopeCode(ast: MermaidAST, scopeId: string): string {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
+
+/**
+ * Recursively add visible nodes from a subgraph, stopping at collapsed children.
+ * Collapsed children become compound node IDs; expanded children recurse.
+ */
+function addVisibleNodesRecursive(
+  sg: SubgraphNode,
+  collapsedSubgraphIds: Set<string>,
+  visibleNodes: Set<string>,
+  compoundNodeIds: string[],
+  allFlat: Map<string, SubgraphNode>
+): void {
+  // Add direct nodes of this subgraph
+  for (const nid of sg.directNodes) {
+    visibleNodes.add(nid);
+  }
+  // Process children
+  for (const child of sg.children) {
+    if (collapsedSubgraphIds.has(child.id)) {
+      // Collapsed child → compound node
+      visibleNodes.add(child.id);
+      compoundNodeIds.push(child.id);
+    } else {
+      // Expanded child → recurse
+      visibleNodes.add(child.id);
+      addVisibleNodesRecursive(child, collapsedSubgraphIds, visibleNodes, compoundNodeIds, allFlat);
+    }
+  }
+}
+
 
 /** Check if a line index falls inside any subgraph. */
 function isLineInsideSubgraph(lineIdx: number, ast: MermaidAST): boolean {

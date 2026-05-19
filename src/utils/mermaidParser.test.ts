@@ -138,4 +138,35 @@ describe('getRootViewWithCollapseState', () => {
     const tildeLines = lines.filter(l => l.includes('~~~'));
     expect(tildeLines).toHaveLength(0);
   });
+
+  it('T9: nested subgraph respects collapse state when parent is expanded', () => {
+    const nestedFlowchart = `flowchart TD
+    R[Root]
+    subgraph Outer [Outer Group]
+        O1[Outer Node]
+        subgraph Inner [Inner Group]
+            I1[Inner Node]
+            I2[Inner Node 2]
+            I1 --> I2
+        end
+        O1 --> I1
+    end
+    R --> O1`;
+
+    const ast = parseMermaidAST(nestedFlowchart);
+    // Outer expanded, Inner collapsed
+    const result = getRootViewWithCollapseState(ast, new Set(['Inner']));
+
+    // Inner should be a compound node
+    expect(result.code).toContain('Inner["📂 Inner Group"]');
+    expect(result.compoundNodeIds).toContain('Inner');
+
+    // Outer's subgraph block should be present
+    expect(result.code).toContain('subgraph Outer');
+    expect(result.code).toContain('O1[Outer Node]');
+
+    // Inner's actual nodes should NOT be present (they're inside the collapsed group)
+    expect(result.code).not.toContain('I1[Inner Node]');
+    expect(result.code).not.toContain('I2[Inner Node 2]');
+  });
 });
