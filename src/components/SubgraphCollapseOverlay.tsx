@@ -5,7 +5,7 @@
  * elements, matches them to known subgraph IDs via label text, and positions small
  * floating "collapse" buttons near each expanded subgraph's header.
  */
-import { RefObject, useEffect, useState, useCallback } from "react";
+import { type RefObject, useEffect, useState, useCallback } from "react";
 import type { MermaidAST } from "../utils/mermaidParser";
 
 interface ClusterPosition {

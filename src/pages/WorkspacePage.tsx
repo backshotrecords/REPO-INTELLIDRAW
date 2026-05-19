@@ -13,7 +13,7 @@ import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiCha
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { fetchChatSettings } from "../lib/chatSettings";
-import { parseMermaidAST, getRootViewCode, getScopeViewCode, getRootViewWithCollapseState, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope } from "../utils/mermaidParser";
+import { parseMermaidAST, getScopeViewCode, getRootViewWithCollapseState, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope } from "../utils/mermaidParser";
 import type { MermaidAST } from "../utils/mermaidParser";
 import type { ChatMessage, CanvasCommit } from "../types";
 
