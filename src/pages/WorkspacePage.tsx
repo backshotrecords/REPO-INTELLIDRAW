@@ -253,6 +253,7 @@ export default function WorkspacePage() {
   const isPanningRef = useRef(false);
   const [isPanningVisual, setIsPanningVisual] = useState(false); // drives cursor style only
   const [isWheeling, setIsWheeling] = useState(false); // disables transition during wheel input
+  const [isPinchingVisual, setIsPinchingVisual] = useState(false);
   const lastPanPos = useRef({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
   const diagramLayerRef = useRef<HTMLDivElement>(null);
@@ -1210,11 +1211,13 @@ export default function WorkspacePage() {
       // Single pointer — start panning
       isPanningRef.current = true;
       setIsPanningVisual(true);
+      setIsPinchingVisual(false);
       lastPanPos.current = { x: e.clientX, y: e.clientY };
     } else if (activePointers.current.size === 2) {
       // Second pointer — switch to pinch, cancel pan
       isPanningRef.current = false;
       setIsPanningVisual(false);
+      setIsPinchingVisual(true);
       lastPinchDist.current = getPointerDist();
     }
   };
@@ -1283,6 +1286,7 @@ export default function WorkspacePage() {
     activePointers.current.delete(e.pointerId);
     if (activePointers.current.size < 2) {
       lastPinchDist.current = null;
+      setIsPinchingVisual(false);
     }
     if (activePointers.current.size === 0) {
       isPanningRef.current = false;
@@ -1696,7 +1700,7 @@ export default function WorkspacePage() {
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                   transformOrigin: "center center",
-                  transition: (isPanningVisual || isWheeling) ? "none" : "transform 0.1s ease-out",
+                  transition: (isPanningVisual || isWheeling || isPinchingVisual) ? "none" : "transform 0.1s ease-out",
                 }}
               >
                 <MermaidRenderer
@@ -1727,7 +1731,7 @@ export default function WorkspacePage() {
                   }}
                   filteredCode={filteredCode}
                   zoom={zoom}
-                  isPanning={isPanningVisual}
+                  isCanvasInteracting={isPanningVisual || isWheeling || isPinchingVisual}
                 />
               </div>
 

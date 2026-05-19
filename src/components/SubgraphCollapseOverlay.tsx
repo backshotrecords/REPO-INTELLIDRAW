@@ -33,7 +33,7 @@ interface SubgraphCollapseOverlayProps {
   onCollapse: (subgraphId: string) => void;
   onExpand: (subgraphId: string) => void;
   zoom: number;
-  isPanning: boolean;
+  isCanvasInteracting: boolean;
   /** Changes whenever the rendered SVG changes — triggers re-scan */
   filteredCode: string;
 }
@@ -45,7 +45,7 @@ export default function SubgraphCollapseOverlay({
   onCollapse,
   onExpand,
   zoom,
-  isPanning,
+  isCanvasInteracting,
   filteredCode,
 }: SubgraphCollapseOverlayProps) {
   const [togglePositions, setTogglePositions] = useState<TogglePosition[]>([]);
@@ -62,14 +62,14 @@ export default function SubgraphCollapseOverlay({
   }, []);
 
   const showToggle = useCallback((key: string) => {
-    if (isPanning) return;
+    if (isCanvasInteracting) return;
     setVisibleToggleKey(key);
     clearIdleTimer();
     idleTimerRef.current = setTimeout(() => {
       setVisibleToggleKey(null);
       idleTimerRef.current = null;
     }, 3000);
-  }, [clearIdleTimer, isPanning]);
+  }, [clearIdleTimer, isCanvasInteracting]);
 
   const hideToggle = useCallback(() => {
     setVisibleToggleKey(null);
@@ -194,10 +194,10 @@ export default function SubgraphCollapseOverlay({
     setTogglePositions(positions);
 
     const hoveredTarget = targets.find(target => target.element.matches(":hover"));
-    if (hoveredTarget && !isPanning) {
+    if (hoveredTarget && !isCanvasInteracting) {
       showToggle(`${hoveredTarget.mode}-${hoveredTarget.subgraphId}`);
     }
-  }, [diagramLayerRef, parsedAST, collapsedSubgraphIds, zoom, isPanning, showToggle, hideToggle]);
+  }, [diagramLayerRef, parsedAST, collapsedSubgraphIds, zoom, isCanvasInteracting, showToggle, hideToggle]);
 
   // Re-scan when the SVG re-renders (filteredCode changes) or transform changes
   useEffect(() => {
@@ -211,13 +211,13 @@ export default function SubgraphCollapseOverlay({
   }, [zoom, scanSubgraphToggles]);
 
   useEffect(() => {
-    if (isPanning) {
+    if (isCanvasInteracting) {
       hideToggle();
       return;
     }
 
     scanSubgraphToggles();
-  }, [isPanning, hideToggle, scanSubgraphToggles]);
+  }, [isCanvasInteracting, hideToggle, scanSubgraphToggles]);
 
   useEffect(() => {
     return () => {
