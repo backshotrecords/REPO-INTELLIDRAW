@@ -17,7 +17,7 @@ interface ClusterPosition {
 }
 
 interface SubgraphCollapseOverlayProps {
-  canvasRef: RefObject<HTMLDivElement>;
+  canvasRef: RefObject<HTMLDivElement | null>;
   parsedAST: MermaidAST | null;
   collapsedSubgraphIds: Set<string>;
   onCollapse: (subgraphId: string) => void;
