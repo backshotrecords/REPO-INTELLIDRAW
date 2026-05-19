@@ -964,22 +964,9 @@ export default function WorkspacePage() {
           label: "Add to context",
           onClick: handleAddNodeSelection,
         },
-        // Collapsed compound node → Expand Here + Open Group
+        // Collapsed compound node → Open Group (expand lives on the canvas toggle)
         ...(isCompoundNode && isCollapsedNode
           ? [
-              {
-                id: "expand-here",
-                icon: "unfold_more",
-                label: "Expand here",
-                onClick: () => {
-                  setCollapsedSubgraphIds(prev => {
-                    const next = new Set(prev);
-                    next.delete(activeNode.id);
-                    return next;
-                  });
-                  setActiveNode(null);
-                },
-              },
               {
                 id: "open-group",
                 icon: "open_in_full",
@@ -1729,6 +1716,13 @@ export default function WorkspacePage() {
                 collapsedSubgraphIds={collapsedSubgraphIds}
                 onCollapse={(sgId) => {
                   setCollapsedSubgraphIds(prev => new Set([...prev, sgId]));
+                }}
+                onExpand={(sgId) => {
+                  setCollapsedSubgraphIds(prev => {
+                    const next = new Set(prev);
+                    next.delete(sgId);
+                    return next;
+                  });
                 }}
                 panX={pan.x}
                 panY={pan.y}

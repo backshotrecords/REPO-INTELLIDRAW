@@ -1,16 +1,20 @@
 /**
- * SubgraphCollapseOverlay — renders floating collapse buttons near each expanded subgraph.
+ * SubgraphCollapseOverlay — renders floating expand/collapse toggles for subgraphs.
  *
- * After MermaidRenderer renders SVG, this component scans the canvas for `.cluster`
- * elements, matches them to known subgraph IDs via label text, and positions small
- * floating "collapse" buttons near each expanded subgraph's header.
+ * After MermaidRenderer renders SVG, this component scans the canvas for expanded
+ * `.cluster` elements and collapsed `.node-compound` elements, then positions a
+ * floating toggle near each group.
  */
 import { type RefObject, useEffect, useState, useCallback } from "react";
+import { extractNodeId } from "./MermaidRenderer";
 import type { MermaidAST } from "../utils/mermaidParser";
 
-interface ClusterPosition {
+type ToggleMode = "expand" | "collapse";
+
+interface TogglePosition {
   subgraphId: string;
   label: string;
+  mode: ToggleMode;
   /** Position relative to the canvas container */
   x: number;
   y: number;
@@ -21,6 +25,7 @@ interface SubgraphCollapseOverlayProps {
   parsedAST: MermaidAST | null;
   collapsedSubgraphIds: Set<string>;
   onCollapse: (subgraphId: string) => void;
+  onExpand: (subgraphId: string) => void;
   panX: number;
   panY: number;
   zoom: number;
@@ -33,29 +38,29 @@ export default function SubgraphCollapseOverlay({
   parsedAST,
   collapsedSubgraphIds,
   onCollapse,
+  onExpand,
   panX,
   panY,
   zoom,
   filteredCode,
 }: SubgraphCollapseOverlayProps) {
-  const [clusterPositions, setClusterPositions] = useState<ClusterPosition[]>([]);
+  const [togglePositions, setTogglePositions] = useState<TogglePosition[]>([]);
 
   /**
    * Build a reverse lookup: label text → subgraph ID.
    * Mermaid cluster labels contain the subgraph's display label, which we match
    * against our AST's subgraph labels to identify which cluster is which.
    */
-  const scanClusters = useCallback(() => {
+  const scanSubgraphToggles = useCallback(() => {
     if (!canvasRef.current || !parsedAST) {
-      setClusterPositions([]);
+      setTogglePositions([]);
       return;
     }
 
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const positions: TogglePosition[] = [];
+
     const clusters = canvasRef.current.querySelectorAll(".cluster");
-    if (!clusters.length) {
-      setClusterPositions([]);
-      return;
-    }
 
     // Build label → subgraph ID map for expanded subgraphs only
     const labelToSg = new Map<string, { id: string; label: string }>();
@@ -66,9 +71,6 @@ export default function SubgraphCollapseOverlay({
         labelToSg.set(normalizedLabel, { id: sg.id, label: sg.label });
       }
     }
-
-    const canvasRect = canvasRef.current.getBoundingClientRect();
-    const positions: ClusterPosition[] = [];
 
     clusters.forEach(cluster => {
       // Try to match this cluster to a known subgraph by checking its label text
@@ -99,6 +101,7 @@ export default function SubgraphCollapseOverlay({
       positions.push({
         subgraphId: matched.id,
         label: matched.label,
+        mode: "collapse",
         x,
         y,
       });
@@ -108,29 +111,50 @@ export default function SubgraphCollapseOverlay({
       labelToSg.delete(normalizedLabel);
     });
 
-    setClusterPositions(positions);
+    const compoundNodes = canvasRef.current.querySelectorAll(".node.node-compound");
+    compoundNodes.forEach(node => {
+      const nodeId = extractNodeId((node as SVGElement).id || "");
+      if (!nodeId || !collapsedSubgraphIds.has(nodeId)) return;
+
+      const subgraph = parsedAST.allSubgraphsFlat.get(nodeId);
+      if (!subgraph) return;
+
+      const nodeRect = node.getBoundingClientRect();
+      const x = nodeRect.right - canvasRect.left - 8;
+      const y = nodeRect.top - canvasRect.top + 4;
+
+      positions.push({
+        subgraphId: nodeId,
+        label: subgraph.label,
+        mode: "expand",
+        x,
+        y,
+      });
+    });
+
+    setTogglePositions(positions);
   }, [canvasRef, parsedAST, collapsedSubgraphIds]);
 
   // Re-scan when the SVG re-renders (filteredCode changes) or transform changes
   useEffect(() => {
     // Small delay to let Mermaid finish rendering
-    const timer = setTimeout(scanClusters, 150);
+    const timer = setTimeout(scanSubgraphToggles, 150);
     return () => clearTimeout(timer);
-  }, [filteredCode, scanClusters]);
+  }, [filteredCode, scanSubgraphToggles]);
 
   // Also re-scan on pan/zoom changes (positions are relative to canvas)
   useEffect(() => {
-    scanClusters();
-  }, [panX, panY, zoom, scanClusters]);
+    scanSubgraphToggles();
+  }, [panX, panY, zoom, scanSubgraphToggles]);
 
-  if (clusterPositions.length === 0) return null;
+  if (togglePositions.length === 0) return null;
 
   return (
     <div className="subgraph-collapse-overlay">
-      {clusterPositions.map((pos) => (
+      {togglePositions.map((pos) => (
         <button
-          key={pos.subgraphId}
-          className="subgraph-collapse-btn"
+          key={`${pos.mode}-${pos.subgraphId}`}
+          className={`subgraph-toggle-btn subgraph-toggle-btn-${pos.mode}`}
           style={{
             left: `${pos.x}px`,
             top: `${pos.y}px`,
@@ -138,12 +162,48 @@ export default function SubgraphCollapseOverlay({
           }}
           onClick={(e) => {
             e.stopPropagation();
-            onCollapse(pos.subgraphId);
+            if (pos.mode === "collapse") {
+              onCollapse(pos.subgraphId);
+            } else {
+              onExpand(pos.subgraphId);
+            }
           }}
-          title={`Collapse "${pos.label}"`}
+          aria-label={`${pos.mode === "collapse" ? "Collapse" : "Expand"} ${pos.label}`}
+          title={`${pos.mode === "collapse" ? "Collapse" : "Expand"} "${pos.label}"`}
         >
-          <span className="material-symbols-outlined collapse-icon">unfold_less</span>
-          <span className="collapse-label">{pos.label}</span>
+          {pos.mode === "collapse" ? (
+            <svg
+              className="subgraph-toggle-icon"
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+            </svg>
+          ) : (
+            <svg
+              className="subgraph-toggle-icon"
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+            </svg>
+          )}
         </button>
       ))}
     </div>
