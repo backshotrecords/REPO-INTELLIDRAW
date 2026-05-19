@@ -1,15 +1,17 @@
 /**
  * SubgraphCollapseOverlay — renders floating expand/collapse toggles for subgraphs.
  *
- * After MermaidRenderer renders SVG, this component scans the canvas for expanded
- * `.cluster` elements and collapsed `.node-compound` elements, then positions a
- * floating toggle near each group.
+ * This component only defines which Mermaid elements get a toggle and how the
+ * toggle renders. Hover/listener/gesture plumbing lives in useHoverOverlayTargets.
  */
-import { type RefObject, useEffect, useRef, useState, useCallback } from "react";
+import { type RefObject, useCallback } from "react";
+import { useHoverOverlayTargets, type HoverOverlayTarget } from "../hooks/useHoverOverlayTargets";
 import { extractNodeId } from "./MermaidRenderer";
 import type { MermaidAST } from "../utils/mermaidParser";
 
 type ToggleMode = "expand" | "collapse";
+const TOGGLE_SIZE = 16;
+const TOGGLE_CORNER_OVERLAP = 4;
 
 interface TogglePosition {
   subgraphId: string;
@@ -18,12 +20,6 @@ interface TogglePosition {
   /** Position relative to the canvas container */
   x: number;
   y: number;
-}
-
-interface ToggleTarget {
-  subgraphId: string;
-  mode: ToggleMode;
-  element: Element;
 }
 
 interface SubgraphCollapseOverlayProps {
@@ -48,54 +44,18 @@ export default function SubgraphCollapseOverlay({
   isCanvasInteracting,
   filteredCode,
 }: SubgraphCollapseOverlayProps) {
-  const [togglePositions, setTogglePositions] = useState<TogglePosition[]>([]);
-  const [visibleToggleKey, setVisibleToggleKey] = useState<string | null>(null);
-  const targetsRef = useRef<ToggleTarget[]>([]);
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listenerCleanupRef = useRef<(() => void) | null>(null);
-
-  const clearIdleTimer = useCallback(() => {
-    if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = null;
-    }
-  }, []);
-
-  const showToggle = useCallback((key: string) => {
-    if (isCanvasInteracting) return;
-    setVisibleToggleKey(key);
-    clearIdleTimer();
-    idleTimerRef.current = setTimeout(() => {
-      setVisibleToggleKey(null);
-      idleTimerRef.current = null;
-    }, 3000);
-  }, [clearIdleTimer, isCanvasInteracting]);
-
-  const hideToggle = useCallback(() => {
-    setVisibleToggleKey(null);
-    clearIdleTimer();
-  }, [clearIdleTimer]);
-
   /**
    * Build a reverse lookup: label text → subgraph ID.
    * Mermaid cluster labels contain the subgraph's display label, which we match
    * against our AST's subgraph labels to identify which cluster is which.
    */
-  const scanSubgraphToggles = useCallback(() => {
-    if (!diagramLayerRef.current || !parsedAST) {
-      listenerCleanupRef.current?.();
-      listenerCleanupRef.current = null;
-      targetsRef.current = [];
-      setTogglePositions([]);
-      setVisibleToggleKey(null);
-      return;
-    }
+  const scanSubgraphToggles = useCallback((layerEl: HTMLElement): HoverOverlayTarget<TogglePosition>[] => {
+    if (!parsedAST) return [];
 
-    const layerRect = diagramLayerRef.current.getBoundingClientRect();
-    const positions: TogglePosition[] = [];
-    const targets: ToggleTarget[] = [];
+    const layerRect = layerEl.getBoundingClientRect();
+    const targets: HoverOverlayTarget<TogglePosition>[] = [];
 
-    const clusters = diagramLayerRef.current.querySelectorAll(".cluster");
+    const clusters = layerEl.querySelectorAll(".cluster");
 
     // Build label → subgraph ID map for expanded subgraphs only
     const labelToSg = new Map<string, { id: string; label: string }>();
@@ -130,24 +90,27 @@ export default function SubgraphCollapseOverlay({
 
       // Get the cluster rect position relative to the canvas container
       const clusterRect = cluster.getBoundingClientRect();
-      const x = (clusterRect.right - layerRect.left) / zoom - 8; // 8px padding from right edge
-      const y = (clusterRect.top - layerRect.top) / zoom + 4;    // 4px from top edge
+      const x = (clusterRect.right - layerRect.left) / zoom + TOGGLE_SIZE - TOGGLE_CORNER_OVERLAP;
+      const y = (clusterRect.top - layerRect.top) / zoom - TOGGLE_SIZE + TOGGLE_CORNER_OVERLAP;
 
-      positions.push({
-        subgraphId: matched.id,
-        label: matched.label,
-        mode: "collapse",
-        x,
-        y,
+      targets.push({
+        key: `collapse-${matched.id}`,
+        element: cluster,
+        data: {
+          subgraphId: matched.id,
+          label: matched.label,
+          mode: "collapse",
+          x,
+          y,
+        },
       });
-      targets.push({ subgraphId: matched.id, mode: "collapse", element: cluster });
 
       // Remove from map to avoid duplicate matches
       const normalizedLabel = matched.label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim().toLowerCase();
       labelToSg.delete(normalizedLabel);
     });
 
-    const compoundNodes = diagramLayerRef.current.querySelectorAll(".node.node-compound");
+    const compoundNodes = layerEl.querySelectorAll(".node.node-compound");
     compoundNodes.forEach(node => {
       const nodeId = extractNodeId((node as SVGElement).id || "");
       if (!nodeId || !collapsedSubgraphIds.has(nodeId)) return;
@@ -156,122 +119,50 @@ export default function SubgraphCollapseOverlay({
       if (!subgraph) return;
 
       const nodeRect = node.getBoundingClientRect();
-      const x = (nodeRect.right - layerRect.left) / zoom - 8;
-      const y = (nodeRect.top - layerRect.top) / zoom + 4;
+      const x = (nodeRect.right - layerRect.left) / zoom + TOGGLE_SIZE - TOGGLE_CORNER_OVERLAP;
+      const y = (nodeRect.top - layerRect.top) / zoom - TOGGLE_SIZE + TOGGLE_CORNER_OVERLAP;
 
-      positions.push({
-        subgraphId: nodeId,
-        label: subgraph.label,
-        mode: "expand",
-        x,
-        y,
+      targets.push({
+        key: `expand-${nodeId}`,
+        element: node,
+        data: {
+          subgraphId: nodeId,
+          label: subgraph.label,
+          mode: "expand",
+          x,
+          y,
+        },
       });
-      targets.push({ subgraphId: nodeId, mode: "expand", element: node });
     });
 
-    listenerCleanupRef.current?.();
-    const cleanups = targets.map((target) => {
-      const key = `${target.mode}-${target.subgraphId}`;
-      const handlePointerEnter = () => showToggle(key);
-      const handlePointerMove = () => showToggle(key);
-      const handlePointerLeave = (event: Event) => {
-        const nextTarget = (event as PointerEvent).relatedTarget;
-        if (nextTarget instanceof Element && nextTarget.closest(".subgraph-toggle-btn")) {
-          return;
-        }
-        hideToggle();
-      };
+    return targets;
+  }, [parsedAST, collapsedSubgraphIds, zoom]);
 
-      target.element.addEventListener("pointerenter", handlePointerEnter);
-      target.element.addEventListener("pointermove", handlePointerMove);
-      target.element.addEventListener("pointerleave", handlePointerLeave);
+  const { targets, visibleKey, showTarget } = useHoverOverlayTargets<TogglePosition>({
+    layerRef: diagramLayerRef,
+    isInteractionSuppressed: isCanvasInteracting,
+    scanTargets: scanSubgraphToggles,
+    rescanDeps: [filteredCode, zoom],
+  });
 
-      return () => {
-        target.element.removeEventListener("pointerenter", handlePointerEnter);
-        target.element.removeEventListener("pointermove", handlePointerMove);
-        target.element.removeEventListener("pointerleave", handlePointerLeave);
-      };
-    });
-    listenerCleanupRef.current = () => cleanups.forEach(cleanup => cleanup());
-
-    targetsRef.current = targets;
-    setTogglePositions(positions);
-    if (positions.length === 0) {
-      setVisibleToggleKey(null);
-    }
-
-    const hoveredTarget = targets.find(target => target.element.matches(":hover"));
-    if (hoveredTarget && !isCanvasInteracting) {
-      showToggle(`${hoveredTarget.mode}-${hoveredTarget.subgraphId}`);
-    }
-  }, [diagramLayerRef, parsedAST, collapsedSubgraphIds, zoom, isCanvasInteracting, showToggle, hideToggle]);
-
-  // Re-scan when the SVG re-renders (filteredCode changes) or transform changes
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => {
-      scanSubgraphToggles();
-    });
-    const timer = setTimeout(scanSubgraphToggles, 150);
-    return () => {
-      cancelAnimationFrame(raf);
-      clearTimeout(timer);
-    };
-  }, [filteredCode, scanSubgraphToggles]);
-
-  useEffect(() => {
-    const layerEl = diagramLayerRef.current;
-    if (!layerEl) return;
-
-    const observer = new MutationObserver(() => {
-      requestAnimationFrame(scanSubgraphToggles);
-    });
-
-    observer.observe(layerEl, {
-      childList: true,
-      subtree: true,
-    });
-
-    return () => observer.disconnect();
-  }, [diagramLayerRef, scanSubgraphToggles]);
-
-  useEffect(() => {
-    scanSubgraphToggles();
-  }, [zoom, scanSubgraphToggles]);
-
-  useEffect(() => {
-    if (isCanvasInteracting) {
-      hideToggle();
-      return;
-    }
-
-    scanSubgraphToggles();
-  }, [isCanvasInteracting, hideToggle, scanSubgraphToggles]);
-
-  useEffect(() => {
-    return () => {
-      listenerCleanupRef.current?.();
-      listenerCleanupRef.current = null;
-      clearIdleTimer();
-    };
-  }, [clearIdleTimer]);
-
-  if (togglePositions.length === 0) return null;
+  if (targets.length === 0) return null;
 
   return (
     <div className="subgraph-collapse-overlay">
-      {togglePositions.map((pos) => (
+      {targets.map(({ key, data: pos }) => (
         <button
-          key={`${pos.mode}-${pos.subgraphId}`}
+          key={key}
           className={`subgraph-toggle-btn subgraph-toggle-btn-${pos.mode} ${
-            visibleToggleKey === `${pos.mode}-${pos.subgraphId}` ? "subgraph-toggle-btn-visible" : ""
+            visibleKey === key ? "subgraph-toggle-btn-visible" : ""
           }`}
+          data-hover-overlay-control="true"
           style={{
             left: `${pos.x}px`,
             top: `${pos.y}px`,
             transform: "translateX(-100%)", // anchor right edge to x position
             transformOrigin: "top right",
           }}
-          onPointerMove={() => showToggle(`${pos.mode}-${pos.subgraphId}`)}
+          onPointerMove={() => showTarget(key)}
           onClick={(e) => {
             e.stopPropagation();
             if (pos.mode === "collapse") {
