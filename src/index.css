@@ -1428,6 +1428,81 @@
   stroke-width: 2.5px !important;
 }
 
+/* ======================================
+   Expanded Subgraph Cluster Interactivity
+   ====================================== */
+
+/* Make cluster backgrounds hint at interactivity */
+.mermaid-container .cluster rect {
+  transition: filter 0.2s ease, stroke 0.2s ease;
+}
+
+/* Subtle hover glow on cluster border */
+.mermaid-container .cluster:hover > rect {
+  filter: brightness(1.03) drop-shadow(0 0 6px rgba(99, 102, 241, 0.15));
+}
+
+/* ======================================
+   Subgraph Collapse Overlay Buttons
+   ====================================== */
+
+.subgraph-collapse-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 25;
+}
+
+.subgraph-collapse-btn {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px 2px 4px;
+  border-radius: 12px;
+  border: none;
+  background: rgba(30, 30, 46, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s ease, background 0.2s ease, transform 0.15s ease;
+  pointer-events: auto;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+/* Show on hover of the cluster area (detected via parent) */
+.mermaid-container:hover .subgraph-collapse-btn {
+  opacity: 0.5;
+}
+
+.subgraph-collapse-btn:hover {
+  opacity: 1 !important;
+  background: rgba(30, 30, 46, 0.9);
+}
+
+.subgraph-collapse-btn:active {
+  transform: scale(0.95);
+}
+
+.subgraph-collapse-btn .collapse-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.subgraph-collapse-btn .collapse-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Copy Mode Dropdown */
 @keyframes copyDropdownIn {
   from { opacity: 0; transform: translateY(-4px) scale(0.95); }
