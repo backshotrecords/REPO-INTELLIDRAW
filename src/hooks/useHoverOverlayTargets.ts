@@ -1,4 +1,4 @@
-import { type DependencyList, type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { type DependencyList, type HTMLAttributes, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 
 export interface HoverOverlayTarget<TData> {
   key: string;
@@ -19,6 +19,9 @@ interface UseHoverOverlayTargetsResult<TData> {
   targets: HoverOverlayTarget<TData>[];
   visibleKey: string | null;
   showTarget: (key: string) => void;
+  getHitAreaProps: (key: string) => HTMLAttributes<HTMLDivElement> & {
+    "data-hover-overlay-control": string;
+  };
 }
 
 /**
@@ -61,6 +64,14 @@ export function useHoverOverlayTargets<TData>({
       idleTimerRef.current = null;
     }, idleMs);
   }, [clearIdleTimer, idleMs, isInteractionSuppressed]);
+
+  const getHitAreaProps = useCallback((key: string): HTMLAttributes<HTMLDivElement> & {
+    "data-hover-overlay-control": string;
+  } => ({
+    className: `hover-overlay-hit-area ${visibleKey === key ? "hover-overlay-hit-area-visible" : ""}`,
+    "data-hover-overlay-control": "true",
+    onPointerMove: () => showTarget(key),
+  }), [showTarget, visibleKey]);
 
   const rescan = useCallback(() => {
     const layerEl = layerRef.current;
@@ -154,5 +165,5 @@ export function useHoverOverlayTargets<TData>({
     };
   }, [clearIdleTimer]);
 
-  return { targets, visibleKey, showTarget };
+  return { targets, visibleKey, showTarget, getHitAreaProps };
 }

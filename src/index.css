@@ -1456,8 +1456,21 @@
   z-index: 50;
 }
 
-.subgraph-toggle-btn {
+.hover-overlay-hit-area {
   position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  pointer-events: none;
+}
+
+.hover-overlay-hit-area-visible {
+  pointer-events: auto;
+}
+
+.subgraph-toggle-btn {
   display: flex;
   align-items: center;
   justify-content: center;
