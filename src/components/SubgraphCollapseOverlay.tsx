@@ -11,7 +11,7 @@ import type { MermaidAST } from "../utils/mermaidParser";
 
 type ToggleMode = "expand" | "collapse";
 const TOGGLE_SIZE = 16;
-const TOGGLE_CORNER_OVERLAP = 4;
+const TOGGLE_CORNER_OVERLAP = 8;
 
 interface TogglePosition {
   subgraphId: string;
