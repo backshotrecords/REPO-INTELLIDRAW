@@ -4,6 +4,7 @@ import MermaidRenderer, { extractNodeId } from "../components/MermaidRenderer";
 import NodeActionOverlay from "../components/NodeActionOverlay";
 import type { NodeAction } from "../components/NodeActionOverlay";
 import ScopeBreadcrumb from "../components/ScopeBreadcrumb";
+import SubgraphCollapseOverlay from "../components/SubgraphCollapseOverlay";
 import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
@@ -12,7 +13,7 @@ import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiCha
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { fetchChatSettings } from "../lib/chatSettings";
-import { parseMermaidAST, getRootViewCode, getScopeViewCode, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope } from "../utils/mermaidParser";
+import { parseMermaidAST, getScopeViewCode, getRootViewWithCollapseState, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope } from "../utils/mermaidParser";
 import type { MermaidAST } from "../utils/mermaidParser";
 import type { ChatMessage, CanvasCommit } from "../types";
 
@@ -65,6 +66,10 @@ export default function WorkspacePage() {
   const [activeScopeId, setActiveScopeId] = useState<string | null>(null); // null = root
   const [scopePath, setScopePath] = useState<Array<{ id: string; label: string }>>([]);
   const activeScopeIdRef = useRef<string | null>(null);
+
+  // ── Per-canvas collapse state ──
+  // Default: all expanded (empty set). Users collapse individual subgraphs.
+  const [collapsedSubgraphIds, setCollapsedSubgraphIds] = useState<Set<string>>(new Set());
   const scopePathRef = useRef<Array<{ id: string; label: string }>>([]);
   const [showCopyDropdown, setShowCopyDropdown] = useState(false);
   const [chatInput, setChatInput] = useState("");
@@ -111,23 +116,71 @@ export default function WorkspacePage() {
     }
   }, [mermaidCode]);
 
+  // ── Prune stale collapsed IDs when AST updates ──
+  useEffect(() => {
+    if (!parsedAST) return;
+    setCollapsedSubgraphIds(prev => {
+      const pruned = new Set<string>();
+      for (const id of prev) {
+        if (parsedAST.allSubgraphsFlat.has(id)) pruned.add(id);
+      }
+      return pruned.size === prev.size ? prev : pruned;
+    });
+  }, [parsedAST]);
+
+  // ── Persist collapse state to localStorage ──
+  useEffect(() => {
+    const key = canvasId
+      ? `intellidraw_collapsed_${canvasId}`
+      : 'intellidraw_collapsed_unsaved';
+    try {
+      if (collapsedSubgraphIds.size === 0) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, JSON.stringify([...collapsedSubgraphIds]));
+      }
+    } catch { /* private browsing */ }
+  }, [collapsedSubgraphIds, canvasId]);
+
+  // ── Migrate unsaved collapse state when canvasId is assigned ──
+  const prevCanvasIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (canvasId && prevCanvasIdRef.current === null) {
+      // Canvas just got an ID — migrate unsaved state
+      try {
+        const unsaved = localStorage.getItem('intellidraw_collapsed_unsaved');
+        if (unsaved) {
+          localStorage.setItem(`intellidraw_collapsed_${canvasId}`, unsaved);
+          localStorage.removeItem('intellidraw_collapsed_unsaved');
+        }
+      } catch { /* ignore */ }
+    }
+    prevCanvasIdRef.current = canvasId;
+  }, [canvasId]);
+
   // ── Compute filtered Mermaid code + boundary/compound node IDs ──
   const { filteredCode, boundaryNodeIds, compoundNodeIds } = useMemo(() => {
     if (!parsedAST) return { filteredCode: mermaidCode, boundaryNodeIds: [] as string[], compoundNodeIds: [] as string[] };
 
     if (!activeScopeId) {
-      // Root view — collapse subgraphs to compound nodes
-      const code = getRootViewCode(parsedAST);
-      const compIds = parsedAST.subgraphs.map(sg => sg.id);
-      return { filteredCode: code, boundaryNodeIds: [] as string[], compoundNodeIds: compIds };
+      // Root view — apply collapse state
+      if (collapsedSubgraphIds.size === 0) {
+        // All expanded — pass through raw code (zero overhead)
+        return { filteredCode: mermaidCode, boundaryNodeIds: [] as string[], compoundNodeIds: [] as string[] };
+      }
+      const result = getRootViewWithCollapseState(parsedAST, collapsedSubgraphIds);
+      return { filteredCode: result.code, boundaryNodeIds: [] as string[], compoundNodeIds: result.compoundNodeIds };
     }
 
-    // Scoped view — show inner nodes + boundary stubs
-    const result = getScopeViewCode(parsedAST, activeScopeId);
+    // Scoped view — show inner nodes + boundary stubs, respecting collapse state
+    const result = getScopeViewCode(parsedAST, activeScopeId, collapsedSubgraphIds);
     const sg = parsedAST.allSubgraphsFlat.get(activeScopeId);
-    const compIds = sg ? sg.children.map(c => c.id) : [];
+    // Only children that are collapsed become compound nodes
+    const compIds = sg
+      ? sg.children.filter(c => collapsedSubgraphIds.has(c.id)).map(c => c.id)
+      : [];
     return { filteredCode: result.code, boundaryNodeIds: result.boundaryNodeIds, compoundNodeIds: compIds };
-  }, [parsedAST, activeScopeId, mermaidCode]);
+  }, [parsedAST, activeScopeId, mermaidCode, collapsedSubgraphIds]);
 
   const [showChat, setShowChat] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -200,8 +253,10 @@ export default function WorkspacePage() {
   const isPanningRef = useRef(false);
   const [isPanningVisual, setIsPanningVisual] = useState(false); // drives cursor style only
   const [isWheeling, setIsWheeling] = useState(false); // disables transition during wheel input
+  const [isPinchingVisual, setIsPinchingVisual] = useState(false);
   const lastPanPos = useRef({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
+  const diagramLayerRef = useRef<HTMLDivElement>(null);
   const codeOnEnterRef = useRef("");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitingRef = useRef(false);
@@ -392,6 +447,13 @@ export default function WorkspacePage() {
       latestMermaidCodeRef.current = canvas.mermaid_code;
       setChatHistory(canvas.chat_history || []);
       setIsPublic(canvas.is_public || false);
+
+      // Load per-canvas collapse state from localStorage
+      try {
+        const stored = localStorage.getItem(`intellidraw_collapsed_${canvas.id}`);
+        if (stored) setCollapsedSubgraphIds(new Set(JSON.parse(stored)));
+        else setCollapsedSubgraphIds(new Set());
+      } catch { setCollapsedSubgraphIds(new Set()); }
 
       // Load commits for the Git Tree (independent of chat history)
       try {
@@ -893,6 +955,8 @@ export default function WorkspacePage() {
 
   // Build the action list for the overlay (extensible — add new entries here)
   const isCompoundNode = activeNode ? (parsedAST?.allSubgraphsFlat.has(activeNode.id) ?? false) : false;
+  const isCollapsedNode = activeNode ? collapsedSubgraphIds.has(activeNode.id) : false;
+  const isExpandedSubgraph = isCompoundNode && !isCollapsedNode;
 
   const nodeActions: NodeAction[] = activeNode
     ? [
@@ -902,14 +966,36 @@ export default function WorkspacePage() {
           label: "Add to context",
           onClick: handleAddNodeSelection,
         },
-        // Show "Expand" only if this node is a subgraph (compound node)
-        ...(isCompoundNode
-          ? [{
-              id: "expand-scope",
-              icon: "open_in_full",
-              label: "Expand into scope",
-              onClick: () => handleEnterScope(activeNode.id),
-            }]
+        // Collapsed compound node → Open Group (expand lives on the canvas toggle)
+        ...(isCompoundNode && isCollapsedNode
+          ? [
+              {
+                id: "open-group",
+                icon: "open_in_full",
+                label: "Open group",
+                onClick: () => handleEnterScope(activeNode.id),
+              },
+            ]
+          : []),
+        // Expanded subgraph → Collapse Group + Open Group
+        ...(isExpandedSubgraph
+          ? [
+              {
+                id: "collapse-group",
+                icon: "unfold_less",
+                label: "Collapse group",
+                onClick: () => {
+                  setCollapsedSubgraphIds(prev => new Set([...prev, activeNode.id]));
+                  setActiveNode(null);
+                },
+              },
+              {
+                id: "open-group",
+                icon: "open_in_full",
+                label: "Open group",
+                onClick: () => handleEnterScope(activeNode.id),
+              },
+            ]
           : []),
       ]
     : [];
@@ -1125,11 +1211,13 @@ export default function WorkspacePage() {
       // Single pointer — start panning
       isPanningRef.current = true;
       setIsPanningVisual(true);
+      setIsPinchingVisual(false);
       lastPanPos.current = { x: e.clientX, y: e.clientY };
     } else if (activePointers.current.size === 2) {
       // Second pointer — switch to pinch, cancel pan
       isPanningRef.current = false;
       setIsPanningVisual(false);
+      setIsPinchingVisual(true);
       lastPinchDist.current = getPointerDist();
     }
   };
@@ -1198,6 +1286,7 @@ export default function WorkspacePage() {
     activePointers.current.delete(e.pointerId);
     if (activePointers.current.size < 2) {
       lastPinchDist.current = null;
+      setIsPinchingVisual(false);
     }
     if (activePointers.current.size === 0) {
       isPanningRef.current = false;
@@ -1451,6 +1540,45 @@ export default function WorkspacePage() {
 
               <div className="w-px h-5 bg-outline-variant/20" />
 
+              {/* Collapse/Expand All controls — only show when subgraphs exist */}
+              {parsedAST && parsedAST.subgraphs.length > 0 && (
+                <>
+                  <button
+                    onClick={() => {
+                      const allIds = new Set<string>();
+                      // Collect all subgraph IDs (not just top-level) so collapse-all works in scope view too
+                      for (const sg of parsedAST.allSubgraphsFlat.values()) {
+                        allIds.add(sg.id);
+                      }
+                      setCollapsedSubgraphIds(allIds);
+                    }}
+                    disabled={parsedAST.allSubgraphsFlat.size > 0 && collapsedSubgraphIds.size === parsedAST.allSubgraphsFlat.size}
+                    className={`inline-flex items-center p-2 rounded-full text-xs transition-all duration-200 ${
+                      collapsedSubgraphIds.size === parsedAST.allSubgraphsFlat.size
+                        ? "text-on-surface-variant/30 cursor-not-allowed"
+                        : "text-on-surface-variant hover:bg-surface-container-high/60"
+                    }`}
+                    title="Collapse all groups"
+                  >
+                    <span className="material-symbols-outlined text-base">unfold_less</span>
+                  </button>
+                  <button
+                    onClick={() => setCollapsedSubgraphIds(new Set())}
+                    disabled={collapsedSubgraphIds.size === 0}
+                    className={`inline-flex items-center p-2 rounded-full text-xs transition-all duration-200 ${
+                      collapsedSubgraphIds.size === 0
+                        ? "text-on-surface-variant/30 cursor-not-allowed"
+                        : "text-on-surface-variant hover:bg-surface-container-high/60"
+                    }`}
+                    title="Expand all groups"
+                  >
+                    <span className="material-symbols-outlined text-base">unfold_more</span>
+                  </button>
+                </>
+              )}
+
+              <div className="w-px h-5 bg-outline-variant/20" />
+
               {/* Copy button — dual-mode when inside a scope */}
               <div className="relative">
                 <button
@@ -1567,11 +1695,12 @@ export default function WorkspacePage() {
 
               {/* Rendered diagram */}
               <div
-                className="min-h-full w-full flex items-center justify-center"
+                ref={diagramLayerRef}
+                className="min-h-full w-full flex items-center justify-center relative"
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                   transformOrigin: "center center",
-                  transition: (isPanningVisual || isWheeling) ? "none" : "transform 0.1s ease-out",
+                  transition: (isPanningVisual || isWheeling || isPinchingVisual) ? "none" : "transform 0.1s ease-out",
                 }}
               >
                 <MermaidRenderer
@@ -1583,6 +1712,26 @@ export default function WorkspacePage() {
                   selectedNodeIds={selectedNodes.map((n) => n.id)}
                   boundaryNodeIds={boundaryNodeIds}
                   compoundNodeIds={compoundNodeIds}
+                />
+
+                {/* Floating expand/collapse buttons for subgraphs */}
+                <SubgraphCollapseOverlay
+                  diagramLayerRef={diagramLayerRef}
+                  parsedAST={parsedAST}
+                  collapsedSubgraphIds={collapsedSubgraphIds}
+                  onCollapse={(sgId) => {
+                    setCollapsedSubgraphIds(prev => new Set([...prev, sgId]));
+                  }}
+                  onExpand={(sgId) => {
+                    setCollapsedSubgraphIds(prev => {
+                      const next = new Set(prev);
+                      next.delete(sgId);
+                      return next;
+                    });
+                  }}
+                  filteredCode={filteredCode}
+                  zoom={zoom}
+                  isCanvasInteracting={isPanningVisual || isWheeling || isPinchingVisual}
                 />
               </div>
 

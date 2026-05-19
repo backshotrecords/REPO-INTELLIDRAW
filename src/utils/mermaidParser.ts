@@ -581,11 +581,212 @@ export function getRootViewCode(ast: MermaidAST): string {
 }
 
 /**
- * Generate Mermaid code for a SPECIFIC SCOPE view.
- * Includes direct nodes, child subgraphs (collapsed), and boundary stubs.
- * ONLY emits edges where both endpoints are valid in this scope view.
+ * Generate Mermaid code for the ROOT view with PARTIAL collapse state.
+ * Some subgraphs are collapsed (compound nodes), others are expanded (pass through).
+ *
+ * LINE-WALK approach (same as getRootViewCode) but with hybrid handling:
+ *   - Collapsed subgraphs → replaced with a compound node line
+ *   - Expanded subgraphs → original subgraph...end block passes through unchanged
+ *   - Edge lines → redirect endpoints inside COLLAPSED groups; keep EXPANDED as-is
+ *   - class/style lines → filtered for visible nodes only
+ *
+ * Short-circuits to raw code when collapsedSubgraphIds is empty (zero overhead default).
  */
-export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
+export function getRootViewWithCollapseState(
+  ast: MermaidAST,
+  collapsedSubgraphIds: Set<string>
+): { code: string; compoundNodeIds: string[] } {
+  // Short-circuit: nothing collapsed → return raw code unchanged
+  if (collapsedSubgraphIds.size === 0) {
+    return { code: ast.lines.join("\n"), compoundNodeIds: [] };
+  }
+
+  // If ALL top-level subgraphs are collapsed, delegate to existing getRootViewCode
+  // (it produces identical output and is already battle-tested)
+  if (ast.subgraphs.every(sg => collapsedSubgraphIds.has(sg.id))) {
+    const code = getRootViewCode(ast);
+    return { code, compoundNodeIds: ast.subgraphs.map(sg => sg.id) };
+  }
+
+  const output: string[] = [];
+  const compoundNodeIds: string[] = [];
+
+  // Build visibility set: root nodes + collapsed compound IDs + visible nodes inside expanded subgraphs
+  const visibleNodes = new Set(ast.rootNodes);
+  for (const sg of ast.subgraphs) {
+    if (collapsedSubgraphIds.has(sg.id)) {
+      visibleNodes.add(sg.id); // compound node
+      compoundNodeIds.push(sg.id);
+    } else {
+      // Expanded: add nodes, but respect nested collapsed subgraphs
+      visibleNodes.add(sg.id); // subgraph ID itself
+      addVisibleNodesRecursive(sg, collapsedSubgraphIds, visibleNodes, compoundNodeIds, ast.allSubgraphsFlat);
+    }
+  }
+
+  // Build lookup: top-level subgraph line ranges
+  const topSgRanges = ast.subgraphs
+    .filter(sg => sg.sourceEnd >= 0)
+    .map(sg => ({
+      start: sg.sourceStart,
+      end: sg.sourceEnd,
+      id: sg.id,
+      label: sg.label,
+      collapsed: collapsedSubgraphIds.has(sg.id),
+    }));
+
+  // Edge deduplication for redirected edges
+  const emittedRedirectedEdges = new Set<string>();
+
+  for (let i = 0; i < ast.lines.length; i++) {
+    const trimmed = ast.lines[i].trim();
+
+    // Drop ALL ~~~ invisible layout links in filtered views.
+    // They only make sense in fully-raw rendering (handled by the short-circuit above).
+    // In any filtered view, cross-boundary ~~~ links cause phantom node duplicates.
+    if (/~{3,}/.test(trimmed)) continue;
+
+    // Check if this line starts a top-level subgraph block
+    const sgRange = topSgRanges.find(r => i === r.start);
+    if (sgRange) {
+      if (sgRange.collapsed) {
+        // Collapsed → emit compound node, skip to end
+        const safeLabel = sgRange.label.replace(/"/g, "'");
+        output.push(`    ${sgRange.id}["\uD83D\uDCC2 ${safeLabel}"]`);
+        i = sgRange.end;
+      } else {
+        // Expanded → pass through the subgraph line as-is (loop will continue through inner lines)
+        output.push(ast.lines[i]);
+      }
+      continue;
+    }
+
+    // If inside an EXPANDED subgraph, check for nested collapsed children
+    // (but skip if inside a COLLAPSED subgraph — it was already handled)
+    const containingSg = topSgRanges.find(r => i > r.start && i <= r.end);
+    if (containingSg) {
+      if (containingSg.collapsed) {
+        continue; // already emitted as compound node
+      }
+      // Inside expanded subgraph — check if this line starts a nested subgraph
+      // that should be collapsed
+      const nestedSg = ast.allSubgraphsFlat.get(
+        [...ast.allSubgraphsFlat.values()].find(
+          sg => sg.sourceStart === i && collapsedSubgraphIds.has(sg.id)
+        )?.id || ''
+      );
+      if (nestedSg && collapsedSubgraphIds.has(nestedSg.id)) {
+        // Nested subgraph is collapsed — emit compound node and skip to end
+        const safeLabel = nestedSg.label.replace(/"/g, "'");
+        output.push(`    ${nestedSg.id}["\uD83D\uDCC2 ${safeLabel}"]`);
+        i = nestedSg.sourceEnd;
+        continue;
+      }
+      // Check if we're inside a nested collapsed subgraph (deeper than start line)
+      // i.e., this line is between a collapsed nested subgraph's start+1 and end
+      let insideCollapsedNested = false;
+      for (const sg of ast.allSubgraphsFlat.values()) {
+        if (sg.id === containingSg.id) continue; // skip the parent
+        if (collapsedSubgraphIds.has(sg.id) &&
+            i > sg.sourceStart && i <= sg.sourceEnd) {
+          insideCollapsedNested = true;
+          break;
+        }
+      }
+      if (insideCollapsedNested) {
+        continue; // skip — inside a collapsed nested subgraph
+      }
+      // Pass through line unchanged
+      output.push(ast.lines[i]);
+      continue;
+    }
+
+    // Root-level line processing (same as getRootViewCode but with hybrid visibility)
+
+    // Handle edge lines: check if endpoints need redirecting
+    const chainEdges = parseAllEdges(trimmed);
+    if (chainEdges.length > 0) {
+      // If ALL endpoints are visible, pass through as-is
+      const allVisible = chainEdges.every(e =>
+        visibleNodes.has(e.from) && visibleNodes.has(e.to)
+      );
+
+      if (allVisible) {
+        output.push(ast.lines[i]);
+      } else {
+        // Skip invisible links (~~~)
+        if (/~{3,}/.test(ast.lines[i])) { /* skip entire line */ }
+        else {
+          for (const edgeParsed of chainEdges) {
+            let fromId = edgeParsed.from;
+            let toId = edgeParsed.to;
+
+            // Only redirect if the endpoint is inside a COLLAPSED group
+            if (!visibleNodes.has(fromId)) {
+              const owner = findOwnerSubgraph(fromId, ast);
+              fromId = owner ? (getTopLevelParent(owner, ast) || fromId) : fromId;
+            }
+            if (!visibleNodes.has(toId)) {
+              const owner = findOwnerSubgraph(toId, ast);
+              toId = owner ? (getTopLevelParent(owner, ast) || toId) : toId;
+            }
+
+            if (fromId === toId) continue;
+
+            const edgeKey = `${fromId}-->${toId}`;
+            if (emittedRedirectedEdges.has(edgeKey)) continue;
+            emittedRedirectedEdges.add(edgeKey);
+
+            const labelPart = edgeParsed.label ? `|${edgeParsed.label}|` : '';
+            output.push(`    ${fromId} ${edgeParsed.arrow}${labelPart} ${toId}`);
+          }
+        }
+      }
+      continue;
+    }
+
+    // class lines: only emit if ALL referenced nodes are visible
+    if (/^class\s/i.test(trimmed)) {
+      const classMatch = trimmed.match(/^class\s+(.+?)\s+\S+$/i);
+      if (classMatch) {
+        const nodeIds = classMatch[1].split(',').map(s => s.trim());
+        if (nodeIds.every(id => visibleNodes.has(id))) {
+          output.push(ast.lines[i]);
+        }
+      }
+      continue;
+    }
+
+    // style lines: only emit if the referenced node is visible
+    if (/^style\s/i.test(trimmed)) {
+      const styleMatch = trimmed.match(/^style\s+(\S+)/i);
+      if (styleMatch && visibleNodes.has(styleMatch[1])) {
+        output.push(ast.lines[i]);
+      }
+      continue;
+    }
+
+    // Everything else — pass through unchanged
+    output.push(ast.lines[i]);
+  }
+
+  return { code: output.join("\n"), compoundNodeIds };
+}
+
+/**
+ * Generate Mermaid code for a SPECIFIC SCOPE view.
+ * Includes direct nodes, child subgraphs (collapsed or expanded), and boundary stubs.
+ * ONLY emits edges where both endpoints are valid in this scope view.
+ *
+ * @param collapsedSubgraphIds — optional set of subgraph IDs to collapse.
+ *   Child subgraphs in this set → compound nodes. Others → original subgraph block.
+ *   When omitted, ALL child subgraphs are collapsed (backward-compatible default).
+ */
+export function getScopeViewCode(
+  ast: MermaidAST,
+  scopeId: string,
+  collapsedSubgraphIds?: Set<string>
+): {
   code: string;
   boundaryNodeIds: string[];
 } {
@@ -595,17 +796,31 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
   const output: string[] = [ast.headerLine];
   const boundaryNodeIds: string[] = [];
 
+  // Determine which children are collapsed
+  // Default: all children collapsed (backward compatible)
+  const isChildCollapsed = (childId: string) =>
+    !collapsedSubgraphIds || collapsedSubgraphIds.has(childId);
+
   // Build the set of node IDs visible in this scope
   const visibleNodes = new Set(sg.directNodes);
   for (const child of sg.children) {
     visibleNodes.add(child.id);
+    // If child is expanded, add all its internal nodes to the visible set
+    if (!isChildCollapsed(child.id)) {
+      for (const nid of getAllNodesInSubgraph(child, ast.allSubgraphsFlat)) {
+        visibleNodes.add(nid);
+      }
+    }
   }
 
   // Emit lines from the subgraph body (between sourceStart+1 and sourceEnd-1)
   // but skip nested subgraph internals and cross-scope edge lines
   const innerStart = sg.sourceStart + 1;
   const innerEnd = sg.sourceEnd;
-  const childRanges = sg.children.map(c => ({ start: c.sourceStart, end: c.sourceEnd, id: c.id, label: c.label }));
+  const childRanges = sg.children.map(c => ({
+    start: c.sourceStart, end: c.sourceEnd, id: c.id, label: c.label,
+    collapsed: isChildCollapsed(c.id),
+  }));
   const scopeRedirectedEdges = new Set<string>();
 
   for (let i = innerStart; i < innerEnd; i++) {
@@ -618,10 +833,15 @@ export function getScopeViewCode(ast: MermaidAST, scopeId: string): {
     // Check if this line is inside a child subgraph's body
     const childRange = childRanges.find(cr => i >= cr.start && i <= cr.end);
     if (childRange) {
-      // Skip the child subgraph's internals — we'll emit it as a compound node
-      if (i === childRange.start) {
-        const safeLabel = childRange.label.replace(/"/g, "'");
-        output.push(`    ${childRange.id}["\uD83D\uDCC2 ${safeLabel}"]`);
+      if (childRange.collapsed) {
+        // Collapsed child: emit compound node on the start line, skip internals
+        if (i === childRange.start) {
+          const safeLabel = childRange.label.replace(/"/g, "'");
+          output.push(`    ${childRange.id}["\uD83D\uDCC2 ${safeLabel}"]`);
+        }
+      } else {
+        // Expanded child: pass through original subgraph block
+        output.push(ast.lines[i]);
       }
       continue;
     }
@@ -783,6 +1003,36 @@ export function extractScopeCode(ast: MermaidAST, scopeId: string): string {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
+
+/**
+ * Recursively add visible nodes from a subgraph, stopping at collapsed children.
+ * Collapsed children become compound node IDs; expanded children recurse.
+ */
+function addVisibleNodesRecursive(
+  sg: SubgraphNode,
+  collapsedSubgraphIds: Set<string>,
+  visibleNodes: Set<string>,
+  compoundNodeIds: string[],
+  allFlat: Map<string, SubgraphNode>
+): void {
+  // Add direct nodes of this subgraph
+  for (const nid of sg.directNodes) {
+    visibleNodes.add(nid);
+  }
+  // Process children
+  for (const child of sg.children) {
+    if (collapsedSubgraphIds.has(child.id)) {
+      // Collapsed child → compound node
+      visibleNodes.add(child.id);
+      compoundNodeIds.push(child.id);
+    } else {
+      // Expanded child → recurse
+      visibleNodes.add(child.id);
+      addVisibleNodesRecursive(child, collapsedSubgraphIds, visibleNodes, compoundNodeIds, allFlat);
+    }
+  }
+}
+
 
 /** Check if a line index falls inside any subgraph. */
 function isLineInsideSubgraph(lineIdx: number, ast: MermaidAST): boolean {
