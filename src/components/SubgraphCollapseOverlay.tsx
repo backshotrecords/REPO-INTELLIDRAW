@@ -32,6 +32,7 @@ interface SubgraphCollapseOverlayProps {
   collapsedSubgraphIds: Set<string>;
   onCollapse: (subgraphId: string) => void;
   onExpand: (subgraphId: string) => void;
+  zoom: number;
   /** Changes whenever the rendered SVG changes — triggers re-scan */
   filteredCode: string;
 }
@@ -42,6 +43,7 @@ export default function SubgraphCollapseOverlay({
   collapsedSubgraphIds,
   onCollapse,
   onExpand,
+  zoom,
   filteredCode,
 }: SubgraphCollapseOverlayProps) {
   const [togglePositions, setTogglePositions] = useState<TogglePosition[]>([]);
@@ -121,8 +123,8 @@ export default function SubgraphCollapseOverlay({
 
       // Get the cluster rect position relative to the canvas container
       const clusterRect = cluster.getBoundingClientRect();
-      const x = clusterRect.right - layerRect.left - 8; // 8px padding from right edge
-      const y = clusterRect.top - layerRect.top + 4;    // 4px from top edge
+      const x = (clusterRect.right - layerRect.left) / zoom - 8; // 8px padding from right edge
+      const y = (clusterRect.top - layerRect.top) / zoom + 4;    // 4px from top edge
 
       positions.push({
         subgraphId: matched.id,
@@ -147,8 +149,8 @@ export default function SubgraphCollapseOverlay({
       if (!subgraph) return;
 
       const nodeRect = node.getBoundingClientRect();
-      const x = nodeRect.right - layerRect.left - 8;
-      const y = nodeRect.top - layerRect.top + 4;
+      const x = (nodeRect.right - layerRect.left) / zoom - 8;
+      const y = (nodeRect.top - layerRect.top) / zoom + 4;
 
       positions.push({
         subgraphId: nodeId,
@@ -192,7 +194,7 @@ export default function SubgraphCollapseOverlay({
     if (hoveredTarget) {
       showToggle(`${hoveredTarget.mode}-${hoveredTarget.subgraphId}`);
     }
-  }, [diagramLayerRef, parsedAST, collapsedSubgraphIds, showToggle, hideToggle]);
+  }, [diagramLayerRef, parsedAST, collapsedSubgraphIds, zoom, showToggle, hideToggle]);
 
   // Re-scan when the SVG re-renders (filteredCode changes) or transform changes
   useEffect(() => {
@@ -200,6 +202,10 @@ export default function SubgraphCollapseOverlay({
     const timer = setTimeout(scanSubgraphToggles, 150);
     return () => clearTimeout(timer);
   }, [filteredCode, scanSubgraphToggles]);
+
+  useEffect(() => {
+    scanSubgraphToggles();
+  }, [zoom, scanSubgraphToggles]);
 
   useEffect(() => {
     return () => {
