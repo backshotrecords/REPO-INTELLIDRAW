@@ -1727,6 +1727,7 @@ export default function WorkspacePage() {
                   }}
                   filteredCode={filteredCode}
                   zoom={zoom}
+                  isPanning={isPanningVisual}
                 />
               </div>
 

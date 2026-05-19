@@ -33,6 +33,7 @@ interface SubgraphCollapseOverlayProps {
   onCollapse: (subgraphId: string) => void;
   onExpand: (subgraphId: string) => void;
   zoom: number;
+  isPanning: boolean;
   /** Changes whenever the rendered SVG changes — triggers re-scan */
   filteredCode: string;
 }
@@ -44,6 +45,7 @@ export default function SubgraphCollapseOverlay({
   onCollapse,
   onExpand,
   zoom,
+  isPanning,
   filteredCode,
 }: SubgraphCollapseOverlayProps) {
   const [togglePositions, setTogglePositions] = useState<TogglePosition[]>([]);
@@ -60,13 +62,14 @@ export default function SubgraphCollapseOverlay({
   }, []);
 
   const showToggle = useCallback((key: string) => {
+    if (isPanning) return;
     setVisibleToggleKey(key);
     clearIdleTimer();
     idleTimerRef.current = setTimeout(() => {
       setVisibleToggleKey(null);
       idleTimerRef.current = null;
     }, 3000);
-  }, [clearIdleTimer]);
+  }, [clearIdleTimer, isPanning]);
 
   const hideToggle = useCallback(() => {
     setVisibleToggleKey(null);
@@ -191,10 +194,10 @@ export default function SubgraphCollapseOverlay({
     setTogglePositions(positions);
 
     const hoveredTarget = targets.find(target => target.element.matches(":hover"));
-    if (hoveredTarget) {
+    if (hoveredTarget && !isPanning) {
       showToggle(`${hoveredTarget.mode}-${hoveredTarget.subgraphId}`);
     }
-  }, [diagramLayerRef, parsedAST, collapsedSubgraphIds, zoom, showToggle, hideToggle]);
+  }, [diagramLayerRef, parsedAST, collapsedSubgraphIds, zoom, isPanning, showToggle, hideToggle]);
 
   // Re-scan when the SVG re-renders (filteredCode changes) or transform changes
   useEffect(() => {
@@ -206,6 +209,15 @@ export default function SubgraphCollapseOverlay({
   useEffect(() => {
     scanSubgraphToggles();
   }, [zoom, scanSubgraphToggles]);
+
+  useEffect(() => {
+    if (isPanning) {
+      hideToggle();
+      return;
+    }
+
+    scanSubgraphToggles();
+  }, [isPanning, hideToggle, scanSubgraphToggles]);
 
   useEffect(() => {
     return () => {
