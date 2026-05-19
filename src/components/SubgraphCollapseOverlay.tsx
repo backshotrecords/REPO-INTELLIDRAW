@@ -5,7 +5,7 @@
  * `.cluster` elements and collapsed `.node-compound` elements, then positions a
  * floating toggle near each group.
  */
-import { type RefObject, useEffect, useState, useCallback } from "react";
+import { type RefObject, useEffect, useRef, useState, useCallback } from "react";
 import { extractNodeId } from "./MermaidRenderer";
 import type { MermaidAST } from "../utils/mermaidParser";
 
@@ -18,6 +18,12 @@ interface TogglePosition {
   /** Position relative to the canvas container */
   x: number;
   y: number;
+}
+
+interface ToggleTarget {
+  subgraphId: string;
+  mode: ToggleMode;
+  element: Element;
 }
 
 interface SubgraphCollapseOverlayProps {
@@ -45,6 +51,25 @@ export default function SubgraphCollapseOverlay({
   filteredCode,
 }: SubgraphCollapseOverlayProps) {
   const [togglePositions, setTogglePositions] = useState<TogglePosition[]>([]);
+  const [visibleToggleKey, setVisibleToggleKey] = useState<string | null>(null);
+  const targetsRef = useRef<ToggleTarget[]>([]);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+  }, []);
+
+  const showToggle = useCallback((key: string) => {
+    setVisibleToggleKey(key);
+    clearIdleTimer();
+    idleTimerRef.current = setTimeout(() => {
+      setVisibleToggleKey(null);
+      idleTimerRef.current = null;
+    }, 3000);
+  }, [clearIdleTimer]);
 
   /**
    * Build a reverse lookup: label text → subgraph ID.
@@ -59,6 +84,7 @@ export default function SubgraphCollapseOverlay({
 
     const canvasRect = canvasRef.current.getBoundingClientRect();
     const positions: TogglePosition[] = [];
+    const targets: ToggleTarget[] = [];
 
     const clusters = canvasRef.current.querySelectorAll(".cluster");
 
@@ -105,6 +131,7 @@ export default function SubgraphCollapseOverlay({
         x,
         y,
       });
+      targets.push({ subgraphId: matched.id, mode: "collapse", element: cluster });
 
       // Remove from map to avoid duplicate matches
       const normalizedLabel = matched.label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim().toLowerCase();
@@ -130,8 +157,10 @@ export default function SubgraphCollapseOverlay({
         x,
         y,
       });
+      targets.push({ subgraphId: nodeId, mode: "expand", element: node });
     });
 
+    targetsRef.current = targets;
     setTogglePositions(positions);
   }, [canvasRef, parsedAST, collapsedSubgraphIds]);
 
@@ -147,6 +176,52 @@ export default function SubgraphCollapseOverlay({
     scanSubgraphToggles();
   }, [panX, panY, zoom, scanSubgraphToggles]);
 
+  useEffect(() => {
+    const canvasEl = canvasRef.current;
+    if (!canvasEl || togglePositions.length === 0) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const eventTarget = event.target instanceof Element ? event.target : null;
+
+      if (eventTarget?.closest(".subgraph-toggle-btn")) {
+        return;
+      }
+
+      const hoveredElement =
+        eventTarget?.closest(".cluster") ||
+        eventTarget?.closest(".node.node-compound") ||
+        null;
+
+      const target = hoveredElement
+        ? targetsRef.current.find((entry) => entry.element === hoveredElement)
+        : null;
+
+      if (target) {
+        showToggle(`${target.mode}-${target.subgraphId}`);
+      } else if (!canvasEl.querySelector(".subgraph-toggle-btn:hover")) {
+        setVisibleToggleKey(null);
+        clearIdleTimer();
+      }
+    };
+
+    const handlePointerLeave = () => {
+      setVisibleToggleKey(null);
+      clearIdleTimer();
+    };
+
+    canvasEl.addEventListener("pointermove", handlePointerMove);
+    canvasEl.addEventListener("pointerleave", handlePointerLeave);
+
+    return () => {
+      canvasEl.removeEventListener("pointermove", handlePointerMove);
+      canvasEl.removeEventListener("pointerleave", handlePointerLeave);
+    };
+  }, [canvasRef, togglePositions.length, showToggle, clearIdleTimer]);
+
+  useEffect(() => {
+    return () => clearIdleTimer();
+  }, [clearIdleTimer]);
+
   if (togglePositions.length === 0) return null;
 
   return (
@@ -154,12 +229,16 @@ export default function SubgraphCollapseOverlay({
       {togglePositions.map((pos) => (
         <button
           key={`${pos.mode}-${pos.subgraphId}`}
-          className={`subgraph-toggle-btn subgraph-toggle-btn-${pos.mode}`}
+          className={`subgraph-toggle-btn subgraph-toggle-btn-${pos.mode} ${
+            visibleToggleKey === `${pos.mode}-${pos.subgraphId}` ? "subgraph-toggle-btn-visible" : ""
+          }`}
           style={{
             left: `${pos.x}px`,
             top: `${pos.y}px`,
-            transform: "translateX(-100%)", // anchor right edge to x position
+            transform: `translateX(-100%) scale(${zoom})`, // anchor right edge to x position
+            transformOrigin: "top right",
           }}
+          onPointerMove={() => showToggle(`${pos.mode}-${pos.subgraphId}`)}
           onClick={(e) => {
             e.stopPropagation();
             if (pos.mode === "collapse") {

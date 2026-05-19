@@ -1486,7 +1486,7 @@
     0 8px 22px rgba(0, 0, 0, 0.25);
 }
 
-.canvas-area:hover .subgraph-toggle-btn {
+.subgraph-toggle-btn-visible {
   opacity: 0.72;
 }
 
@@ -1499,7 +1499,11 @@
 }
 
 .subgraph-toggle-btn:active {
-  transform: translateX(-100%) scale(0.75) !important;
+  background: #4b5563;
+}
+
+.subgraph-toggle-btn:active .subgraph-toggle-icon {
+  transform: scale(0.75);
 }
 
 .subgraph-toggle-btn:focus-visible {
@@ -1513,6 +1517,7 @@
   width: 18px;
   height: 18px;
   flex-shrink: 0;
+  transition: transform 0.15s ease;
 }
 
 /* Copy Mode Dropdown */
