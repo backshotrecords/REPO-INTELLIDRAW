@@ -641,6 +641,11 @@ export function getRootViewWithCollapseState(
   for (let i = 0; i < ast.lines.length; i++) {
     const trimmed = ast.lines[i].trim();
 
+    // Drop ALL ~~~ invisible layout links in filtered views.
+    // They only make sense in fully-raw rendering (handled by the short-circuit above).
+    // In any filtered view, cross-boundary ~~~ links cause phantom node duplicates.
+    if (/~{3,}/.test(trimmed)) continue;
+
     // Check if this line starts a top-level subgraph block
     const sgRange = topSgRanges.find(r => i === r.start);
     if (sgRange) {
