@@ -70,6 +70,7 @@ export function useHoverOverlayTargets<TData>({
   } => ({
     className: `hover-overlay-hit-area ${visibleKey === key ? "hover-overlay-hit-area-visible" : ""}`,
     "data-hover-overlay-control": "true",
+    onPointerEnter: () => showTarget(key),
     onPointerMove: () => showTarget(key),
   }), [showTarget, visibleKey]);
 

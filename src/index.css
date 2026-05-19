@@ -1463,7 +1463,7 @@
   justify-content: center;
   width: 32px;
   height: 32px;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .hover-overlay-hit-area-visible {
