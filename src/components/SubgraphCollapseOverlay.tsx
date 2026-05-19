@@ -187,14 +187,24 @@ export default function SubgraphCollapseOverlay({
         return;
       }
 
-      const hoveredElement =
-        eventTarget?.closest(".cluster") ||
-        eventTarget?.closest(".node.node-compound") ||
-        null;
+      const target = targetsRef.current.find((entry) => {
+        const rect = entry.element.getBoundingClientRect();
+        if (
+          event.clientX < rect.left ||
+          event.clientX > rect.right ||
+          event.clientY < rect.top ||
+          event.clientY > rect.bottom
+        ) {
+          return false;
+        }
 
-      const target = hoveredElement
-        ? targetsRef.current.find((entry) => entry.element === hoveredElement)
-        : null;
+        if (entry.mode === "collapse") {
+          const hoveredNode = eventTarget?.closest(".node");
+          return !hoveredNode;
+        }
+
+        return eventTarget?.closest(".node.node-compound") === entry.element;
+      });
 
       if (target) {
         showToggle(`${target.mode}-${target.subgraphId}`);
