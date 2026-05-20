@@ -1461,8 +1461,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   pointer-events: auto;
 }
 
@@ -1474,63 +1474,53 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border-radius: 9999px;
   border: none;
-  background: #050505;
+  background: #1e1e2e;
   color: white;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 1px 4px rgba(0, 0, 0, 0.1);
   cursor: pointer;
   opacity: 0;
   transition:
     opacity 0.2s ease,
     background 0.2s ease,
-    box-shadow 0.2s ease;
+    transform 0.15s ease;
   pointer-events: none;
   outline: none;
 }
 
 .subgraph-toggle-btn-collapse {
-  box-shadow:
-    0 0 0 2px rgba(209, 213, 219, 0.8),
-    0 4px 10px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
 .subgraph-toggle-btn-visible {
-  opacity: 0.72;
+  opacity: 1;
   pointer-events: auto;
 }
 
 .subgraph-toggle-btn:hover {
   opacity: 1 !important;
-  background: #6b7280;
-  box-shadow:
-    0 0 0 2px rgba(209, 213, 219, 0.85),
-    0 6px 14px rgba(0, 0, 0, 0.28);
+  background: #111118;
+  transform: scale(1.08);
 }
 
 .subgraph-toggle-btn:active {
-  background: #4b5563;
-}
-
-.subgraph-toggle-btn:active .subgraph-toggle-icon {
-  transform: scale(0.75);
+  transform: scale(0.95);
 }
 
 .subgraph-toggle-btn:focus-visible {
   opacity: 1;
-  box-shadow:
-    0 0 0 2px rgba(59, 130, 246, 0.35),
-    0 4px 10px rgba(0, 0, 0, 0.25);
+  outline: 2px solid rgba(99, 102, 241, 0.65);
+  outline-offset: 2px;
 }
 
 .subgraph-toggle-icon {
-  width: 10px;
-  height: 10px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
-  transition: transform 0.15s ease;
 }
 
 /* Copy Mode Dropdown */

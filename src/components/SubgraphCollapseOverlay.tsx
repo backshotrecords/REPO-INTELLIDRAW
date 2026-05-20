@@ -10,7 +10,7 @@ import { extractNodeId } from "./MermaidRenderer";
 import type { MermaidAST } from "../utils/mermaidParser";
 
 type ToggleMode = "expand" | "collapse";
-const TOGGLE_SIZE = 16;
+const TOGGLE_SIZE = 36;
 const TOGGLE_CORNER_OVERLAP = 6;
 
 interface TogglePosition {
@@ -146,6 +146,7 @@ export default function SubgraphCollapseOverlay({
   });
 
   if (targets.length === 0) return null;
+  const inverseZoom = 1 / zoom;
 
   return (
     <div className="subgraph-collapse-overlay">
@@ -156,7 +157,7 @@ export default function SubgraphCollapseOverlay({
           style={{
             left: `${pos.x}px`,
             top: `${pos.y}px`,
-            transform: "translateX(-100%)", // anchor right edge to x position
+            transform: `translateX(-100%) scale(${inverseZoom})`, // keep visual size constant while parent zooms
             transformOrigin: "top right",
           }}
         >
