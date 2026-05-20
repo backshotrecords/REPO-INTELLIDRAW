@@ -145,7 +145,7 @@ export default function SubgraphCollapseOverlay({
     rescanDeps: [filteredCode, zoom],
   });
 
-  if (targets.length === 0) return null;
+  if (isCanvasInteracting || targets.length === 0) return null;
   const inverseZoom = 1 / zoom;
 
   return (

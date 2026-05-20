@@ -76,7 +76,7 @@ export function useHoverOverlayTargets<TData>({
 
   const rescan = useCallback(() => {
     const layerEl = layerRef.current;
-    if (!layerEl) {
+    if (!layerEl || isInteractionSuppressed) {
       listenerCleanupRef.current?.();
       listenerCleanupRef.current = null;
       setTargets([]);
