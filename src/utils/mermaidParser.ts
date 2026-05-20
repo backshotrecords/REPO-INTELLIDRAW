@@ -547,6 +547,33 @@ function hasNodeDefinition(lines: string[], nodeId: string): boolean {
   return lines.some(line => nodeDefRegex.test(line.trim()));
 }
 
+function emitNodeDefinitionIfMissing(output: string[], ast: MermaidAST, nodeId: string): void {
+  if (hasNodeDefinition(output, nodeId)) return;
+  if (!hasNodeDefinition(ast.lines, nodeId)) return;
+
+  const safeLabel = findNodeLabel(ast, nodeId).replace(/"/g, "'");
+  const shape = findNodeShapeBrackets(ast, nodeId);
+  output.push(`    ${nodeId}${shape.open}${safeLabel}${shape.close}`);
+}
+
+function isNodeWithinSubgraph(nodeId: string, scopeId: string, ast: MermaidAST): boolean {
+  let currentId: string | null;
+
+  if (nodeId === scopeId) return true;
+  if (ast.allSubgraphsFlat.has(nodeId)) {
+    currentId = nodeId;
+  } else {
+    currentId = findOwnerSubgraph(nodeId, ast);
+  }
+
+  while (currentId) {
+    if (currentId === scopeId) return true;
+    currentId = ast.allSubgraphsFlat.get(currentId)?.parentId ?? null;
+  }
+
+  return false;
+}
+
 /**
  * Generate Mermaid code for the ROOT view.
  * Subgraphs are collapsed into single compound nodes.
@@ -740,6 +767,7 @@ export function getRootViewWithCollapseState(
 
   // Edge deduplication for redirected edges
   const emittedRedirectedEdges = new Set<string>();
+  const deferredRootEdges: string[] = [];
 
   for (let i = 0; i < ast.lines.length; i++) {
     const trimmed = ast.lines[i].trim();
@@ -813,32 +841,38 @@ export function getRootViewWithCollapseState(
       // Mermaid-created phantom nodes.
       const chainEdges = parseAllEdges(trimmed);
       if (chainEdges.length > 0) {
-        const allVisible = chainEdges.every(e =>
-          visibleNodes.has(e.from) && visibleNodes.has(e.to)
-        );
+        for (const edgeParsed of chainEdges) {
+          let fromId = edgeParsed.from;
+          let toId = edgeParsed.to;
 
-        if (allVisible) {
-          output.push(ast.lines[i]);
-        } else {
-          for (const edgeParsed of chainEdges) {
-            let fromId = edgeParsed.from;
-            let toId = edgeParsed.to;
+          if (!visibleNodes.has(fromId)) {
+            fromId = findCollapsedVisibleOwner(fromId, ast, collapsedSubgraphIds) || fromId;
+          }
+          if (!visibleNodes.has(toId)) {
+            toId = findCollapsedVisibleOwner(toId, ast, collapsedSubgraphIds) || toId;
+          }
 
-            if (!visibleNodes.has(fromId)) {
-              fromId = findCollapsedVisibleOwner(fromId, ast, collapsedSubgraphIds) || fromId;
+          if (fromId === toId) continue;
+
+          const edgeKey = `${fromId}-->${toId}`;
+          if (emittedRedirectedEdges.has(edgeKey)) continue;
+          emittedRedirectedEdges.add(edgeKey);
+
+          const labelPart = edgeParsed.label ? `|${edgeParsed.label}|` : '';
+          const edgeLine = `    ${fromId} ${edgeParsed.arrow}${labelPart} ${toId}`;
+          const fromInsideCurrent = isNodeWithinSubgraph(fromId, containingSg.id, ast);
+          const toInsideCurrent = isNodeWithinSubgraph(toId, containingSg.id, ast);
+
+          if (fromInsideCurrent && toInsideCurrent) {
+            output.push(edgeLine);
+          } else {
+            if (fromInsideCurrent && fromId === edgeParsed.from) {
+              emitNodeDefinitionIfMissing(output, ast, fromId);
             }
-            if (!visibleNodes.has(toId)) {
-              toId = findCollapsedVisibleOwner(toId, ast, collapsedSubgraphIds) || toId;
+            if (toInsideCurrent && toId === edgeParsed.to) {
+              emitNodeDefinitionIfMissing(output, ast, toId);
             }
-
-            if (fromId === toId) continue;
-
-            const edgeKey = `${fromId}-->${toId}`;
-            if (emittedRedirectedEdges.has(edgeKey)) continue;
-            emittedRedirectedEdges.add(edgeKey);
-
-            const labelPart = edgeParsed.label ? `|${edgeParsed.label}|` : '';
-            output.push(`    ${fromId} ${edgeParsed.arrow}${labelPart} ${toId}`);
+            deferredRootEdges.push(edgeLine);
           }
         }
         continue;
@@ -914,6 +948,8 @@ export function getRootViewWithCollapseState(
     // Everything else — pass through unchanged
     output.push(ast.lines[i]);
   }
+
+  output.push(...deferredRootEdges);
 
   return { code: output.join("\n"), compoundNodeIds };
 }

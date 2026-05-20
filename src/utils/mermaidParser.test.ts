@@ -53,6 +53,7 @@ const HELL_GROUPING_FIXTURE = `flowchart LR
         C1[Privacy Policy]
         B6 --> C1
         A3 --> C5[Add Legal Links Inside App and Website]
+        A3 --> C6[Add Privacy Policy URL to Google Play Listing]
     end
 
     subgraph Customer Event Listing Features
@@ -249,7 +250,7 @@ describe('hell flowchart grouping edge cases', () => {
 
     expect(launch.directNodes).toContain('A3');
     expect(appEntry.directNodes).toContain('B6');
-    expect(legal.directNodes).toEqual(expect.arrayContaining(['C1', 'C5']));
+    expect(legal.directNodes).toEqual(expect.arrayContaining(['C1', 'C5', 'C6']));
     expect(legal.directNodes).not.toContain('A3');
     expect(legal.directNodes).not.toContain('B6');
   });
@@ -279,7 +280,28 @@ describe('hell flowchart grouping edge cases', () => {
     expect(result.code).toContain('style UO1 fill:#fff266,stroke:#333,stroke-width:2px,color:#000');
   });
 
-  it('H4: scoped views turn externally owned endpoints into boundary stubs', () => {
+  it('H4: expanding only Legal keeps external groups outside the Legal subgraph and preserves inline labels', () => {
+    const ast = parseMermaidAST(HELL_GROUPING_FIXTURE);
+    const collapsed = new Set(ast.allSubgraphsFlat.keys());
+    collapsed.delete('Legal_and_Compliance');
+    const result = getRootViewWithCollapseState(ast, collapsed);
+    const lines = result.code.split('\n');
+    const legalStart = lines.findIndex(line => line.includes('subgraph Legal and Compliance'));
+    const legalEnd = lines.findIndex((line, index) => index > legalStart && line.trim() === 'end');
+    const legalBlock = lines.slice(legalStart, legalEnd + 1).join('\n');
+
+    expect(legalBlock).toContain('C5[Add Legal Links Inside App and Website]');
+    expect(legalBlock).toContain('C6[Add Privacy Policy URL to Google Play Listing]');
+    expect(legalBlock).not.toContain('Launch_Strategy --> C5');
+    expect(legalBlock).not.toContain('Launch_Strategy --> C6');
+    expect(legalBlock).not.toContain('App_Entry_and_Core_Screens --> C1');
+
+    expect(result.code).toContain('Launch_Strategy --> C5');
+    expect(result.code).toContain('Launch_Strategy --> C6');
+    expect(result.code).toContain('App_Entry_and_Core_Screens --> C1');
+  });
+
+  it('H5: scoped views turn externally owned endpoints into boundary stubs', () => {
     const ast = parseMermaidAST(HELL_GROUPING_FIXTURE);
     const result = getScopeViewCode(ast, 'Legal_and_Compliance');
 
@@ -292,7 +314,7 @@ describe('hell flowchart grouping edge cases', () => {
     expect(result.boundaryNodeIds).toEqual(expect.arrayContaining(['_ext_B6', '_ext_A3']));
   });
 
-  it('H5: boundary stubs preserve database/cylinder shapes for storage nodes', () => {
+  it('H6: boundary stubs preserve database/cylinder shapes for storage nodes', () => {
     const ast = parseMermaidAST(HELL_GROUPING_FIXTURE);
     const result = getScopeViewCode(ast, 'Backend_Services');
 
