@@ -946,6 +946,24 @@
   stroke-dasharray: 6 3 !important;
 }
 
+/* Cluster hover, active, and selected states */
+.mermaid-container .cluster:hover rect {
+  filter: brightness(1.06) drop-shadow(0 0 8px rgba(99, 102, 241, 0.2));
+  cursor: pointer;
+}
+
+.mermaid-container .cluster.cluster-active rect {
+  stroke: #4f46e5 !important;
+  stroke-width: 2.5px !important;
+  filter: drop-shadow(0 0 12px rgba(79, 70, 229, 0.25));
+}
+
+.mermaid-container .cluster.cluster-selected rect {
+  stroke: #6366f1 !important;
+  stroke-width: 2px !important;
+  stroke-dasharray: 6 3 !important;
+}
+
 /* ======================================
    Node Action Overlay (floating "+")
    ====================================== */
@@ -1426,6 +1444,101 @@
 .mermaid-container .node.node-compound polygon {
   stroke-dasharray: 8 4 !important;
   stroke-width: 2.5px !important;
+}
+
+/* ======================================
+   Expanded Subgraph Cluster Interactivity
+   ====================================== */
+
+/* Make cluster backgrounds hint at interactivity */
+.mermaid-container .cluster rect {
+  transition: filter 0.2s ease, stroke 0.2s ease;
+}
+
+/* Subtle hover glow on cluster border */
+.mermaid-container .cluster:hover > rect {
+  filter: brightness(1.03) drop-shadow(0 0 6px rgba(99, 102, 241, 0.15));
+}
+
+/* ======================================
+   Subgraph Expand/Collapse Toggle Buttons
+   ====================================== */
+
+.subgraph-collapse-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.hover-overlay-hit-area {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  pointer-events: auto;
+}
+
+.hover-overlay-hit-area-visible {
+  pointer-events: auto;
+}
+
+.subgraph-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 9999px;
+  border: none;
+  background: #1e1e2e;
+  color: white;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 1px 4px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.2s ease,
+    background 0.2s ease,
+    transform 0.15s ease;
+  pointer-events: none;
+  outline: none;
+}
+
+.subgraph-toggle-btn-collapse {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.subgraph-toggle-btn-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.subgraph-toggle-btn:hover {
+  opacity: 1 !important;
+  background: #111118;
+  transform: scale(1.08);
+}
+
+.subgraph-toggle-btn:active {
+  transform: scale(0.95);
+}
+
+.subgraph-toggle-btn:focus-visible {
+  opacity: 1;
+  outline: 2px solid rgba(99, 102, 241, 0.65);
+  outline-offset: 2px;
+}
+
+.subgraph-toggle-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 /* Copy Mode Dropdown */

@@ -95,19 +95,26 @@ export default function NodeActionOverlay({ nodeRect, visible, actions }: NodeAc
   const rollDistance = 10; // px lateral shift for roll effect
 
   const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const spaceLeft = rect.left;
   const spaceRight = viewportWidth - rect.right;
-  const placeLeft = spaceRight < (btnSize + gap + 20);
-
-  const top = rect.top + rect.height / 2;
-  const baseLeft = placeLeft
-    ? rect.left - gap - btnSize / 2
-    : rect.right + gap + btnSize / 2;
+  // Place on the left if space on the right is too small AND the left has more space
+  const placeLeft = spaceRight < (btnSize + gap + 40) && spaceLeft > spaceRight;
 
   const isIn = phase === "visible";
   const isExiting = phase === "exiting";
 
   // Use last known actions during exit so buttons exist to animate out
   const resolvedActions = actions.length > 0 ? actions : lastActionsRef.current;
+
+  // Clamp vertical position to keep the action menu fully on screen
+  const minTop = 60;
+  const maxTop = Math.max(minTop, viewportHeight - (resolvedActions.length * 48) - 20);
+  const top = Math.max(minTop, Math.min(maxTop, rect.top + rect.height / 2));
+
+  const baseLeft = placeLeft
+    ? Math.max(btnSize / 2 + 10, rect.left - gap - btnSize / 2)
+    : Math.min(viewportWidth - btnSize / 2 - 10, rect.right + gap + btnSize / 2);
 
   const overlay = (
     <>
