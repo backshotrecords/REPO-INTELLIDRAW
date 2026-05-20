@@ -59,6 +59,7 @@ export function parseMermaidAST(code: string): MermaidAST {
   const topLevelSubgraphs: SubgraphNode[] = [];
   const edges: Edge[] = [];
   const allDefinedNodes = new Set<string>();
+  const nodeOwners = new Map<string, string | null>();
 
   // ── Pass 1: Identify subgraph blocks ──
   const stack: SubgraphNode[] = [];
@@ -76,20 +77,13 @@ export function parseMermaidAST(code: string): MermaidAST {
     // Skip comments and empty lines
     if (trimmed.startsWith("%%") || trimmed === "") continue;
 
-    // Detect subgraph start — ID capture stops at whitespace or '[' to handle
-    // both `subgraph ID[Label]` (no space) and `subgraph ID [Label]` (with space)
-    const sgMatch = trimmed.match(/^subgraph\s+([^\s[]+)(?:\s*\[([^\]]*)\])?/i);
-    if (sgMatch) {
-      const sgId = sgMatch[1];
-      // Label: either the bracketed label, or the ID itself, or text after ID
-      let sgLabel = sgMatch[2] || "";
-      if (!sgLabel) {
-        // Check for `subgraph ID text here` pattern (label without brackets)
-        const altMatch = trimmed.match(/^subgraph\s+([^\s[]+)\s+(.+)$/i);
-        sgLabel = altMatch ? altMatch[2].trim() : sgId;
-      }
-      // Strip surrounding quotes from label
-      sgLabel = sgLabel.replace(/^["']|["']$/g, "");
+    // Detect subgraph start. Mermaid allows either explicit IDs
+    // (`subgraph S [Group S]`) or a title-only declaration with spaces
+    // (`subgraph Launch Strategy`). Title-only groups need synthetic IDs so
+    // collapse state does not collide on the first word.
+    const sgDecl = parseSubgraphDeclaration(trimmed, allSubgraphsFlat);
+    if (sgDecl) {
+      const { id: sgId, label: sgLabel } = sgDecl;
 
       const parentId = stack.length > 0 ? stack[stack.length - 1].id : null;
       const node: SubgraphNode = {
@@ -143,24 +137,11 @@ export function parseMermaidAST(code: string): MermaidAST {
           lineIndex: i,
           rawLine: lines[i],
         });
-        // Also record these as node references
-        allDefinedNodes.add(edgeMatch.from);
-        allDefinedNodes.add(edgeMatch.to);
 
         // Assign nodes to current scope
         const currentScope = stack.length > 0 ? stack[stack.length - 1] : null;
-        if (currentScope) {
-          if (!isInsideChildSubgraph(currentScope, edgeMatch.from, allSubgraphsFlat)) {
-            if (!currentScope.directNodes.includes(edgeMatch.from)) {
-              currentScope.directNodes.push(edgeMatch.from);
-            }
-          }
-          if (!isInsideChildSubgraph(currentScope, edgeMatch.to, allSubgraphsFlat)) {
-            if (!currentScope.directNodes.includes(edgeMatch.to)) {
-              currentScope.directNodes.push(edgeMatch.to);
-            }
-          }
-        }
+        recordNodeReference(edgeMatch.from, currentScope);
+        recordNodeReference(edgeMatch.to, currentScope);
       }
       continue;
     }
@@ -169,16 +150,8 @@ export function parseMermaidAST(code: string): MermaidAST {
     const nodeDefMatch = trimmed.match(/^([A-Za-z_]\w*)\s*[\[({<"]/);
     if (nodeDefMatch) {
       const nodeId = nodeDefMatch[1];
-      allDefinedNodes.add(nodeId);
-
       const currentScope = stack.length > 0 ? stack[stack.length - 1] : null;
-      if (currentScope) {
-        if (!isInsideChildSubgraph(currentScope, nodeId, allSubgraphsFlat)) {
-          if (!currentScope.directNodes.includes(nodeId)) {
-            currentScope.directNodes.push(nodeId);
-          }
-        }
-      }
+      recordNodeReference(nodeId, currentScope);
     }
   }
 
@@ -209,6 +182,77 @@ export function parseMermaidAST(code: string): MermaidAST {
     headerLine,
     lines,
   };
+
+  function recordNodeReference(nodeId: string, currentScope: SubgraphNode | null): void {
+    allDefinedNodes.add(nodeId);
+
+    const currentOwner = currentScope?.id ?? null;
+    const existingOwner = nodeOwners.get(nodeId);
+
+    if (existingOwner === undefined) {
+      nodeOwners.set(nodeId, currentOwner);
+    } else if (existingOwner !== currentOwner) {
+      return;
+    }
+
+    if (!currentScope) return;
+    if (isInsideChildSubgraph(currentScope, nodeId, allSubgraphsFlat)) return;
+    if (!currentScope.directNodes.includes(nodeId)) {
+      currentScope.directNodes.push(nodeId);
+    }
+  }
+}
+
+function parseSubgraphDeclaration(
+  trimmed: string,
+  allSubgraphsFlat: Map<string, SubgraphNode>
+): { id: string; label: string } | null {
+  const restMatch = trimmed.match(/^subgraph\s+(.+)$/i);
+  if (!restMatch) return null;
+
+  const rest = restMatch[1].trim();
+  const explicitMatch = rest.match(/^([^\s[]+)\s*(?:\[(.*)\])?$/);
+
+  if (explicitMatch) {
+    const rawId = explicitMatch[1];
+    const rawLabel = explicitMatch[2];
+    const label = stripLabelQuotes(rawLabel ? rawLabel.trim() : rawId);
+    return { id: ensureUniqueSubgraphId(rawId, allSubgraphsFlat), label };
+  }
+
+  const label = stripLabelQuotes(rest);
+  return { id: ensureUniqueSubgraphId(labelToSubgraphId(label), allSubgraphsFlat), label };
+}
+
+function stripLabelQuotes(label: string): string {
+  return label.replace(/^["']|["']$/g, "");
+}
+
+function labelToSubgraphId(label: string): string {
+  const sanitized = label
+    .trim()
+    .replace(/[^A-Za-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  if (!sanitized) return "Subgraph";
+  if (/^[0-9]/.test(sanitized)) return `Subgraph_${sanitized}`;
+  return sanitized;
+}
+
+function ensureUniqueSubgraphId(
+  baseId: string,
+  allSubgraphsFlat: Map<string, SubgraphNode>
+): string {
+  const fallback = labelToSubgraphId(baseId);
+  let candidate = fallback || "Subgraph";
+  let suffix = 2;
+
+  while (allSubgraphsFlat.has(candidate)) {
+    candidate = `${fallback}_${suffix}`;
+    suffix++;
+  }
+
+  return candidate;
 }
 
 // ── Edge Parsing ─────────────────────────────────────────────────
@@ -409,7 +453,11 @@ function findNodeLabel(ast: MermaidAST, nodeId: string): string {
     );
     if (match) {
       // Strip HTML tags from labels
-      return match[2].replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim() || nodeId;
+      let label = match[2];
+      if (match[1] === "[" && label.startsWith("(")) {
+        label = label.slice(1);
+      }
+      return label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim() || nodeId;
     }
   }
   return nodeId;
@@ -458,6 +506,74 @@ function findNodeShapeBrackets(ast: MermaidAST, nodeId: string): { open: string;
   return { open: '["', close: '"]' }; // fallback: quoted square
 }
 
+function emitRedirectedEdgesInRange(
+  ast: MermaidAST,
+  startLine: number,
+  endLine: number,
+  visibleNodes: Set<string>,
+  emittedEdges: Set<string>,
+  output: string[],
+  resolveHiddenEndpoint: (nodeId: string) => string
+): void {
+  for (let i = startLine; i < endLine; i++) {
+    const rawLine = ast.lines[i];
+    if (/~{3,}/.test(rawLine)) continue;
+
+    const chainEdges = parseAllEdges(rawLine.trim());
+    for (const edgeParsed of chainEdges) {
+      const fromId = visibleNodes.has(edgeParsed.from)
+        ? edgeParsed.from
+        : resolveHiddenEndpoint(edgeParsed.from);
+      const toId = visibleNodes.has(edgeParsed.to)
+        ? edgeParsed.to
+        : resolveHiddenEndpoint(edgeParsed.to);
+
+      if (fromId === toId) continue;
+      if (!visibleNodes.has(fromId) || !visibleNodes.has(toId)) continue;
+
+      const edgeKey = `${fromId}-->${toId}`;
+      if (emittedEdges.has(edgeKey)) continue;
+      emittedEdges.add(edgeKey);
+
+      const labelPart = edgeParsed.label ? `|${edgeParsed.label}|` : '';
+      output.push(`    ${fromId} ${edgeParsed.arrow}${labelPart} ${toId}`);
+    }
+  }
+}
+
+function hasNodeDefinition(lines: string[], nodeId: string): boolean {
+  const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const nodeDefRegex = new RegExp(`(?:^|\\s|>)\\s*${escaped}\\s*[\\[\\(\\{<"]`);
+  return lines.some(line => nodeDefRegex.test(line.trim()));
+}
+
+function emitNodeDefinitionIfMissing(output: string[], ast: MermaidAST, nodeId: string): void {
+  if (hasNodeDefinition(output, nodeId)) return;
+  if (!hasNodeDefinition(ast.lines, nodeId)) return;
+
+  const safeLabel = findNodeLabel(ast, nodeId).replace(/"/g, "'");
+  const shape = findNodeShapeBrackets(ast, nodeId);
+  output.push(`    ${nodeId}${shape.open}${safeLabel}${shape.close}`);
+}
+
+function isNodeWithinSubgraph(nodeId: string, scopeId: string, ast: MermaidAST): boolean {
+  let currentId: string | null;
+
+  if (nodeId === scopeId) return true;
+  if (ast.allSubgraphsFlat.has(nodeId)) {
+    currentId = nodeId;
+  } else {
+    currentId = findOwnerSubgraph(nodeId, ast);
+  }
+
+  while (currentId) {
+    if (currentId === scopeId) return true;
+    currentId = ast.allSubgraphsFlat.get(currentId)?.parentId ?? null;
+  }
+
+  return false;
+}
+
 /**
  * Generate Mermaid code for the ROOT view.
  * Subgraphs are collapsed into single compound nodes.
@@ -503,6 +619,18 @@ export function getRootViewCode(ast: MermaidAST): string {
       // Emit a compound node in place of the entire subgraph block
       const safeLabel = sgRange.label.replace(/"/g, "'");
       output.push(`    ${sgRange.id}["\uD83D\uDCC2 ${safeLabel}"]`);
+      emitRedirectedEdgesInRange(
+        ast,
+        sgRange.start + 1,
+        sgRange.end,
+        visibleAtRoot,
+        emittedRedirectedEdges,
+        output,
+        (nodeId) => {
+          const owner = findOwnerSubgraph(nodeId, ast);
+          return owner ? (getTopLevelParent(owner, ast) || nodeId) : nodeId;
+        }
+      );
       // Skip all lines until the matching 'end'
       i = sgRange.end;
       continue;
@@ -639,6 +767,7 @@ export function getRootViewWithCollapseState(
 
   // Edge deduplication for redirected edges
   const emittedRedirectedEdges = new Set<string>();
+  const deferredRootEdges: string[] = [];
 
   for (let i = 0; i < ast.lines.length; i++) {
     const trimmed = ast.lines[i].trim();
@@ -655,6 +784,15 @@ export function getRootViewWithCollapseState(
         // Collapsed → emit compound node, skip to end
         const safeLabel = sgRange.label.replace(/"/g, "'");
         output.push(`    ${sgRange.id}["\uD83D\uDCC2 ${safeLabel}"]`);
+        emitRedirectedEdgesInRange(
+          ast,
+          sgRange.start + 1,
+          sgRange.end,
+          visibleNodes,
+          emittedRedirectedEdges,
+          output,
+          (nodeId) => findCollapsedVisibleOwner(nodeId, ast, collapsedSubgraphIds) || nodeId
+        );
         i = sgRange.end;
       } else {
         // Expanded → pass through the subgraph line as-is (loop will continue through inner lines)
@@ -698,7 +836,48 @@ export function getRootViewWithCollapseState(
       if (insideCollapsedNested) {
         continue; // skip — inside a collapsed nested subgraph
       }
-      // Pass through line unchanged
+      // Edges inside expanded parents can still point into collapsed nested
+      // children. Redirect them here so hidden child nodes do not reappear as
+      // Mermaid-created phantom nodes.
+      const chainEdges = parseAllEdges(trimmed);
+      if (chainEdges.length > 0) {
+        for (const edgeParsed of chainEdges) {
+          let fromId = edgeParsed.from;
+          let toId = edgeParsed.to;
+
+          if (!visibleNodes.has(fromId)) {
+            fromId = findCollapsedVisibleOwner(fromId, ast, collapsedSubgraphIds) || fromId;
+          }
+          if (!visibleNodes.has(toId)) {
+            toId = findCollapsedVisibleOwner(toId, ast, collapsedSubgraphIds) || toId;
+          }
+
+          if (fromId === toId) continue;
+
+          const edgeKey = `${fromId}-->${toId}`;
+          if (emittedRedirectedEdges.has(edgeKey)) continue;
+          emittedRedirectedEdges.add(edgeKey);
+
+          const labelPart = edgeParsed.label ? `|${edgeParsed.label}|` : '';
+          const edgeLine = `    ${fromId} ${edgeParsed.arrow}${labelPart} ${toId}`;
+          const fromInsideCurrent = isNodeWithinSubgraph(fromId, containingSg.id, ast);
+          const toInsideCurrent = isNodeWithinSubgraph(toId, containingSg.id, ast);
+
+          if (fromInsideCurrent && toInsideCurrent) {
+            output.push(edgeLine);
+          } else {
+            if (fromInsideCurrent && fromId === edgeParsed.from) {
+              emitNodeDefinitionIfMissing(output, ast, fromId);
+            }
+            if (toInsideCurrent && toId === edgeParsed.to) {
+              emitNodeDefinitionIfMissing(output, ast, toId);
+            }
+            deferredRootEdges.push(edgeLine);
+          }
+        }
+        continue;
+      }
+
       output.push(ast.lines[i]);
       continue;
     }
@@ -725,12 +904,10 @@ export function getRootViewWithCollapseState(
 
             // Only redirect if the endpoint is inside a COLLAPSED group
             if (!visibleNodes.has(fromId)) {
-              const owner = findOwnerSubgraph(fromId, ast);
-              fromId = owner ? (getTopLevelParent(owner, ast) || fromId) : fromId;
+              fromId = findCollapsedVisibleOwner(fromId, ast, collapsedSubgraphIds) || fromId;
             }
             if (!visibleNodes.has(toId)) {
-              const owner = findOwnerSubgraph(toId, ast);
-              toId = owner ? (getTopLevelParent(owner, ast) || toId) : toId;
+              toId = findCollapsedVisibleOwner(toId, ast, collapsedSubgraphIds) || toId;
             }
 
             if (fromId === toId) continue;
@@ -771,6 +948,8 @@ export function getRootViewWithCollapseState(
     // Everything else — pass through unchanged
     output.push(ast.lines[i]);
   }
+
+  output.push(...deferredRootEdges);
 
   return { code: output.join("\n"), compoundNodeIds };
 }
@@ -900,6 +1079,18 @@ export function getScopeViewCode(
     }
 
     output.push(ast.lines[i]);
+  }
+
+  // Some user-authored Mermaid defines a node only as the visible endpoint of
+  // a cross-boundary edge, e.g. `External --> Local[Label]` inside the current
+  // subgraph. If that edge is converted to a boundary stub, emit the local
+  // node definition separately so the scoped view does not point at a phantom.
+  for (const nodeId of sg.directNodes) {
+    if (hasNodeDefinition(output, nodeId)) continue;
+
+    const safeLabel = findNodeLabel(ast, nodeId).replace(/"/g, "'");
+    const shape = findNodeShapeBrackets(ast, nodeId);
+    output.push(`    ${nodeId}${shape.open}${safeLabel}${shape.close}`);
   }
 
   // Find internal edges defined outside the subgraph block and emit them
@@ -1103,6 +1294,22 @@ function findOwnerSubgraph(nodeId: string, ast: MermaidAST): string | null {
   for (const sg of ast.allSubgraphsFlat.values()) {
     if (sg.directNodes.includes(nodeId)) return sg.id;
   }
+  return null;
+}
+
+/** Find the visible collapsed ancestor that should stand in for a hidden node. */
+function findCollapsedVisibleOwner(
+  nodeId: string,
+  ast: MermaidAST,
+  collapsedSubgraphIds: Set<string>
+): string | null {
+  let currentId = findOwnerSubgraph(nodeId, ast);
+
+  while (currentId) {
+    if (collapsedSubgraphIds.has(currentId)) return currentId;
+    currentId = ast.allSubgraphsFlat.get(currentId)?.parentId ?? null;
+  }
+
   return null;
 }
 
