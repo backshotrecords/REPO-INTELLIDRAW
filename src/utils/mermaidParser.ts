@@ -25,6 +25,7 @@ export interface Edge {
   from: string;
   to: string;
   label?: string;
+  arrow: string;
   lineIndex: number;
   rawLine: string;
 }
@@ -138,6 +139,7 @@ export function parseMermaidAST(code: string): MermaidAST {
           from: edgeMatch.from,
           to: edgeMatch.to,
           label: edgeMatch.label,
+          arrow: edgeMatch.arrow,
           lineIndex: i,
           rawLine: lines[i],
         });
@@ -898,6 +900,60 @@ export function getScopeViewCode(
     }
 
     output.push(ast.lines[i]);
+  }
+
+  // Find internal edges defined outside the subgraph block and emit them
+  for (const edge of ast.edges) {
+    if (edge.lineIndex >= innerStart && edge.lineIndex < innerEnd) {
+      continue;
+    }
+
+    let fromId = edge.from;
+    let toId = edge.to;
+    const fromVis = visibleNodes.has(fromId);
+    const toVis = visibleNodes.has(toId);
+
+    if (fromVis && toVis) {
+      const labelPart = edge.label ? `|${edge.label}|` : '';
+      const edgeKey = `${fromId}-->${toId}`;
+      if (!scopeRedirectedEdges.has(edgeKey)) {
+        scopeRedirectedEdges.add(edgeKey);
+        output.push(`    ${fromId} ${edge.arrow}${labelPart} ${toId}`);
+      }
+      continue;
+    }
+
+    let hasRedirect = false;
+    if (!fromVis) {
+      const childOwner = findChildContaining(fromId, sg, ast.allSubgraphsFlat);
+      if (childOwner) {
+        fromId = childOwner;
+        hasRedirect = true;
+      }
+    }
+    if (!toVis) {
+      const childOwner = findChildContaining(toId, sg, ast.allSubgraphsFlat);
+      if (childOwner) {
+        toId = childOwner;
+        hasRedirect = true;
+      }
+    }
+
+    if (hasRedirect && fromId !== toId) {
+      const fromVisNow = visibleNodes.has(fromId);
+      const toVisNow = visibleNodes.has(toId);
+
+      if (fromVisNow && toVisNow) {
+        if (!/~{3,}/.test(edge.rawLine)) {
+          const edgeKey = `${fromId}-->${toId}`;
+          if (!scopeRedirectedEdges.has(edgeKey)) {
+            scopeRedirectedEdges.add(edgeKey);
+            const labelPart = edge.label ? `|${edge.label}|` : '';
+            output.push(`    ${fromId} ${edge.arrow}${labelPart} ${toId}`);
+          }
+        }
+      }
+    }
   }
 
   // Add boundary reference stubs for cross-scope edges

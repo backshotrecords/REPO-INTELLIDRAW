@@ -5,7 +5,7 @@
  * compound node tracking, and the collapse/expand cycle.
  */
 import { describe, it, expect } from 'vitest';
-import { parseMermaidAST, getRootViewCode, getRootViewWithCollapseState } from './mermaidParser';
+import { parseMermaidAST, getRootViewCode, getRootViewWithCollapseState, getScopeViewCode } from './mermaidParser';
 
 // ── Test Fixture ──────────────────────────────────────────────────
 // A flowchart with 2 top-level subgraphs (S and T), each containing 2 nodes,
@@ -170,3 +170,35 @@ describe('getRootViewWithCollapseState', () => {
     expect(result.code).not.toContain('I2[Inner Node 2]');
   });
 });
+
+describe('getScopeViewCode', () => {
+  it('T1: should include internal edges defined outside the subgraph block', () => {
+    const code = `flowchart TD
+    subgraph Save [Group Save]
+        S1[User Click Save]
+        S2[System Access Database]
+        S3[Commit to Memory]
+        D[Database Saved Data Schema]
+    end
+    subgraph Pull [Group Pull]
+        F1[File 1]
+        F2[File 2]
+    end
+    S1 --> S2 --> S3 --> D --> Pull
+    S3 -->|paging| F2`;
+    
+    const ast = parseMermaidAST(code);
+    const scopeResult = getScopeViewCode(ast, 'Save');
+    
+    // Check that internal edges defined outside are rendered
+    expect(scopeResult.code).toContain('S1 --> S2');
+    expect(scopeResult.code).toContain('S2 --> S3');
+    expect(scopeResult.code).toContain('S3 --> D');
+    
+    // Check that the boundary edge pointing to Pull is rendered as dotted
+    expect(scopeResult.code).toContain('D -.-> _ext_Pull');
+    // Check that boundary edge to F2 is rendered as dotted
+    expect(scopeResult.code).toContain('S3 -.-> _ext_F2');
+  });
+});
+
