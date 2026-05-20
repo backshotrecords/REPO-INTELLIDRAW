@@ -13,6 +13,8 @@ type ToggleMode = "expand" | "collapse";
 const TOGGLE_SIZE = 36;
 const TOGGLE_CORNER_OVERLAP = 6;
 
+const getCornerOffset = (zoom: number) => (TOGGLE_SIZE - TOGGLE_CORNER_OVERLAP) / zoom;
+
 interface TogglePosition {
   subgraphId: string;
   label: string;
@@ -54,6 +56,7 @@ export default function SubgraphCollapseOverlay({
 
     const layerRect = layerEl.getBoundingClientRect();
     const targets: HoverOverlayTarget<TogglePosition>[] = [];
+    const cornerOffset = getCornerOffset(zoom);
 
     const clusters = layerEl.querySelectorAll(".cluster");
 
@@ -90,8 +93,8 @@ export default function SubgraphCollapseOverlay({
 
       // Get the cluster rect position relative to the canvas container
       const clusterRect = cluster.getBoundingClientRect();
-      const x = (clusterRect.right - layerRect.left) / zoom + TOGGLE_SIZE - TOGGLE_CORNER_OVERLAP;
-      const y = (clusterRect.top - layerRect.top) / zoom - TOGGLE_SIZE + TOGGLE_CORNER_OVERLAP;
+      const x = (clusterRect.right - layerRect.left) / zoom + cornerOffset;
+      const y = (clusterRect.top - layerRect.top) / zoom - cornerOffset;
 
       targets.push({
         key: `collapse-${matched.id}`,
@@ -119,8 +122,8 @@ export default function SubgraphCollapseOverlay({
       if (!subgraph) return;
 
       const nodeRect = node.getBoundingClientRect();
-      const x = (nodeRect.right - layerRect.left) / zoom + TOGGLE_SIZE - TOGGLE_CORNER_OVERLAP;
-      const y = (nodeRect.top - layerRect.top) / zoom - TOGGLE_SIZE + TOGGLE_CORNER_OVERLAP;
+      const x = (nodeRect.right - layerRect.left) / zoom + cornerOffset;
+      const y = (nodeRect.top - layerRect.top) / zoom - cornerOffset;
 
       targets.push({
         key: `expand-${nodeId}`,
