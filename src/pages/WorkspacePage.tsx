@@ -1352,9 +1352,20 @@ export default function WorkspacePage() {
         if (nodeEl.classList.contains("cluster")) {
           nodeId = getClusterSubgraphId(nodeEl, parsedAST);
           if (nodeId) {
-            const labelEl = nodeEl.querySelector(".cluster-label");
+            let liveCluster = nodeEl;
+            const liveClusters = canvasRef.current?.querySelectorAll(".cluster");
+            if (liveClusters) {
+              for (const c of liveClusters) {
+                if (getClusterSubgraphId(c, parsedAST) === nodeId) {
+                  liveCluster = c;
+                  break;
+                }
+              }
+            }
+            const labelEl = liveCluster.querySelector(".cluster-label");
             label = labelEl?.textContent?.trim() || nodeId;
-            rect = nodeEl.getBoundingClientRect();
+            const clusterRectEl = liveCluster.querySelector("rect");
+            rect = clusterRectEl ? clusterRectEl.getBoundingClientRect() : liveCluster.getBoundingClientRect();
           }
         } else {
           const svgId = nodeEl.id || "";
