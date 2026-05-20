@@ -32,6 +32,53 @@ function parseFixture() {
   return parseMermaidAST(TEST_FLOWCHART);
 }
 
+const HELL_GROUPING_FIXTURE = `flowchart LR
+    UO1[USER OBJECTIVES Extremely long objective label from a non technical user]
+
+    subgraph Launch Strategy
+        direction TB
+        A0[Start Project] --> A1{Launch Phase}
+        A1 -->|Phase 2| A3[Prepare Android App for Google Play Store]
+    end
+
+    subgraph App Entry and Core Screens
+        direction TB
+        B1[Splash Screen]
+        B2[Home Page Upcoming Events]
+        B2 --> B6[Profile Settings Page]
+    end
+
+    subgraph Legal and Compliance
+        direction TB
+        C1[Privacy Policy]
+        B6 --> C1
+        A3 --> C5[Add Legal Links Inside App and Website]
+    end
+
+    subgraph Customer Event Listing Features
+        direction TB
+        F1[Show Event Flyer]
+    end
+
+    subgraph Customer Journey
+        direction TB
+        I1[Home]
+    end
+
+    subgraph Backend Services
+        direction TB
+        P1[Authentication Service]
+        P3[Password Reset Service]
+    end
+
+    subgraph Database and Storage
+        direction TB
+        Q19[(Password Reset Tokens)]
+    end
+
+    P3 --> Q19
+    style UO1 fill:#fff266,stroke:#333,stroke-width:2px,color:#000`;
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe('getRootViewWithCollapseState', () => {
@@ -168,6 +215,90 @@ describe('getRootViewWithCollapseState', () => {
     // Inner's actual nodes should NOT be present (they're inside the collapsed group)
     expect(result.code).not.toContain('I1[Inner Node]');
     expect(result.code).not.toContain('I2[Inner Node 2]');
+
+    // Edges pointing into the collapsed child should redirect to the compound node
+    // instead of resurrecting hidden child nodes as Mermaid-created phantom nodes.
+    expect(result.code).toContain('O1 --> Inner');
+    expect(result.code).not.toContain('O1 --> I1');
+  });
+});
+
+describe('hell flowchart grouping edge cases', () => {
+  it('H1: title-only multi-word subgraphs get unique stable IDs and full labels', () => {
+    const ast = parseMermaidAST(HELL_GROUPING_FIXTURE);
+
+    expect(ast.subgraphs.map(sg => sg.id)).toEqual([
+      'Launch_Strategy',
+      'App_Entry_and_Core_Screens',
+      'Legal_and_Compliance',
+      'Customer_Event_Listing_Features',
+      'Customer_Journey',
+      'Backend_Services',
+      'Database_and_Storage',
+    ]);
+    expect(ast.subgraphs.map(sg => sg.label)).toContain('App Entry and Core Screens');
+    expect(ast.subgraphs.map(sg => sg.label)).toContain('Customer Event Listing Features');
+    expect(ast.subgraphs.map(sg => sg.label)).toContain('Customer Journey');
+  });
+
+  it('H2: cross-group edge lines inside a subgraph do not steal nodes from their original groups', () => {
+    const ast = parseMermaidAST(HELL_GROUPING_FIXTURE);
+    const launch = ast.allSubgraphsFlat.get('Launch_Strategy')!;
+    const appEntry = ast.allSubgraphsFlat.get('App_Entry_and_Core_Screens')!;
+    const legal = ast.allSubgraphsFlat.get('Legal_and_Compliance')!;
+
+    expect(launch.directNodes).toContain('A3');
+    expect(appEntry.directNodes).toContain('B6');
+    expect(legal.directNodes).toEqual(expect.arrayContaining(['C1', 'C5']));
+    expect(legal.directNodes).not.toContain('A3');
+    expect(legal.directNodes).not.toContain('B6');
+  });
+
+  it('H3: collapsing every title-only group preserves all compound groups and redirects cross-group edges', () => {
+    const ast = parseMermaidAST(HELL_GROUPING_FIXTURE);
+    const result = getRootViewWithCollapseState(ast, new Set(ast.allSubgraphsFlat.keys()));
+
+    expect(result.code).toContain('Launch_Strategy["📂 Launch Strategy"]');
+    expect(result.code).toContain('App_Entry_and_Core_Screens["📂 App Entry and Core Screens"]');
+    expect(result.code).toContain('Legal_and_Compliance["📂 Legal and Compliance"]');
+    expect(result.code).toContain('Customer_Event_Listing_Features["📂 Customer Event Listing Features"]');
+    expect(result.code).toContain('Customer_Journey["📂 Customer Journey"]');
+    expect(result.compoundNodeIds).toEqual(expect.arrayContaining([
+      'Launch_Strategy',
+      'App_Entry_and_Core_Screens',
+      'Legal_and_Compliance',
+      'Customer_Event_Listing_Features',
+      'Customer_Journey',
+      'Backend_Services',
+      'Database_and_Storage',
+    ]));
+
+    expect(result.code).toContain('App_Entry_and_Core_Screens --> Legal_and_Compliance');
+    expect(result.code).toContain('Launch_Strategy --> Legal_and_Compliance');
+    expect(result.code).toContain('Backend_Services --> Database_and_Storage');
+    expect(result.code).toContain('style UO1 fill:#fff266,stroke:#333,stroke-width:2px,color:#000');
+  });
+
+  it('H4: scoped views turn externally owned endpoints into boundary stubs', () => {
+    const ast = parseMermaidAST(HELL_GROUPING_FIXTURE);
+    const result = getScopeViewCode(ast, 'Legal_and_Compliance');
+
+    expect(result.code).toContain('C1[Privacy Policy]');
+    expect(result.code).toContain('C5[Add Legal Links Inside App and Website]');
+    expect(result.code).toContain('_ext_B6[Profile Settings Page]');
+    expect(result.code).toContain('_ext_A3[Prepare Android App for Google Play Store]');
+    expect(result.code).toContain('_ext_B6 -.-> C1');
+    expect(result.code).toContain('_ext_A3 -.-> C5');
+    expect(result.boundaryNodeIds).toEqual(expect.arrayContaining(['_ext_B6', '_ext_A3']));
+  });
+
+  it('H5: boundary stubs preserve database/cylinder shapes for storage nodes', () => {
+    const ast = parseMermaidAST(HELL_GROUPING_FIXTURE);
+    const result = getScopeViewCode(ast, 'Backend_Services');
+
+    expect(result.code).toContain('_ext_Q19[(Password Reset Tokens)]');
+    expect(result.code).toContain('P3 -.-> _ext_Q19');
+    expect(result.boundaryNodeIds).toContain('_ext_Q19');
   });
 });
 
@@ -201,4 +332,3 @@ describe('getScopeViewCode', () => {
     expect(scopeResult.code).toContain('S3 -.-> _ext_F2');
   });
 });
-
