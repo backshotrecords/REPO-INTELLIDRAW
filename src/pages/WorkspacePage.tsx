@@ -941,8 +941,6 @@ export default function WorkspacePage() {
     setActiveScopeId(subgraphId);
     setScopePath(getScopePath(parsedAST, subgraphId));
     setActiveNode(null);
-    // Reset pan/zoom for the new scope
-    handleResetView();
   }, [parsedAST]);
 
   const handleScopeNavigate = useCallback((targetScopeId: string | null) => {
@@ -953,7 +951,6 @@ export default function WorkspacePage() {
       setScopePath([]);
     }
     setActiveNode(null);
-    handleResetView();
   }, [parsedAST]);
 
   // Check if tapped node is a boundary ref (greyed-out external node)
