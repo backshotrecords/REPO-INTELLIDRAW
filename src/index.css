@@ -946,6 +946,24 @@
   stroke-dasharray: 6 3 !important;
 }
 
+/* Cluster hover, active, and selected states */
+.mermaid-container .cluster:hover rect {
+  filter: brightness(1.06) drop-shadow(0 0 8px rgba(99, 102, 241, 0.2));
+  cursor: pointer;
+}
+
+.mermaid-container .cluster.cluster-active rect {
+  stroke: #4f46e5 !important;
+  stroke-width: 2.5px !important;
+  filter: drop-shadow(0 0 12px rgba(79, 70, 229, 0.25));
+}
+
+.mermaid-container .cluster.cluster-selected rect {
+  stroke: #6366f1 !important;
+  stroke-width: 2px !important;
+  stroke-dasharray: 6 3 !important;
+}
+
 /* ======================================
    Node Action Overlay (floating "+")
    ====================================== */

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
+import type { MermaidAST } from "../utils/mermaidParser";
 
 interface MermaidRendererProps {
   code: string;
@@ -14,6 +15,7 @@ interface MermaidRendererProps {
   boundaryNodeIds?: string[];
   /** Node IDs that are compound nodes (collapsed subgraphs) */
   compoundNodeIds?: string[];
+  parsedAST?: MermaidAST | null;
 }
 
 // Configure mermaid once
@@ -66,10 +68,26 @@ export function extractNodeId(svgElementId: string): string | null {
   return match ? match[1] : null;
 }
 
+function getClusterSubgraphId(cluster: Element, parsedAST: MermaidAST | null): string | null {
+  if (!parsedAST) return null;
+  const labelEl = cluster.querySelector(".cluster-label");
+  if (!labelEl) return null;
+  const clusterLabelText = (labelEl.textContent || "").trim().toLowerCase();
+  if (!clusterLabelText) return null;
+
+  for (const sg of parsedAST.allSubgraphsFlat.values()) {
+    const normalizedLabel = sg.label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim().toLowerCase();
+    if (clusterLabelText === normalizedLabel || clusterLabelText.includes(normalizedLabel) || normalizedLabel.includes(clusterLabelText)) {
+      return sg.id;
+    }
+  }
+  return null;
+}
+
 export default function MermaidRenderer({
   code, className = "", onSyntaxError, isFixing = false,
   activeNodeId, selectedNodeIds,
-  boundaryNodeIds, compoundNodeIds,
+  boundaryNodeIds, compoundNodeIds, parsedAST
 }: MermaidRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -170,7 +188,28 @@ export default function MermaidRenderer({
         node.classList.remove("node-compound");
       }
     });
-  }, [svgHtml, activeNodeId, selectedNodeIds, boundaryNodeIds, compoundNodeIds]);
+
+    // Apply visual state classes to SVG clusters (expanded subgraphs)
+    const clusters = container.querySelectorAll(".cluster");
+    clusters.forEach((cluster) => {
+      const sgId = getClusterSubgraphId(cluster, parsedAST || null);
+      if (!sgId) return;
+
+      // Active state
+      if (activeNodeId === sgId) {
+        cluster.classList.add("cluster-active");
+      } else {
+        cluster.classList.remove("cluster-active");
+      }
+
+      // Selected state
+      if (selectedNodeIds?.includes(sgId)) {
+        cluster.classList.add("cluster-selected");
+      } else {
+        cluster.classList.remove("cluster-selected");
+      }
+    });
+  }, [svgHtml, activeNodeId, selectedNodeIds, boundaryNodeIds, compoundNodeIds, parsedAST]);
 
   if (error) {
     return (

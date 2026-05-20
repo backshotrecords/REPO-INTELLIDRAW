@@ -33,7 +33,15 @@ interface SelectedNode {
  */
 function findNodeDefinition(mermaidCode: string, nodeId: string): string {
   // Escape special regex chars in the node ID
-  const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escaped = nodeId.replace(/[.*+?^${}()|[\\\]]/g, "\\$&");
+
+  // Try matching subgraph definition: subgraph ID
+  const sgRegex = new RegExp(`^\\s*subgraph\\s+${escaped}(?:\\s+[\\\\[\\(\\{"\\w].*)?$`, "mi");
+  const sgMatch = mermaidCode.match(sgRegex);
+  if (sgMatch) {
+    return sgMatch[0].trim();
+  }
+
   // Match the node ID followed by a shape opener: [ ( { or "
   const regex = new RegExp(`^\\s*${escaped}\\s*([\\[\\(\\{"<])`, "m");
   const match = mermaidCode.match(regex);
@@ -47,6 +55,22 @@ function findNodeDefinition(mermaidCode: string, nodeId: string): string {
     : mermaidCode.slice(startIdx, lineEnd).trim();
 
   return line;
+}
+
+function getClusterSubgraphId(cluster: Element, parsedAST: MermaidAST | null): string | null {
+  if (!parsedAST) return null;
+  const labelEl = cluster.querySelector(".cluster-label");
+  if (!labelEl) return null;
+  const clusterLabelText = (labelEl.textContent || "").trim().toLowerCase();
+  if (!clusterLabelText) return null;
+
+  for (const sg of parsedAST.allSubgraphsFlat.values()) {
+    const normalizedLabel = sg.label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim().toLowerCase();
+    if (clusterLabelText === normalizedLabel || clusterLabelText.includes(normalizedLabel) || normalizedLabel.includes(clusterLabelText)) {
+      return sg.id;
+    }
+  }
+  return null;
 }
 
 export default function WorkspacePage() {
@@ -1174,8 +1198,23 @@ export default function WorkspacePage() {
       }
     }
 
+    // Fallback: Check if pointer hit an expanded group (cluster)
+    if (!nodeEl) {
+      const allClusters = canvasRef.current?.querySelectorAll(".cluster");
+      if (allClusters) {
+        for (const cluster of allClusters) {
+          const r = cluster.getBoundingClientRect();
+          if (e.clientX >= r.left && e.clientX <= r.right &&
+              e.clientY >= r.top && e.clientY <= r.bottom) {
+            nodeEl = cluster;
+            break;
+          }
+        }
+      }
+    }
+
     if (nodeEl) {
-      console.log('[NodeTap] ✅ Hit-test found node:', nodeEl.id, '— recording tap state');
+      console.log('[NodeTap] ✅ Hit-test found node/cluster:', nodeEl.id || 'cluster', '— recording tap state');
       nodeTapRef.current = {
         nodeEl,
         startX: e.clientX,
@@ -1184,7 +1223,7 @@ export default function WorkspacePage() {
         pointerId: e.pointerId,
       };
     } else {
-      console.log('[NodeTap] ⚪ Hit-test found no node at', e.clientX, e.clientY, '— allNodes count:', allNodes?.length ?? 0);
+      console.log('[NodeTap] ⚪ Hit-test found no node/cluster at', e.clientX, e.clientY);
       nodeTapRef.current = null;
     }
 
@@ -1306,29 +1345,40 @@ export default function WorkspacePage() {
       if (elapsed < 300) {
         // Confirmed tap on a node! Extract info and fire handler.
         const nodeEl = tapState.nodeEl;
-        const svgId = nodeEl.id || "";
-        const nodeId = extractNodeId(svgId);
-        console.log('[NodeTap] 🟢 svgId:', svgId, '→ nodeId:', nodeId);
+        let nodeId: string | null = null;
+        let label = "";
+        let rect: DOMRect | null = null;
 
-        if (nodeId) {
+        if (nodeEl.classList.contains("cluster")) {
+          nodeId = getClusterSubgraphId(nodeEl, parsedAST);
+          if (nodeId) {
+            const labelEl = nodeEl.querySelector(".cluster-label");
+            label = labelEl?.textContent?.trim() || nodeId;
+            rect = nodeEl.getBoundingClientRect();
+          }
+        } else {
+          const svgId = nodeEl.id || "";
+          nodeId = extractNodeId(svgId);
+          if (nodeId) {
+            const liveNode = canvasRef.current?.querySelector(`#${CSS.escape(svgId)}`) || nodeEl;
+            const labelEl = liveNode.querySelector(".nodeLabel");
+            label = labelEl?.textContent?.trim() || nodeId;
+            rect = liveNode.getBoundingClientRect();
+          }
+        }
+
+        if (nodeId && rect) {
           // Check if this is a boundary (greyed-out external) node → navigate to its scope
           if (isBoundaryNode(nodeId)) {
             handleBoundaryNodeClick(nodeId);
             return;
           }
 
-          // Re-query the node from live DOM — the stored nodeEl may be detached
-          // (React re-renders between pointerDown and pointerUp, and
-          // dangerouslySetInnerHTML re-creates the SVG elements)
-          const liveNode = canvasRef.current?.querySelector(`#${CSS.escape(svgId)}`) || nodeEl;
-          const labelEl = liveNode.querySelector(".nodeLabel");
-          const label = labelEl?.textContent?.trim() || nodeId;
-          const rect = liveNode.getBoundingClientRect();
           console.log('[NodeTap] ✅✅✅ CONFIRMED TAP — calling handleNodeTap:', { id: nodeId, label, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height } });
           handleNodeTap({ id: nodeId, label, rect });
           return; // Don't also deselect
         } else {
-          console.log('[NodeTap] ❌ extractNodeId returned null for svgId:', svgId);
+          console.log('[NodeTap] ❌ Could not extract nodeId/rect for nodeEl:', nodeEl.id || 'cluster');
         }
       } else {
         console.log('[NodeTap] ⚪ Tap too slow — treating as hold/drag');
@@ -1712,6 +1762,7 @@ export default function WorkspacePage() {
                   selectedNodeIds={selectedNodes.map((n) => n.id)}
                   boundaryNodeIds={boundaryNodeIds}
                   compoundNodeIds={compoundNodeIds}
+                  parsedAST={parsedAST}
                 />
 
                 {/* Floating expand/collapse buttons for subgraphs */}
