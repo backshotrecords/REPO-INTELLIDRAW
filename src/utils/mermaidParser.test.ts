@@ -80,6 +80,40 @@ const HELL_GROUPING_FIXTURE = `flowchart LR
     P3 --> Q19
     style UO1 fill:#fff266,stroke:#333,stroke-width:2px,color:#000`;
 
+const STUDENT_SUPPORT_FIXTURE = `flowchart TD
+    A[Student visits Customer Service] --> B[Customer Service logs pre-ticket]
+    B --> C[Route ticket based on issue]
+    C --> D{Is support unit or faculty in the space?}
+
+    D -- Yes --> E[Support unit or faculty resolves issue in person]
+    E --> F[Student provides update on resolution]
+    F --> G{Was the issue resolved?}
+    G -- Yes --> H[Mark ticket resolved / close ticket]
+    G -- No --> I[Escalate ticket]
+
+    D -- No --> J1
+
+    subgraph J[Virtual routing to support unit or faculty]
+        J1[Asha sends ticket to pool]
+        J2[EAS admin reviews ticket pool]
+        J3[EAS admin routes ticket to responsible person]
+        J5{Does responsible person have a SolarWinds license?}
+        J6[Responsible person updates ticket status or reroutes in SolarWinds as needed]
+        J7[Responsible person resolves issue and emails EAS admin]
+        J8[EAS admin updates ticket with emailed resolution]
+
+        J1 --> J2 --> J3 --> J5
+        J5 -- Yes --> J6
+        J5 -- No --> J7 --> J8
+    end
+
+    J6 --> K[Wait for response from EAS admin]
+    J8 --> K
+    K --> L[Customer Service updates student after EAS admin response]
+    L --> M{Should ticket be closed or escalated?}
+    M -- Close --> H
+    M -- Escalate --> I`;
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe('getRootViewWithCollapseState', () => {
@@ -321,6 +355,26 @@ describe('hell flowchart grouping edge cases', () => {
     expect(result.code).toContain('_ext_Q19[(Password Reset Tokens)]');
     expect(result.code).toContain('P3 -.-> _ext_Q19');
     expect(result.boundaryNodeIds).toContain('_ext_Q19');
+  });
+});
+
+describe('student support collapse regression', () => {
+  it('keeps boundary-adjacent node labels when a group is collapsed', () => {
+    const ast = parseMermaidAST(STUDENT_SUPPORT_FIXTURE);
+    const group = ast.allSubgraphsFlat.get('J')!;
+
+    expect(group.directNodes).toContain('J1');
+    expect(ast.rootNodes).not.toContain('J1');
+    expect(ast.rootNodes).toContain('K');
+
+    const result = getRootViewWithCollapseState(ast, new Set(['J']));
+
+    expect(result.code).toContain('J["📂 Virtual routing to support unit or faculty"]');
+    expect(result.code).toContain('D -->|No| J');
+    expect(result.code).toContain('K[Wait for response from EAS admin]');
+    expect(result.code).toContain('J --> K');
+    expect(result.code).not.toContain('D -- No --> J1');
+    expect(result.code).not.toContain('J1 --> J');
   });
 });
 
