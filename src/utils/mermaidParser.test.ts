@@ -124,6 +124,31 @@ const EXPAND_OPEN_LABEL_PARITY_FIXTURE = `flowchart TD
         H1 --> P2[Parent node label defined by redirected child edge]
     end`;
 
+const MARKETPLACE_EXPANDED_GROUP_FIXTURE = `flowchart TD
+    Market[Marketplace]
+    Published[My Published Skills]
+    Drafts[My Drafts]
+
+    subgraph DraftFlow[Author Draft And Publish Flow]
+        direction TD
+        Drafts --> D1[Author creates or edits private draft skill]
+        D1 --> DB1[(skill notes stores author draft state)]
+        DB1 --> D2[User interface shows draft saved]
+        D2 --> D3{Author publishes}
+        D3 -- Yes --> D7[Create immutable published version v1]
+        D7 --> DB2[(skill note versions stores immutable snapshot)]
+    end
+
+    subgraph MarketplaceInstall[Marketplace Install Flow]
+        direction TD
+        Market --> M1[User opens marketplace]
+    end
+
+    subgraph PublishedManagement[Published Skill Management Flow]
+        direction TD
+        Published --> P1[Owner opens published skill]
+    end`;
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe('getRootViewWithCollapseState', () => {
@@ -397,6 +422,23 @@ describe('student support collapse regression', () => {
 
     expect(openedParent.code).toContain('P2[Parent node label defined by redirected child edge]');
     expect(openedParent.code).toContain('Hidden --> P2');
+  });
+
+  it('preserves inline database and decision labels inside an expanded group with collapsed siblings', () => {
+    const ast = parseMermaidAST(MARKETPLACE_EXPANDED_GROUP_FIXTURE);
+    const expandedDraftFlow = getRootViewWithCollapseState(
+      ast,
+      new Set(['MarketplaceInstall', 'PublishedManagement'])
+    );
+    const openedDraftFlow = getScopeViewCode(ast, 'DraftFlow', new Set(['MarketplaceInstall', 'PublishedManagement']));
+
+    expect(expandedDraftFlow.code).toContain('D1 --> DB1[(skill notes stores author draft state)]');
+    expect(expandedDraftFlow.code).toContain('D2 --> D3{Author publishes}');
+    expect(expandedDraftFlow.code).toContain('D7 --> DB2[(skill note versions stores immutable snapshot)]');
+
+    expect(openedDraftFlow.code).toContain('D1 --> DB1[(skill notes stores author draft state)]');
+    expect(openedDraftFlow.code).toContain('D2 --> D3{Author publishes}');
+    expect(openedDraftFlow.code).toContain('D7 --> DB2[(skill note versions stores immutable snapshot)]');
   });
 });
 

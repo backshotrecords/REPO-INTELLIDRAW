@@ -938,6 +938,18 @@ export function getRootViewWithCollapseState(
       // Mermaid-created phantom nodes.
       const chainEdges = parseAllEdges(trimmed);
       if (chainEdges.length > 0) {
+        const allVisibleAndInternal = chainEdges.every(edge =>
+          visibleNodes.has(edge.from) &&
+          visibleNodes.has(edge.to) &&
+          isNodeWithinSubgraph(edge.from, containingSg.id, ast) &&
+          isNodeWithinSubgraph(edge.to, containingSg.id, ast)
+        );
+
+        if (allVisibleAndInternal) {
+          output.push(ast.lines[i]);
+          continue;
+        }
+
         for (const edgeParsed of chainEdges) {
           let fromId = edgeParsed.from;
           let toId = edgeParsed.to;
