@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import type { ChatMessage, CanvasCommit } from "../types";
 import ModelPicker from "./ModelPicker";
@@ -61,7 +60,6 @@ export default function AgentGitLog({
   previewMode,
   previewVersionNumber,
 }: AgentGitLogProps) {
-  const navigate = useNavigate();
   const [sidebarView, setSidebarView] = useState<"chat" | "tree">("chat");
   const [expandedPills, setExpandedPills] = useState<Record<number, boolean>>({});
   const [menuOpen, setMenuOpen] = useState(false);
@@ -318,14 +316,6 @@ export default function AgentGitLog({
                 >
                   <span className="material-symbols-outlined text-base text-on-surface-variant">chat</span>
                   Chat
-                </button>
-                <div className="h-px bg-outline-variant/10 mx-2 my-1" />
-                <button
-                  onClick={() => { navigate("/user-management"); setMenuOpen(false); }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-on-surface hover:bg-surface-container-high/40 transition-colors"
-                >
-                  <span className="material-symbols-outlined text-base text-on-surface-variant">groups</span>
-                  User Management
                 </button>
               </div>
             )}
