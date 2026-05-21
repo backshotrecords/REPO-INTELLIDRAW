@@ -1696,7 +1696,7 @@ export default function AdminPage() {
                               {u.has_api_key && (
                                 <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${
                                   u.api_key_source === "admin"
-                                    ? "bg-tertiary-container text-on-tertiary-fixed"
+                                    ? "bg-tertiary-container text-white"
                                     : "bg-secondary-fixed text-on-secondary-fixed-variant"
                                 }`}>
                                   {u.api_key_source === "admin" ? "Admin Key" : "Own Key"}
