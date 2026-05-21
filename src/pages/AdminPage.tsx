@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGetChatConfig, apiUpdateChatConfig, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel, apiGetOnboardingTutorials, apiCreateOnboardingTutorial, apiUpdateOnboardingTutorial, apiDeleteOnboardingTutorial, apiAdminListUsers, apiAdminDeleteUser, apiAdminBanUser } from "../lib/api";
+import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGetChatConfig, apiUpdateChatConfig, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel, apiGetOnboardingTutorials, apiCreateOnboardingTutorial, apiUpdateOnboardingTutorial, apiDeleteOnboardingTutorial, apiAdminListUsers, apiAdminDeleteUser, apiAdminBanUser, apiAdminSaveUserApiKey } from "../lib/api";
 
 // ─── Config Module Registry ─────────────────────────────
 // Add new config modules here — the sidebar auto-populates from this array.
@@ -67,6 +67,8 @@ interface AdminUser {
   is_global_admin: boolean;
   created_at: string;
   canvas_count: number;
+  has_api_key: boolean;
+  api_key_source: "user" | "admin";
 }
 
 export default function AdminPage() {
@@ -143,6 +145,10 @@ export default function AdminPage() {
   const [deleteConfirmStep, setDeleteConfirmStep] = useState<number>(0); // 0=none, 1=first confirm, 2=final confirm
   const [deleteTargetUser, setDeleteTargetUser] = useState<AdminUser | null>(null);
   const [banningUserId, setBanningUserId] = useState<string | null>(null);
+  const [apiKeyTargetUser, setApiKeyTargetUser] = useState<AdminUser | null>(null);
+  const [adminApiKeyInput, setAdminApiKeyInput] = useState("");
+  const [adminApiKeySaving, setAdminApiKeySaving] = useState(false);
+  const [adminApiKeyMessage, setAdminApiKeyMessage] = useState("");
 
   // ─── Sidebar active-section tracking ───────────────────
   const [activeSection, setActiveSection] = useState<string>(CONFIG_MODULES[0].key);
@@ -533,6 +539,41 @@ export default function AdminPage() {
       console.error("Failed to ban/unban user:", err);
     } finally {
       setBanningUserId(null);
+    }
+  };
+
+  const handleOpenApiKeyModal = (u: AdminUser) => {
+    setApiKeyTargetUser(u);
+    setAdminApiKeyInput("");
+    setAdminApiKeyMessage("");
+  };
+
+  const handleCloseApiKeyModal = () => {
+    if (adminApiKeySaving) return;
+    setApiKeyTargetUser(null);
+    setAdminApiKeyInput("");
+    setAdminApiKeyMessage("");
+  };
+
+  const handleSaveUserApiKey = async () => {
+    if (!apiKeyTargetUser || !adminApiKeyInput.trim()) return;
+    setAdminApiKeySaving(true);
+    setAdminApiKeyMessage("");
+    try {
+      await apiAdminSaveUserApiKey(apiKeyTargetUser.id, adminApiKeyInput.trim());
+      setAdminUsers((prev) =>
+        prev.map((u) =>
+          u.id === apiKeyTargetUser.id
+            ? { ...u, has_api_key: true, api_key_source: "admin" }
+            : u
+        )
+      );
+      setAdminApiKeyInput("");
+      setApiKeyTargetUser(null);
+    } catch (err) {
+      setAdminApiKeyMessage(err instanceof Error ? err.message : "Failed to save API key");
+    } finally {
+      setAdminApiKeySaving(false);
     }
   };
 
@@ -1652,6 +1693,15 @@ export default function AdminPage() {
                                   Banned
                                 </span>
                               )}
+                              {u.has_api_key && (
+                                <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                                  u.api_key_source === "admin"
+                                    ? "bg-tertiary-container text-white"
+                                    : "bg-secondary-fixed text-on-secondary-fixed-variant"
+                                }`}>
+                                  {u.api_key_source === "admin" ? "Admin Key" : "Own Key"}
+                                </span>
+                              )}
                               {isSelf && (
                                 <span className="text-[10px] font-bold uppercase tracking-wide bg-secondary-fixed text-on-secondary-fixed-variant px-1.5 py-0.5 rounded">
                                   You
@@ -1672,6 +1722,19 @@ export default function AdminPage() {
 
                           {/* Actions */}
                           <div className="flex items-center gap-1 shrink-0">
+                            {/* API Key */}
+                            <button
+                              onClick={() => handleOpenApiKeyModal(u)}
+                              disabled={isSelf || isDeleting}
+                              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed bg-primary/10 text-primary hover:bg-primary/15 border border-primary/20"
+                              title={isSelf ? "Use Settings to manage your own API key" : "Add or replace admin-managed API key"}
+                            >
+                              <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
+                                vpn_key
+                              </span>
+                              API Key
+                            </button>
+
                             {/* Ban/Unban */}
                             <button
                               onClick={() => {
@@ -1714,6 +1777,80 @@ export default function AdminPage() {
               </div>
             </div>
           </section>
+
+          {/* ═══ Admin API Key Modal ════════════════════════════ */}
+          {apiKeyTargetUser && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+              <div className="bg-white rounded-2xl shadow-2xl border border-outline-variant/20 max-w-lg w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95">
+                <div className="p-5 bg-primary/5 border-b border-primary/10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+                        vpn_key
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-lg font-bold text-on-surface">Add API Key</h3>
+                      <p className="text-xs text-on-surface-variant truncate">{apiKeyTargetUser.display_name} · {apiKeyTargetUser.email}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-5 space-y-4">
+                  <div className="rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-4">
+                    <p className="text-sm text-on-surface-variant leading-relaxed">
+                      This saves an encrypted admin-managed key for the selected user. They can use it in IntelliDraw, but Settings will not let them reveal or copy it.
+                    </p>
+                  </div>
+
+                  {apiKeyTargetUser.has_api_key && (
+                    <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                      <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>
+                        warning
+                      </span>
+                      Saving will replace this user's existing {apiKeyTargetUser.api_key_source === "admin" ? "admin-managed" : "user-owned"} API key.
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-on-surface">OpenAI API Key</label>
+                    <input
+                      type="password"
+                      value={adminApiKeyInput}
+                      onChange={(e) => setAdminApiKeyInput(e.target.value)}
+                      placeholder="sk-..."
+                      autoComplete="off"
+                      className="w-full bg-surface-container-high border-none rounded-lg px-4 py-4 focus:ring-2 focus:ring-primary/20 transition-all outline-none font-mono text-sm"
+                    />
+                  </div>
+
+                  {adminApiKeyMessage && (
+                    <p className="text-sm text-error font-medium">{adminApiKeyMessage}</p>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-3 p-5 border-t border-outline-variant/10 bg-surface-container-lowest/50">
+                  <button
+                    onClick={handleCloseApiKeyModal}
+                    disabled={adminApiKeySaving}
+                    className="px-4 py-2.5 text-sm font-bold text-on-surface-variant hover:text-on-surface rounded-xl hover:bg-surface-container-high transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveUserApiKey}
+                    disabled={adminApiKeySaving || !adminApiKeyInput.trim()}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl bg-primary text-white hover:bg-primary/90 transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
+                      {adminApiKeySaving ? "progress_activity" : "save"}
+                    </span>
+                    {adminApiKeySaving ? "Saving..." : "Save Key"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ═══ Delete Confirmation Modal ═══════════════════════ */}
           {deleteConfirmStep > 0 && deleteTargetUser && (

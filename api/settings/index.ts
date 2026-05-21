@@ -16,7 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const { data: user } = await supabase
         .from("users")
-        .select("id, email, display_name, api_key_encrypted, active_model_id")
+        .select("id, email, display_name, api_key_encrypted, api_key_source, active_model_id")
         .eq("id", userId)
         .single();
 
@@ -47,6 +47,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           displayName: user.display_name,
           activeModelId: user.active_model_id,
           hasApiKey: !!user.api_key_encrypted,
+          apiKeySource: user.api_key_source || "user",
+          apiKeyManagedByAdmin: user.api_key_source === "admin",
           maskedApiKey: maskedKey,
         },
       });

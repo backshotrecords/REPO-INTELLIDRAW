@@ -30,6 +30,7 @@ export default function SettingsPage() {
   const [showKey, setShowKey] = useState(false);
   const [rawApiKey, setRawApiKey] = useState<string | null>(null);
   const [hasKey, setHasKey] = useState(false);
+  const [apiKeyManagedByAdmin, setApiKeyManagedByAdmin] = useState(false);
   const [keySaving, setKeySaving] = useState(false);
   const [keyMessage, setKeyMessage] = useState("");
 
@@ -139,6 +140,7 @@ export default function SettingsPage() {
       setDisplayName(data.user.displayName);
 
       setHasKey(data.user.hasApiKey);
+      setApiKeyManagedByAdmin(data.user.apiKeyManagedByAdmin ?? false);
       if (data.user.hasApiKey) {
         setApiKeyInput(""); // Don't show the actual key
       }
@@ -170,6 +172,7 @@ export default function SettingsPage() {
     try {
       await apiSaveApiKey(apiKeyInput.trim());
       setHasKey(true);
+      setApiKeyManagedByAdmin(false);
       setApiKeyInput("");
       setRawApiKey(null);
       setShowKey(false);
@@ -183,6 +186,11 @@ export default function SettingsPage() {
   };
 
   const handleShowKey = async () => {
+    if (apiKeyManagedByAdmin) {
+      setKeyMessage("This API key is managed by an administrator and cannot be revealed.");
+      setTimeout(() => setKeyMessage(""), 3000);
+      return;
+    }
     if (showKey) {
       setShowKey(false);
       setRawApiKey(null);
@@ -194,10 +202,17 @@ export default function SettingsPage() {
       setShowKey(true);
     } catch (err) {
       console.error("Failed to get API key:", err);
+      setKeyMessage(err instanceof Error ? err.message : "Failed to get API key");
+      setTimeout(() => setKeyMessage(""), 3000);
     }
   };
 
   const handleCopyKey = async () => {
+    if (apiKeyManagedByAdmin) {
+      setCopyMessage("Admin-managed keys cannot be copied");
+      setTimeout(() => setCopyMessage(""), 2000);
+      return;
+    }
     if (!rawApiKey) {
       // Fetch key first
       try {
@@ -533,7 +548,7 @@ export default function SettingsPage() {
                   <div className="relative">
                     <input
                       className="w-full bg-surface-container-high border-none rounded-lg pl-4 pr-24 py-4 focus:ring-2 focus:ring-secondary/20 transition-all outline-none font-mono text-sm"
-                      placeholder="sk-..."
+                      placeholder={apiKeyManagedByAdmin ? "Managed by administrator" : "sk-..."}
                       type={showKey ? "text" : "password"}
                       value={showKey && rawApiKey ? rawApiKey : apiKeyInput}
                       onChange={(e) => {
@@ -542,7 +557,7 @@ export default function SettingsPage() {
                       readOnly={showKey && !!rawApiKey}
                     />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                      {hasKey && (
+                      {hasKey && !apiKeyManagedByAdmin && (
                         <>
                           <button
                             onClick={handleShowKey}
@@ -564,6 +579,16 @@ export default function SettingsPage() {
                       )}
                     </div>
                   </div>
+                  {apiKeyManagedByAdmin && (
+                    <div className="flex items-center gap-2 rounded-lg bg-primary/5 border border-primary/10 px-3 py-2">
+                      <span className="material-symbols-outlined text-primary text-base" style={{ fontVariationSettings: "'FILL' 1" }}>
+                        admin_panel_settings
+                      </span>
+                      <p className="text-xs text-on-surface-variant">
+                        This key was added by an administrator. You can use it, but you cannot reveal or copy it.
+                      </p>
+                    </div>
+                  )}
                   {copyMessage && (
                     <p className="text-xs text-secondary font-medium">{copyMessage}</p>
                   )}

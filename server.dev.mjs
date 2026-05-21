@@ -532,7 +532,7 @@ app.post("/api/upload", requireAuth(async (req, res) => {
 app.get("/api/settings", requireAuth(async (req, res) => {
   try {
     const { data: user } = await supabase
-      .from("users").select("id, email, display_name, api_key_encrypted, active_model_id")
+      .from("users").select("id, email, display_name, api_key_encrypted, api_key_source, active_model_id")
       .eq("id", req.auth.userId).single();
 
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -550,7 +550,11 @@ app.get("/api/settings", requireAuth(async (req, res) => {
     return res.status(200).json({
       user: {
         id: user.id, email: user.email, displayName: user.display_name,
-        activeModelId: user.active_model_id, hasApiKey: !!user.api_key_encrypted, maskedApiKey: maskedKey,
+        activeModelId: user.active_model_id,
+        hasApiKey: !!user.api_key_encrypted,
+        apiKeySource: user.api_key_source || "user",
+        apiKeyManagedByAdmin: user.api_key_source === "admin",
+        maskedApiKey: maskedKey,
       },
     });
   } catch (err) {
@@ -582,7 +586,12 @@ app.put("/api/settings/apikey", requireAuth(async (req, res) => {
   if (!apiKey) return res.status(400).json({ error: "API key is required" });
   try {
     const encryptedKey = encrypt(apiKey);
-    const { error } = await supabase.from("users").update({ api_key_encrypted: encryptedKey }).eq("id", req.auth.userId);
+    const { error } = await supabase.from("users").update({
+      api_key_encrypted: encryptedKey,
+      api_key_source: "user",
+      api_key_updated_at: new Date().toISOString(),
+      api_key_managed_by: null,
+    }).eq("id", req.auth.userId);
     if (error) return res.status(500).json({ error: "Failed to save API key" });
     return res.status(200).json({ success: true });
   } catch (err) {
@@ -592,8 +601,14 @@ app.put("/api/settings/apikey", requireAuth(async (req, res) => {
 
 app.get("/api/settings/apikey", requireAuth(async (req, res) => {
   try {
-    const { data: user } = await supabase.from("users").select("api_key_encrypted").eq("id", req.auth.userId).single();
+    const { data: user } = await supabase.from("users").select("api_key_encrypted, api_key_source").eq("id", req.auth.userId).single();
     if (!user?.api_key_encrypted) return res.status(200).json({ apiKey: null });
+    if (user.api_key_source === "admin") {
+      return res.status(403).json({
+        error: "This API key is managed by an administrator and cannot be revealed.",
+        managedByAdmin: true,
+      });
+    }
     return res.status(200).json({ apiKey: decrypt(user.api_key_encrypted) });
   } catch (err) {
     return res.status(500).json({ error: "Internal server error" });
@@ -747,6 +762,167 @@ app.get("/api/rules_active", requireAuth(async (req, res) => {
 // ============================================================
 // ADMIN RULES ROUTES
 // ============================================================
+async function requireGlobalAdmin(req, res) {
+  const { data: user } = await supabase
+    .from("users")
+    .select("is_global_admin")
+    .eq("id", req.auth.userId)
+    .single();
+  if (!user?.is_global_admin) {
+    res.status(403).json({ error: "Forbidden: Admins only" });
+    return false;
+  }
+  return true;
+}
+
+async function cascadeDeleteUser(userId) {
+  const { data: targetUser, error: lookupError } = await supabase
+    .from("users")
+    .select("id, email, display_name")
+    .eq("id", userId)
+    .single();
+  if (lookupError || !targetUser) throw new Error("User not found");
+
+  const { data: userSkills } = await supabase.from("skill_notes").select("id").eq("owner_id", userId);
+  const skillIds = (userSkills || []).map((s) => s.id);
+  if (skillIds.length > 0) {
+    await supabase.from("skill_note_attachments").delete().in("skill_note_id", skillIds);
+    await supabase.from("skill_note_shares").delete().in("skill_note_id", skillIds);
+  }
+
+  const { data: userCanvases } = await supabase.from("canvases").select("id").eq("user_id", userId);
+  const canvasIds = (userCanvases || []).map((c) => c.id);
+  if (canvasIds.length > 0) {
+    await supabase.from("skill_note_attachments").delete().in("canvas_id", canvasIds);
+    await supabase.from("canvas_commits").delete().in("canvas_id", canvasIds);
+  }
+
+  if (skillIds.length > 0) await supabase.from("skill_notes").delete().eq("owner_id", userId);
+  await supabase.from("canvases").delete().eq("user_id", userId);
+  await supabase.from("group_members").delete().eq("user_id", userId);
+
+  const { data: ownedGroups } = await supabase.from("user_groups").select("id").eq("owner_id", userId);
+  const groupIds = (ownedGroups || []).map((g) => g.id);
+  if (groupIds.length > 0) {
+    await supabase.from("group_members").delete().in("group_id", groupIds);
+    await supabase.from("user_groups").delete().eq("owner_id", userId);
+  }
+
+  await supabase.from("user_onboarding_state").delete().eq("user_id", userId);
+  await supabase.from("ai_models").delete().eq("user_id", userId);
+  await supabase.from("skill_note_shares").delete().eq("shared_with_user_id", userId);
+
+  const { error: deleteError } = await supabase.from("users").delete().eq("id", userId);
+  if (deleteError) throw new Error(deleteError.message || "Failed to delete user");
+
+  return { deleted_email: targetUser.email, deleted_name: targetUser.display_name || "" };
+}
+
+app.get("/api/admin/users", requireAuth(async (req, res) => {
+  try {
+    if (!(await requireGlobalAdmin(req, res))) return;
+
+    const { data: users, error } = await supabase
+      .from("users")
+      .select("id, email, display_name, is_banned, is_global_admin, created_at, api_key_encrypted, api_key_source")
+      .order("created_at", { ascending: false });
+
+    if (error) return res.status(500).json({ error: error.message || "Failed to fetch users" });
+
+    const { data: canvases } = await supabase.from("canvases").select("user_id");
+    const canvasCounts = {};
+    for (const c of canvases || []) {
+      canvasCounts[c.user_id] = (canvasCounts[c.user_id] || 0) + 1;
+    }
+
+    const usersWithCounts = (users || []).map((u) => ({
+      id: u.id,
+      email: u.email,
+      display_name: u.display_name,
+      is_banned: u.is_banned,
+      is_global_admin: u.is_global_admin,
+      created_at: u.created_at,
+      api_key_source: u.api_key_source || "user",
+      has_api_key: !!u.api_key_encrypted,
+      canvas_count: canvasCounts[u.id] || 0,
+    }));
+
+    return res.status(200).json({ users: usersWithCounts });
+  } catch (err) {
+    console.error("Admin users GET error:", err);
+    return res.status(500).json({ error: err.message || "Internal server error" });
+  }
+}));
+
+app.put("/api/admin/users", requireAuth(async (req, res) => {
+  try {
+    if (!(await requireGlobalAdmin(req, res))) return;
+
+    const { userId, is_banned } = req.body || {};
+    if (!userId || typeof is_banned !== "boolean") {
+      return res.status(400).json({ error: "userId and is_banned (boolean) are required" });
+    }
+    if (userId === req.auth.userId) return res.status(400).json({ error: "Cannot modify your own account" });
+
+    const { error } = await supabase.from("users").update({ is_banned }).eq("id", userId);
+    if (error) return res.status(500).json({ error: error.message || "Failed to update user" });
+    return res.status(200).json({ success: true, is_banned });
+  } catch (err) {
+    console.error("Admin users PUT error:", err);
+    return res.status(500).json({ error: err.message || "Internal server error" });
+  }
+}));
+
+app.delete("/api/admin/users", requireAuth(async (req, res) => {
+  try {
+    if (!(await requireGlobalAdmin(req, res))) return;
+
+    const userId = req.query.userId || req.body?.userId;
+    if (!userId) return res.status(400).json({ error: "userId is required" });
+    if (userId === req.auth.userId) return res.status(400).json({ error: "Cannot delete your own account" });
+
+    const result = await cascadeDeleteUser(userId);
+    return res.status(200).json({ success: true, deleted_email: result.deleted_email });
+  } catch (err) {
+    console.error("Admin users DELETE error:", err);
+    return res.status(500).json({ error: err.message || "Internal server error" });
+  }
+}));
+
+app.put("/api/admin/users/:userId/apikey", requireAuth(async (req, res) => {
+  try {
+    if (!(await requireGlobalAdmin(req, res))) return;
+
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: "Missing target user id" });
+    if (userId === req.auth.userId) return res.status(400).json({ error: "Use Settings to manage your own API key" });
+
+    const { apiKey } = req.body || {};
+    if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
+      return res.status(400).json({ error: "API key is required" });
+    }
+
+    const encryptedKey = encrypt(apiKey.trim());
+    const { data: user, error } = await supabase
+      .from("users")
+      .update({
+        api_key_encrypted: encryptedKey,
+        api_key_source: "admin",
+        api_key_updated_at: new Date().toISOString(),
+        api_key_managed_by: req.auth.userId,
+      })
+      .eq("id", userId)
+      .select("id, email, display_name, is_banned, is_global_admin, created_at, api_key_source")
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message || "Failed to save API key" });
+    return res.status(200).json({ success: true, user: { ...user, has_api_key: true } });
+  } catch (err) {
+    console.error("Admin API key save error:", err);
+    return res.status(500).json({ error: err.message || "Internal server error" });
+  }
+}));
+
 app.get("/api/admin/rules", requireAuth(async (req, res) => {
   try {
     const { data: user } = await supabase.from("users").select("is_global_admin").eq("id", req.auth.userId).single();

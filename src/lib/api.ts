@@ -918,6 +918,16 @@ export async function apiAdminBanUser(userId: string, is_banned: boolean) {
   return data;
 }
 
+export async function apiAdminSaveUserApiKey(userId: string, apiKey: string) {
+  const res = await apiFetch(`/admin/users/${userId}/apikey`, {
+    method: "PUT",
+    body: JSON.stringify({ apiKey }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to save user API key");
+  return data;
+}
+
 // ===== Self-Delete Account =====
 
 export async function apiDeleteMyAccount(email: string) {
@@ -946,4 +956,3 @@ export async function apiSubmitExitInterview(
   if (!res.ok) throw new Error(data.error || "Failed to submit exit interview");
   return data;
 }
-
