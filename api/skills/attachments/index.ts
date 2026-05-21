@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { recalculateSkillStars } from "../../lib/skill-stars.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -36,9 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: error.message || "Failed to attach" });
     }
 
-    // Increment stars
-    const { data: sn } = await supabase.from("skill_notes").select("stars").eq("id", skill_note_id).single();
-    if (sn) await supabase.from("skill_notes").update({ stars: ((sn.stars as number) || 0) + 1 }).eq("id", skill_note_id);
+    await recalculateSkillStars(skill_note_id);
 
     return res.status(201).json({ attachment: { ...data, skill_note: (data as Record<string, unknown>).skill_notes, skill_notes: undefined } });
   }

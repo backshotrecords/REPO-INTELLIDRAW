@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { recalculateSkillStars, recalculateSkillStarsForAttachments } from "../../lib/skill-stars.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -15,6 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data, error } = await supabase.from("skill_note_attachments")
       .update({ is_active }).eq("id", id).eq("user_id", auth.userId).select("*, skill_notes(*)").single();
     if (error || !data) return res.status(404).json({ error: "Attachment not found" });
+    await recalculateSkillStars(data.skill_note_id as string);
     return res.json({ attachment: { ...data, skill_note: data.skill_notes, skill_notes: undefined } });
   }
 
@@ -25,11 +27,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { error } = await supabase.from("skill_note_attachments").delete()
       .eq("id", id).eq("user_id", auth.userId);
     if (error) return res.status(500).json({ error: error.message || "Failed to detach" });
-    // Decrement stars
-    if (att) {
-      const { data: sn } = await supabase.from("skill_notes").select("stars").eq("id", att.skill_note_id).single();
-      if (sn) await supabase.from("skill_notes").update({ stars: Math.max(0, ((sn.stars as number) || 0) - 1) }).eq("id", att.skill_note_id);
-    }
+    await recalculateSkillStarsForAttachments([att as { skill_note_id: string } | null]);
     return res.json({ success: true });
   }
 
