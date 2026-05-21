@@ -611,6 +611,21 @@ function emitNodeDefinitionIfMissing(output: string[], ast: MermaidAST, nodeId: 
   output.push(`    ${nodeId}${shape.open}${safeLabel}${shape.close}`);
 }
 
+function emitDirectNodeDefinitionsIfMissing(
+  output: string[],
+  ast: MermaidAST,
+  sg: SubgraphNode,
+  indent = "    "
+): void {
+  for (const nodeId of sg.directNodes) {
+    if (hasNodeDefinition(output, nodeId)) continue;
+
+    const safeLabel = findNodeLabel(ast, nodeId).replace(/"/g, "'");
+    const shape = findNodeShapeBrackets(ast, nodeId);
+    output.push(`${indent}${nodeId}${shape.open}${safeLabel}${shape.close}`);
+  }
+}
+
 function emitVisibleEndpointDefinitionsForRedirectedEdge(
   output: string[],
   ast: MermaidAST,
@@ -908,6 +923,16 @@ export function getRootViewWithCollapseState(
       if (insideCollapsedNested) {
         continue; // skip — inside a collapsed nested subgraph
       }
+
+      const endingExpandedSubgraph = [...ast.allSubgraphsFlat.values()].find(
+        sg => sg.sourceEnd === i && !collapsedSubgraphIds.has(sg.id)
+      );
+      if (endingExpandedSubgraph) {
+        emitDirectNodeDefinitionsIfMissing(output, ast, endingExpandedSubgraph);
+        output.push(ast.lines[i]);
+        continue;
+      }
+
       // Edges inside expanded parents can still point into collapsed nested
       // children. Redirect them here so hidden child nodes do not reappear as
       // Mermaid-created phantom nodes.
@@ -1095,6 +1120,12 @@ export function getScopeViewCode(
         }
       } else {
         // Expanded child: pass through original subgraph block
+        if (i === childRange.end) {
+          const child = ast.allSubgraphsFlat.get(childRange.id);
+          if (child) {
+            emitDirectNodeDefinitionsIfMissing(output, ast, child);
+          }
+        }
         output.push(ast.lines[i]);
       }
       continue;
@@ -1158,13 +1189,7 @@ export function getScopeViewCode(
   // a cross-boundary edge, e.g. `External --> Local[Label]` inside the current
   // subgraph. If that edge is converted to a boundary stub, emit the local
   // node definition separately so the scoped view does not point at a phantom.
-  for (const nodeId of sg.directNodes) {
-    if (hasNodeDefinition(output, nodeId)) continue;
-
-    const safeLabel = findNodeLabel(ast, nodeId).replace(/"/g, "'");
-    const shape = findNodeShapeBrackets(ast, nodeId);
-    output.push(`    ${nodeId}${shape.open}${safeLabel}${shape.close}`);
-  }
+  emitDirectNodeDefinitionsIfMissing(output, ast, sg);
 
   // Find internal edges defined outside the subgraph block and emit them
   for (const edge of ast.edges) {

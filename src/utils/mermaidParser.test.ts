@@ -114,6 +114,16 @@ const STUDENT_SUPPORT_FIXTURE = `flowchart TD
     M -- Close --> H
     M -- Escalate --> I`;
 
+const EXPAND_OPEN_LABEL_PARITY_FIXTURE = `flowchart TD
+    subgraph Parent [Parent Group]
+        P1[Parent start]
+        P1 --> P2
+        subgraph Hidden [Hidden Child]
+            H1[Hidden child step]
+        end
+        H1 --> P2[Parent node label defined by redirected child edge]
+    end`;
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe('getRootViewWithCollapseState', () => {
@@ -375,6 +385,18 @@ describe('student support collapse regression', () => {
     expect(result.code).toContain('J --> K');
     expect(result.code).not.toContain('D -- No --> J1');
     expect(result.code).not.toContain('J1 --> J');
+  });
+
+  it('uses the same missing-label repair when expanding a group as when opening it', () => {
+    const ast = parseMermaidAST(EXPAND_OPEN_LABEL_PARITY_FIXTURE);
+    const expandedParent = getRootViewWithCollapseState(ast, new Set(['Hidden']));
+    const openedParent = getScopeViewCode(ast, 'Parent', new Set(['Hidden']));
+
+    expect(expandedParent.code).toContain('P2[Parent node label defined by redirected child edge]');
+    expect(expandedParent.code).toContain('Hidden --> P2');
+
+    expect(openedParent.code).toContain('P2[Parent node label defined by redirected child edge]');
+    expect(openedParent.code).toContain('Hidden --> P2');
   });
 });
 
