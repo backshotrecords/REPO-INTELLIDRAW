@@ -26,7 +26,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === "GET") {
       const { data: users, error } = await supabase
         .from("users")
-        .select("id, email, display_name, is_banned, is_global_admin, created_at")
+        .select("id, email, display_name, is_banned, is_global_admin, created_at, api_key_encrypted, api_key_source")
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -50,7 +50,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const usersWithCounts = (users || []).map((u: Record<string, unknown>) => ({
-        ...u,
+        id: u.id,
+        email: u.email,
+        display_name: u.display_name,
+        is_banned: u.is_banned,
+        is_global_admin: u.is_global_admin,
+        created_at: u.created_at,
+        api_key_source: u.api_key_source || "user",
+        has_api_key: !!u.api_key_encrypted,
         canvas_count: canvasCounts[u.id as string] || 0,
       }));
 

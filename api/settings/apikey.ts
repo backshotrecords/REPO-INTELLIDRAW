@@ -24,7 +24,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const { error } = await supabase
         .from("users")
-        .update({ api_key_encrypted: encryptedKey })
+        .update({
+          api_key_encrypted: encryptedKey,
+          api_key_source: "user",
+          api_key_updated_at: new Date().toISOString(),
+          api_key_managed_by: null,
+        })
         .eq("id", userId);
 
       if (error) {
@@ -43,12 +48,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const { data: user } = await supabase
         .from("users")
-        .select("api_key_encrypted")
+        .select("api_key_encrypted, api_key_source")
         .eq("id", userId)
         .single();
 
       if (!user?.api_key_encrypted) {
         return res.status(200).json({ apiKey: null });
+      }
+
+      if (user.api_key_source === "admin") {
+        return res.status(403).json({
+          error: "This API key is managed by an administrator and cannot be revealed.",
+          managedByAdmin: true,
+        });
       }
 
       const rawKey = decrypt(user.api_key_encrypted);
@@ -64,7 +76,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const { error } = await supabase
         .from("users")
-        .update({ api_key_encrypted: null })
+        .update({
+          api_key_encrypted: null,
+          api_key_source: "user",
+          api_key_updated_at: new Date().toISOString(),
+          api_key_managed_by: null,
+        })
         .eq("id", userId);
 
       if (error) {
