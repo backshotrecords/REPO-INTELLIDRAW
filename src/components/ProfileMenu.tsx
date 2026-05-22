@@ -59,6 +59,17 @@ export default function ProfileMenu() {
 
           <button
             onClick={() => {
+              navigate("/user-management");
+              setShowDropdown(false);
+            }}
+            className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3 text-on-surface"
+          >
+            <span className="material-symbols-outlined text-lg">groups</span>
+            User Management
+          </button>
+
+          <button
+            onClick={() => {
               navigate("/dashboard");
               setShowDropdown(false);
             }}

@@ -5,6 +5,7 @@ import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import WorkspacePage from "./pages/WorkspacePage";
 import SettingsPage from "./pages/SettingsPage";
+import UserManagementPage from "./pages/UserManagementPage";
 import AdminPage from "./pages/AdminPage";
 import PublicViewPage from "./pages/PublicViewPage";
 import SkillsMarketplacePage from "./pages/SkillsMarketplacePage";
@@ -94,6 +95,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <SettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/user-management"
+        element={
+          <ProtectedRoute>
+            <UserManagementPage />
           </ProtectedRoute>
         }
       />

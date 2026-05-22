@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
+import { recalculateGlobalSkillStarsForUser } from "../lib/skill-stars.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -51,6 +52,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.error("Create canvas error:", error);
         return res.status(500).json({ error: "Failed to create canvas" });
       }
+
+      await recalculateGlobalSkillStarsForUser(userId);
 
       return res.status(201).json({ canvas: data });
     } catch (err) {

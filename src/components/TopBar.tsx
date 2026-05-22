@@ -133,6 +133,18 @@ export default function TopBar({ showSearch, onSearchChange }: TopBarProps) {
               </button>
               <button
                 onClick={() => {
+                  navigate("/user-management");
+                  setShowMobileMenu(false);
+                }}
+                className="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-semibold text-on-surface hover:bg-surface-container-low transition-colors"
+              >
+                <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  groups
+                </span>
+                User Management
+              </button>
+              <button
+                onClick={() => {
                   navigate("/skills");
                   setShowMobileMenu(false);
                 }}

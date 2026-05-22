@@ -80,6 +80,75 @@ const HELL_GROUPING_FIXTURE = `flowchart LR
     P3 --> Q19
     style UO1 fill:#fff266,stroke:#333,stroke-width:2px,color:#000`;
 
+const STUDENT_SUPPORT_FIXTURE = `flowchart TD
+    A[Student visits Customer Service] --> B[Customer Service logs pre-ticket]
+    B --> C[Route ticket based on issue]
+    C --> D{Is support unit or faculty in the space?}
+
+    D -- Yes --> E[Support unit or faculty resolves issue in person]
+    E --> F[Student provides update on resolution]
+    F --> G{Was the issue resolved?}
+    G -- Yes --> H[Mark ticket resolved / close ticket]
+    G -- No --> I[Escalate ticket]
+
+    D -- No --> J1
+
+    subgraph J[Virtual routing to support unit or faculty]
+        J1[Asha sends ticket to pool]
+        J2[EAS admin reviews ticket pool]
+        J3[EAS admin routes ticket to responsible person]
+        J5{Does responsible person have a SolarWinds license?}
+        J6[Responsible person updates ticket status or reroutes in SolarWinds as needed]
+        J7[Responsible person resolves issue and emails EAS admin]
+        J8[EAS admin updates ticket with emailed resolution]
+
+        J1 --> J2 --> J3 --> J5
+        J5 -- Yes --> J6
+        J5 -- No --> J7 --> J8
+    end
+
+    J6 --> K[Wait for response from EAS admin]
+    J8 --> K
+    K --> L[Customer Service updates student after EAS admin response]
+    L --> M{Should ticket be closed or escalated?}
+    M -- Close --> H
+    M -- Escalate --> I`;
+
+const EXPAND_OPEN_LABEL_PARITY_FIXTURE = `flowchart TD
+    subgraph Parent [Parent Group]
+        P1[Parent start]
+        P1 --> P2
+        subgraph Hidden [Hidden Child]
+            H1[Hidden child step]
+        end
+        H1 --> P2[Parent node label defined by redirected child edge]
+    end`;
+
+const MARKETPLACE_EXPANDED_GROUP_FIXTURE = `flowchart TD
+    Market[Marketplace]
+    Published[My Published Skills]
+    Drafts[My Drafts]
+
+    subgraph DraftFlow[Author Draft And Publish Flow]
+        direction TD
+        Drafts --> D1[Author creates or edits private draft skill]
+        D1 --> DB1[(skill notes stores author draft state)]
+        DB1 --> D2[User interface shows draft saved]
+        D2 --> D3{Author publishes}
+        D3 -- Yes --> D7[Create immutable published version v1]
+        D7 --> DB2[(skill note versions stores immutable snapshot)]
+    end
+
+    subgraph MarketplaceInstall[Marketplace Install Flow]
+        direction TD
+        Market --> M1[User opens marketplace]
+    end
+
+    subgraph PublishedManagement[Published Skill Management Flow]
+        direction TD
+        Published --> P1[Owner opens published skill]
+    end`;
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe('getRootViewWithCollapseState', () => {
@@ -321,6 +390,55 @@ describe('hell flowchart grouping edge cases', () => {
     expect(result.code).toContain('_ext_Q19[(Password Reset Tokens)]');
     expect(result.code).toContain('P3 -.-> _ext_Q19');
     expect(result.boundaryNodeIds).toContain('_ext_Q19');
+  });
+});
+
+describe('student support collapse regression', () => {
+  it('keeps boundary-adjacent node labels when a group is collapsed', () => {
+    const ast = parseMermaidAST(STUDENT_SUPPORT_FIXTURE);
+    const group = ast.allSubgraphsFlat.get('J')!;
+
+    expect(group.directNodes).toContain('J1');
+    expect(ast.rootNodes).not.toContain('J1');
+    expect(ast.rootNodes).toContain('K');
+
+    const result = getRootViewWithCollapseState(ast, new Set(['J']));
+
+    expect(result.code).toContain('J["📂 Virtual routing to support unit or faculty"]');
+    expect(result.code).toContain('D -->|No| J');
+    expect(result.code).toContain('K[Wait for response from EAS admin]');
+    expect(result.code).toContain('J --> K');
+    expect(result.code).not.toContain('D -- No --> J1');
+    expect(result.code).not.toContain('J1 --> J');
+  });
+
+  it('uses the same missing-label repair when expanding a group as when opening it', () => {
+    const ast = parseMermaidAST(EXPAND_OPEN_LABEL_PARITY_FIXTURE);
+    const expandedParent = getRootViewWithCollapseState(ast, new Set(['Hidden']));
+    const openedParent = getScopeViewCode(ast, 'Parent', new Set(['Hidden']));
+
+    expect(expandedParent.code).toContain('P2[Parent node label defined by redirected child edge]');
+    expect(expandedParent.code).toContain('Hidden --> P2');
+
+    expect(openedParent.code).toContain('P2[Parent node label defined by redirected child edge]');
+    expect(openedParent.code).toContain('Hidden --> P2');
+  });
+
+  it('preserves inline database and decision labels inside an expanded group with collapsed siblings', () => {
+    const ast = parseMermaidAST(MARKETPLACE_EXPANDED_GROUP_FIXTURE);
+    const expandedDraftFlow = getRootViewWithCollapseState(
+      ast,
+      new Set(['MarketplaceInstall', 'PublishedManagement'])
+    );
+    const openedDraftFlow = getScopeViewCode(ast, 'DraftFlow', new Set(['MarketplaceInstall', 'PublishedManagement']));
+
+    expect(expandedDraftFlow.code).toContain('D1 --> DB1[(skill notes stores author draft state)]');
+    expect(expandedDraftFlow.code).toContain('D2 --> D3{Author publishes}');
+    expect(expandedDraftFlow.code).toContain('D7 --> DB2[(skill note versions stores immutable snapshot)]');
+
+    expect(openedDraftFlow.code).toContain('D1 --> DB1[(skill notes stores author draft state)]');
+    expect(openedDraftFlow.code).toContain('D2 --> D3{Author publishes}');
+    expect(openedDraftFlow.code).toContain('D7 --> DB2[(skill note versions stores immutable snapshot)]');
   });
 });
 

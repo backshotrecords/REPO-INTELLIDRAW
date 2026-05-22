@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
+import { recalculateSkillStars } from "../lib/skill-stars.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -25,10 +26,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { data, error, count } = await query;
   if (error) return res.status(500).json({ error: error.message || "Failed to fetch marketplace" });
 
-  const skills = (data || []).map((s: Record<string, unknown>) => {
+  const skills = await Promise.all((data || []).map(async (s: Record<string, unknown>) => {
     const users = s.users as Record<string, unknown> | null;
-    return { ...s, owner_display_name: users?.display_name, owner_email: users?.email, users: undefined };
-  });
+    const stars = await recalculateSkillStars(s.id as string);
+    return { ...s, stars, owner_display_name: users?.display_name, owner_email: users?.email, users: undefined };
+  }));
+
+  skills.sort((a, b) => ((b.stars as number) || 0) - ((a.stars as number) || 0));
 
   return res.json({ skills, total: count || 0, page: pageNum, pageSize });
 }

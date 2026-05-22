@@ -1,6 +1,10 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
+import {
+  recalculateGlobalSkillStarsForUser,
+  recalculateSkillStarsForAttachments,
+} from "../lib/skill-stars.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -69,6 +73,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // DELETE /api/canvases/[id] — Delete a canvas
   if (req.method === "DELETE") {
     try {
+      const { data: localAttachments } = await supabase
+        .from("skill_note_attachments")
+        .select("skill_note_id")
+        .eq("canvas_id", canvasId)
+        .eq("user_id", userId);
+
       const { error } = await supabase
         .from("canvases")
         .delete()
@@ -78,6 +88,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) {
         return res.status(500).json({ error: "Failed to delete canvas" });
       }
+
+      await recalculateSkillStarsForAttachments((localAttachments || []) as Array<{ skill_note_id: string }>);
+      await recalculateGlobalSkillStarsForUser(userId);
 
       return res.status(200).json({ success: true });
     } catch (err) {
