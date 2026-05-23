@@ -395,7 +395,7 @@ export default function PublicViewPage() {
 
             {/* Rendered diagram */}
             <div
-              className="min-h-full w-full flex items-center justify-center"
+              className="h-full min-h-0 w-full flex items-center justify-center"
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 transformOrigin: "center center",

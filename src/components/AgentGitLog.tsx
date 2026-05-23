@@ -77,11 +77,21 @@ export default function AgentGitLog({
   const [scrollState, setScrollState] = useState({ height: 0, top: 0, show: false });
   const [isDragging, setIsDragging] = useState(false);
 
-  // Auto-scroll
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  // Auto-scroll the sidebar only. scrollIntoView can bubble to page-level
+  // ancestors during large canvas layout changes.
+  const previousChatLengthRef = useRef(0);
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatHistory, chatLoading]);
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const behavior: ScrollBehavior = previousChatLengthRef.current === 0 ? "auto" : "smooth";
+    const raf = requestAnimationFrame(() => {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+    });
+
+    previousChatLengthRef.current = chatHistory.length;
+    return () => cancelAnimationFrame(raf);
+  }, [chatHistory.length, chatLoading, sidebarView]);
 
   // Group messages into interactions
   const interactions = useMemo<Interaction[]>(() => {
@@ -469,7 +479,6 @@ export default function AgentGitLog({
                   </div>
                 </div>
               )}
-              <div ref={chatEndRef} />
             </div>
           ) : (
             /* ── Git Tree View ── */
@@ -536,7 +545,6 @@ export default function AgentGitLog({
                   );
                 })
               )}
-              <div ref={chatEndRef} />
             </div>
           )}
         </div>

@@ -7,7 +7,7 @@
 import { type RefObject, useCallback } from "react";
 import { useHoverOverlayTargets, type HoverOverlayTarget } from "../hooks/useHoverOverlayTargets";
 import { extractNodeId } from "./MermaidRenderer";
-import { normalizeMermaidDisplayLabel } from "../utils/mermaidParser";
+import { getRenderedClusterSubgraphId } from "../utils/mermaidDom";
 import type { MermaidAST } from "../utils/mermaidParser";
 
 type ToggleMode = "expand" | "collapse";
@@ -61,36 +61,15 @@ export default function SubgraphCollapseOverlay({
 
     const clusters = layerEl.querySelectorAll(".cluster");
 
-    // Build label → subgraph ID map for expanded subgraphs only
-    const labelToSg = new Map<string, { id: string; label: string }>();
-    for (const sg of parsedAST.allSubgraphsFlat.values()) {
-      if (!collapsedSubgraphIds.has(sg.id)) {
-        // Normalize label for matching (Mermaid may strip HTML or add whitespace)
-        const normalizedLabel = normalizeMermaidDisplayLabel(sg.label).toLowerCase();
-        labelToSg.set(normalizedLabel, { id: sg.id, label: sg.label });
-      }
-    }
+    const matchedExpandedIds = new Set<string>();
 
     clusters.forEach(cluster => {
-      // Try to match this cluster to a known subgraph by checking its label text
-      const labelEl = cluster.querySelector(".cluster-label");
-      if (!labelEl) return;
+      const sgId = getRenderedClusterSubgraphId(cluster, parsedAST);
+      if (!sgId || collapsedSubgraphIds.has(sgId) || matchedExpandedIds.has(sgId)) return;
 
-      const clusterLabelText = normalizeMermaidDisplayLabel(labelEl.textContent || "").toLowerCase();
-      if (!clusterLabelText) return;
-
-      // Find matching subgraph (try exact match first, then contains)
-      let matched = labelToSg.get(clusterLabelText);
-      if (!matched) {
-        // Fallback: find by partial match
-        for (const [normalizedLabel, sgInfo] of labelToSg.entries()) {
-          if (clusterLabelText.includes(normalizedLabel) || normalizedLabel.includes(clusterLabelText)) {
-            matched = sgInfo;
-            break;
-          }
-        }
-      }
+      const matched = parsedAST.allSubgraphsFlat.get(sgId);
       if (!matched) return;
+      matchedExpandedIds.add(sgId);
 
       // Get the cluster rect position relative to the canvas container
       const clusterRect = cluster.getBoundingClientRect();
@@ -108,10 +87,6 @@ export default function SubgraphCollapseOverlay({
           y,
         },
       });
-
-      // Remove from map to avoid duplicate matches
-      const normalizedLabel = normalizeMermaidDisplayLabel(matched.label).toLowerCase();
-      labelToSg.delete(normalizedLabel);
     });
 
     const compoundNodes = layerEl.querySelectorAll(".node.node-compound");

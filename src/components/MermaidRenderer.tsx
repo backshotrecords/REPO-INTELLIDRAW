@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
-import { normalizeMermaidDisplayLabel } from "../utils/mermaidParser";
+import { getRenderedClusterSubgraphId } from "../utils/mermaidDom";
 import type { MermaidAST } from "../utils/mermaidParser";
 
 interface MermaidRendererProps {
   code: string;
   className?: string;
   onSyntaxError?: (errorMsg: string, code: string) => void;
+  onRenderStart?: (code: string) => void;
+  onRenderComplete?: (code: string) => void;
+  onRenderError?: (code: string) => void;
   isFixing?: boolean;
   /** Node ID currently "active" (tapped, showing the "+" button) */
   activeNodeId?: string | null;
@@ -70,23 +73,11 @@ export function extractNodeId(svgElementId: string): string | null {
 }
 
 function getClusterSubgraphId(cluster: Element, parsedAST: MermaidAST | null): string | null {
-  if (!parsedAST) return null;
-  const labelEl = cluster.querySelector(".cluster-label");
-  if (!labelEl) return null;
-  const clusterLabelText = normalizeMermaidDisplayLabel(labelEl.textContent || "").toLowerCase();
-  if (!clusterLabelText) return null;
-
-  for (const sg of parsedAST.allSubgraphsFlat.values()) {
-    const normalizedLabel = normalizeMermaidDisplayLabel(sg.label).toLowerCase();
-    if (clusterLabelText === normalizedLabel || clusterLabelText.includes(normalizedLabel) || normalizedLabel.includes(clusterLabelText)) {
-      return sg.id;
-    }
-  }
-  return null;
+  return getRenderedClusterSubgraphId(cluster, parsedAST);
 }
 
 export default function MermaidRenderer({
-  code, className = "", onSyntaxError, isFixing = false,
+  code, className = "", onSyntaxError, onRenderStart, onRenderComplete, onRenderError, isFixing = false,
   activeNodeId, selectedNodeIds,
   boundaryNodeIds, compoundNodeIds, parsedAST
 }: MermaidRendererProps) {
@@ -99,39 +90,57 @@ export default function MermaidRenderer({
   // Stable ref for the callback so useEffect doesn't re-run when callback identity changes
   const onSyntaxErrorRef = useRef(onSyntaxError);
   onSyntaxErrorRef.current = onSyntaxError;
+  const onRenderStartRef = useRef(onRenderStart);
+  onRenderStartRef.current = onRenderStart;
+  const onRenderCompleteRef = useRef(onRenderComplete);
+  onRenderCompleteRef.current = onRenderComplete;
+  const onRenderErrorRef = useRef(onRenderError);
+  onRenderErrorRef.current = onRenderError;
+  const renderTokenRef = useRef(0);
 
   useEffect(() => {
+    const token = ++renderTokenRef.current;
+    let cancelled = false;
+
     if (!code?.trim()) {
       setSvgHtml("");
       setError(null);
+      onRenderCompleteRef.current?.("");
       return;
     }
 
     // If we're currently fixing, don't attempt to re-render
     if (isFixing) return;
 
+    const codeToRender = code.trim();
+    onRenderStartRef.current?.(codeToRender);
+
     const renderDiagram = async () => {
       try {
         renderCounter++;
         const id = `mermaid-diagram-${renderCounter}`;
-        const { svg } = await mermaid.render(id, code.trim());
+        const { svg } = await mermaid.render(id, codeToRender);
+        if (cancelled || renderTokenRef.current !== token) return;
         setSvgHtml(svg);
         setError(null);
         // Successful render — reset the fix tracker
         fixTriggeredForRef.current = null;
         // Clean up any leftover error elements from prior failures
         cleanupMermaidErrors();
+        onRenderCompleteRef.current?.(codeToRender);
       } catch (err) {
+        if (cancelled || renderTokenRef.current !== token) return;
         console.error("Mermaid render error:", err);
         const errMsg = err instanceof Error ? err.message : "Failed to render diagram";
 
         // Clean up the bomb icons mermaid just injected
         cleanupMermaidErrors();
+        onRenderErrorRef.current?.(codeToRender);
 
         // Only fire auto-fix once per unique code string
-        if (onSyntaxErrorRef.current && fixTriggeredForRef.current !== code.trim()) {
-          fixTriggeredForRef.current = code.trim();
-          onSyntaxErrorRef.current(errMsg, code.trim());
+        if (onSyntaxErrorRef.current && fixTriggeredForRef.current !== codeToRender) {
+          fixTriggeredForRef.current = codeToRender;
+          onSyntaxErrorRef.current(errMsg, codeToRender);
           // Don't set error state — the parent will handle it silently
           setError(null);
         } else if (!onSyntaxErrorRef.current) {
@@ -142,6 +151,10 @@ export default function MermaidRenderer({
     };
 
     renderDiagram();
+
+    return () => {
+      cancelled = true;
+    };
   }, [code, isFixing]);
 
   // Also clean up on unmount
