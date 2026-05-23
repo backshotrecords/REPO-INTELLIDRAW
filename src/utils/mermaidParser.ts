@@ -260,8 +260,16 @@ function parseSubgraphDeclaration(
   return { id: ensureUniqueSubgraphId(labelToSubgraphId(label), allSubgraphsFlat), label };
 }
 
+export function normalizeMermaidDisplayLabel(label: string): string {
+  return stripLabelQuotes(label)
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function stripLabelQuotes(label: string): string {
-  return label.replace(/^["']|["']$/g, "");
+  return label.trim().replace(/^["']|["']$/g, "");
 }
 
 function labelToSubgraphId(label: string): string {
@@ -424,7 +432,7 @@ export function getScopePath(
   const path: Array<{ id: string; label: string }> = [];
   let current = ast.allSubgraphsFlat.get(scopeId);
   while (current) {
-    path.unshift({ id: current.id, label: current.label });
+    path.unshift({ id: current.id, label: normalizeMermaidDisplayLabel(current.label) });
     current = current.parentId ? ast.allSubgraphsFlat.get(current.parentId) : undefined;
   }
   return path;
@@ -502,19 +510,86 @@ function findNodeLabel(ast: MermaidAST, nodeId: string): string {
     const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     // Match nodeId followed by a shape bracket, anywhere in the line
     // (handles inline definitions like `INTRO --> DEC{Decision node}`)
-    const match = trimmed.match(
-      new RegExp(`(?:^|\\s|>)\\s*${escaped}\\s*([\\[\\(\\{<"])([^\\]\\)\\}>"]*)`)
-    );
-    if (match) {
-      // Strip HTML tags from labels
-      let label = match[2];
-      if (match[1] === "[" && label.startsWith("(")) {
-        label = label.slice(1);
-      }
-      return label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim() || nodeId;
+    const match = trimmed.match(new RegExp(`(?:^|\\s|>)\\s*${escaped}\\s*([\\[\\(\\{<"])`));
+    if (!match || match.index === undefined) continue;
+
+    const openerIndex = match.index + match[0].length - 1;
+    const label = extractNodeLabelFromShape(trimmed, openerIndex);
+    if (label) {
+      return normalizeMermaidDisplayLabel(label) || nodeId;
     }
   }
   return nodeId;
+}
+
+function extractNodeLabelFromShape(line: string, openerIndex: number): string | null {
+  const opener = line[openerIndex];
+  const next = line[openerIndex + 1] || "";
+  let contentStart = openerIndex + 1;
+  let closeToken = "";
+
+  if (opener === "[") {
+    if (next === "(") {
+      contentStart++;
+      closeToken = ")]";
+    } else if (next === "[") {
+      contentStart++;
+      closeToken = "]]";
+    } else if (next === "/") {
+      contentStart++;
+      closeToken = "/]";
+    } else if (next === "\\") {
+      contentStart++;
+      closeToken = "\\]";
+    } else {
+      closeToken = "]";
+    }
+  } else if (opener === "(") {
+    if (next === "[") {
+      contentStart++;
+      closeToken = "])";
+    } else if (next === "(") {
+      contentStart++;
+      closeToken = "))";
+    } else {
+      closeToken = ")";
+    }
+  } else if (opener === "{") {
+    if (next === "{") {
+      contentStart++;
+      closeToken = "}}";
+    } else {
+      closeToken = "}";
+    }
+  } else if (opener === "<") {
+    closeToken = ">";
+  } else if (opener === "\"") {
+    closeToken = "\"";
+  } else {
+    return null;
+  }
+
+  const closeIndex = findShapeClose(line, contentStart, closeToken);
+  if (closeIndex < 0) return null;
+  return line.slice(contentStart, closeIndex);
+}
+
+function findShapeClose(line: string, start: number, closeToken: string): number {
+  let quote: string | null = null;
+  for (let i = start; i < line.length; i++) {
+    const ch = line[i];
+    const prev = line[i - 1];
+
+    if ((ch === "\"" || ch === "'") && prev !== "\\") {
+      quote = quote === ch ? null : quote ?? ch;
+      continue;
+    }
+
+    if (!quote && line.startsWith(closeToken, i)) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /**

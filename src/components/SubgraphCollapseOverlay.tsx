@@ -7,6 +7,7 @@
 import { type RefObject, useCallback } from "react";
 import { useHoverOverlayTargets, type HoverOverlayTarget } from "../hooks/useHoverOverlayTargets";
 import { extractNodeId } from "./MermaidRenderer";
+import { normalizeMermaidDisplayLabel } from "../utils/mermaidParser";
 import type { MermaidAST } from "../utils/mermaidParser";
 
 type ToggleMode = "expand" | "collapse";
@@ -65,7 +66,7 @@ export default function SubgraphCollapseOverlay({
     for (const sg of parsedAST.allSubgraphsFlat.values()) {
       if (!collapsedSubgraphIds.has(sg.id)) {
         // Normalize label for matching (Mermaid may strip HTML or add whitespace)
-        const normalizedLabel = sg.label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim().toLowerCase();
+        const normalizedLabel = normalizeMermaidDisplayLabel(sg.label).toLowerCase();
         labelToSg.set(normalizedLabel, { id: sg.id, label: sg.label });
       }
     }
@@ -75,7 +76,7 @@ export default function SubgraphCollapseOverlay({
       const labelEl = cluster.querySelector(".cluster-label");
       if (!labelEl) return;
 
-      const clusterLabelText = (labelEl.textContent || "").trim().toLowerCase();
+      const clusterLabelText = normalizeMermaidDisplayLabel(labelEl.textContent || "").toLowerCase();
       if (!clusterLabelText) return;
 
       // Find matching subgraph (try exact match first, then contains)
@@ -109,7 +110,7 @@ export default function SubgraphCollapseOverlay({
       });
 
       // Remove from map to avoid duplicate matches
-      const normalizedLabel = matched.label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim().toLowerCase();
+      const normalizedLabel = normalizeMermaidDisplayLabel(matched.label).toLowerCase();
       labelToSg.delete(normalizedLabel);
     });
 

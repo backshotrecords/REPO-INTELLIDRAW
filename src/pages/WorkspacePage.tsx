@@ -13,7 +13,7 @@ import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiCha
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { fetchChatSettings } from "../lib/chatSettings";
-import { parseMermaidAST, getScopeViewCode, getRootViewWithCollapseState, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope } from "../utils/mermaidParser";
+import { parseMermaidAST, getScopeViewCode, getRootViewWithCollapseState, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope, normalizeMermaidDisplayLabel } from "../utils/mermaidParser";
 import type { MermaidAST } from "../utils/mermaidParser";
 import type { ChatMessage, CanvasCommit } from "../types";
 
@@ -61,11 +61,11 @@ function getClusterSubgraphId(cluster: Element, parsedAST: MermaidAST | null): s
   if (!parsedAST) return null;
   const labelEl = cluster.querySelector(".cluster-label");
   if (!labelEl) return null;
-  const clusterLabelText = (labelEl.textContent || "").trim().toLowerCase();
+  const clusterLabelText = normalizeMermaidDisplayLabel(labelEl.textContent || "").toLowerCase();
   if (!clusterLabelText) return null;
 
   for (const sg of parsedAST.allSubgraphsFlat.values()) {
-    const normalizedLabel = sg.label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim().toLowerCase();
+    const normalizedLabel = normalizeMermaidDisplayLabel(sg.label).toLowerCase();
     if (clusterLabelText === normalizedLabel || clusterLabelText.includes(normalizedLabel) || normalizedLabel.includes(clusterLabelText)) {
       return sg.id;
     }

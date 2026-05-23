@@ -5,7 +5,7 @@
  * compound node tracking, and the collapse/expand cycle.
  */
 import { describe, it, expect } from 'vitest';
-import { parseMermaidAST, getRootViewCode, getRootViewWithCollapseState, getScopeViewCode } from './mermaidParser';
+import { parseMermaidAST, getRootViewCode, getRootViewWithCollapseState, getScopeViewCode, getScopePath } from './mermaidParser';
 
 // ── Test Fixture ──────────────────────────────────────────────────
 // A flowchart with 2 top-level subgraphs (S and T), each containing 2 nodes,
@@ -148,6 +148,36 @@ const MARKETPLACE_EXPANDED_GROUP_FIXTURE = `flowchart TD
         direction TD
         Published --> P1[Owner opens published skill]
     end`;
+
+const SACRED_ROUTER_FIXTURE = `flowchart TD
+    A["User Question Received"]
+
+    subgraph L0["Layer 0<br>Sacred Discernment Router"]
+        direction TD
+        B["Receive and Discern Question"]
+        C{"Question Type"}
+        H["End with Reflective Question or Quiet Observation"]
+
+        B --> C
+        C -->|"Factual practical technical casual"| H
+    end
+
+    subgraph L1["Layer 1<br>Listener Layer"]
+        direction TD
+        I["Listen Compassionately"]
+        L["Create Structured Emotional Summary"]
+
+        I --> L
+    end
+
+    subgraph L2["Layer 2<br>Scripture and Wisdom Mapper"]
+        direction TD
+        M["Map Emotional State to Biblical Wisdom"]
+    end
+
+    A --> B
+    C -->|"Emotional pain fear grief shame loneliness confusion longing"| I
+    L --> M`;
 
 // ── Tests ──────────────────────────────────────────────────────────
 
@@ -439,6 +469,22 @@ describe('student support collapse regression', () => {
     expect(openedDraftFlow.code).toContain('D1 --> DB1[(skill notes stores author draft state)]');
     expect(openedDraftFlow.code).toContain('D2 --> D3{Author publishes}');
     expect(openedDraftFlow.code).toContain('D7 --> DB2[(skill note versions stores immutable snapshot)]');
+  });
+
+  it('uses quoted external node labels in opened scopes and strips HTML from breadcrumbs', () => {
+    const ast = parseMermaidAST(SACRED_ROUTER_FIXTURE);
+    const openedListener = getScopeViewCode(ast, 'L1', new Set(['L0', 'L2']));
+
+    expect(openedListener.code).toContain('_ext_C{Question Type}');
+    expect(openedListener.code).toContain('_ext_M["Map Emotional State to Biblical Wisdom"]');
+    expect(openedListener.code).toContain('_ext_C -.-> I');
+    expect(openedListener.code).toContain('L -.-> _ext_M');
+    expect(openedListener.code).not.toContain('_ext_C{C}');
+    expect(openedListener.code).not.toContain('_ext_M["M"]');
+
+    expect(getScopePath(ast, 'L1')).toEqual([
+      { id: 'L1', label: 'Layer 1 Listener Layer' },
+    ]);
   });
 });
 

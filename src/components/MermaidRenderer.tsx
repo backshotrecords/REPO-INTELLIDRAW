@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
+import { normalizeMermaidDisplayLabel } from "../utils/mermaidParser";
 import type { MermaidAST } from "../utils/mermaidParser";
 
 interface MermaidRendererProps {
@@ -72,11 +73,11 @@ function getClusterSubgraphId(cluster: Element, parsedAST: MermaidAST | null): s
   if (!parsedAST) return null;
   const labelEl = cluster.querySelector(".cluster-label");
   if (!labelEl) return null;
-  const clusterLabelText = (labelEl.textContent || "").trim().toLowerCase();
+  const clusterLabelText = normalizeMermaidDisplayLabel(labelEl.textContent || "").toLowerCase();
   if (!clusterLabelText) return null;
 
   for (const sg of parsedAST.allSubgraphsFlat.values()) {
-    const normalizedLabel = sg.label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim().toLowerCase();
+    const normalizedLabel = normalizeMermaidDisplayLabel(sg.label).toLowerCase();
     if (clusterLabelText === normalizedLabel || clusterLabelText.includes(normalizedLabel) || normalizedLabel.includes(clusterLabelText)) {
       return sg.id;
     }
