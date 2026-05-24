@@ -37,9 +37,9 @@ This plan describes the refactor from the current copied-skill marketplace model
 - Updating a local attachment affects one canvas.
 - Updating a global attachment affects all canvases using that global attachment.
 
-## Phase 0: Confirm Product Decisions
+## Phase 0: Product Decisions
 
-Before implementation, confirm these choices:
+These choices are currently agreed:
 
 1. First public/shared release is `v1`.
 2. Shared skills behave like a private marketplace.
@@ -48,13 +48,13 @@ Before implementation, confirm these choices:
 5. Customization is explicit via `Make a copy` or `Remix`.
 6. Canvas stale state compares attachment version against the user's installed version.
 7. Source stale state compares user's installed version against source latest version.
-8. Draft/private owned skill attachments are either live references or pinned snapshots.
-
-Recommendation for item 8:
-
-- For first pass, keep owned draft/private skill attachments as live `skill_note_id` references.
-- For marketplace/shared installed skills, always pin attachment versions.
-- Later, consider versioning owned private attachments too if users want full reproducibility.
+8. Draft/private owned skill attachments are live references until the skill is released.
+9. Sharing requires a release snapshot. Shared skills appear in the recipient's private `Shared With Me` marketplace.
+10. Groups control private shared distribution. For example, sharing to a beta testers group makes the released skill visible to that group's members in `Shared With Me`.
+11. Uninstall removes the skill from Installed Skills and removes/deactivates its active canvas attachments.
+12. After updating an installation, the user should be offered a one-click option to update all stale attachments that use that installation.
+13. Archived/deprecated skills are removed from public/shared discovery, but remain visible in the Installed Skills library for users who already installed them.
+14. Owners see aggregate install/usage stats only, not the identities of users who installed their skills.
 
 ## Phase 1: Database Schema
 
@@ -83,9 +83,9 @@ CREATE TABLE IF NOT EXISTS skill_note_versions (
 
 Notes:
 
-- `visibility` can be on the version, the skill, or both.
-- Version-level visibility allows a skill to have private/shared releases before a public release, but it may add complexity.
-- Simpler first pass: put visibility on `skill_notes` and let versions inherit it.
+- `visibility` lives on `skill_notes`.
+- Versions inherit the skill's visibility.
+- The system should not support different visibility levels for different versions of the same skill.
 
 ### 1.2 Add `skill_installations`
 
@@ -377,14 +377,10 @@ Update installation behavior:
 
 Uninstall behavior:
 
-1. Mark installation `uninstalled`.
-2. Decide what happens to attachments.
-
-Recommended uninstall rule:
-
-- If installation has active attachments, ask for confirmation.
-- On confirm, deactivate or remove those attachments.
-- Do not leave active attachments pointing to an uninstalled skill.
+1. Confirm the user understands this removes the skill everywhere they use it.
+2. Remove or deactivate active canvas attachments for that installation.
+3. Mark installation `uninstalled`.
+4. Remove it from Installed Skills.
 
 Remix behavior:
 
@@ -449,7 +445,6 @@ Affected endpoints likely include:
 - `api/chat.ts`
 - `api/chat_fix.ts`
 - `api/skills/trigger.ts`
-- local dev server equivalents in `server.dev.mjs`
 
 ## Phase 4: Frontend Refactor
 
@@ -604,6 +599,7 @@ After updating an installed skill:
 - show success
 - show stale attachment counts
 - offer to review canvas/global attachments
+- offer one-click update for all stale attachments that use that installation
 
 ### 4.8 Canvas Skills Panel UI
 
@@ -674,19 +670,14 @@ Current `stars` are derived from attachments. Decide whether to:
 Recommendation:
 
 - Do not overload `stars` long term.
-- Use `active usage` for attachment-derived counts.
-- Add real favorites later if needed.
+- In the code and UI, replace attachment-derived `stars` language with `active usage` or another clearer usage metric.
+- Add real favorites/stars later if needed as a separate user action.
 
-## Phase 6: Backward Compatibility and Dev Server
-
-This repo has both Vercel-style API route files and a local `server.dev.mjs`.
-
-Any backend behavior change likely needs to be updated in both places unless local development is changed to route through the same API handlers.
+## Phase 6: Backward Compatibility
 
 Checklist:
 
 - update `api/skills/*`
-- update `server.dev.mjs` matching skill endpoints
 - update `src/lib/api.ts`
 - update `src/types.ts`
 - update skill injection in chat endpoints
@@ -864,13 +855,13 @@ The refactor is successful when:
 12. Authors can see basic install and usage stats.
 13. Existing skills and attachments survive migration.
 
-## Open Questions for Review
+## Resolved Decisions
 
-1. Should private owned draft attachments be live references or pinned snapshots?
-2. Should `visibility` live on `skill_notes`, `skill_note_versions`, or both?
-3. Should sharing require a release immediately, or can a draft be shared for view-only collaboration?
-4. What should uninstall do when active canvas attachments exist?
-5. Should `stars` be renamed to active usage, or kept as a marketplace signal for now?
-6. Should update installation offer one-click global attachment updates immediately after install update?
-7. Should archived skills remain visible to users who installed them?
-8. Should owners be able to see which users installed their skills, or only aggregate counts?
+1. Private owned draft attachments are live references until release.
+2. Sharing requires a release snapshot. Shared releases appear in the recipient's private marketplace.
+3. Uninstall removes/deactivates active canvas attachments for that installed skill.
+4. Attachment-derived `stars` should become clearer usage language in code/UI, such as `active usage`.
+5. Updating an installation should offer one-click update for all stale attachments using that installation.
+6. Archived/deprecated skills leave public/shared discovery but remain visible in Installed Skills for users who already installed them, with a deprecated notice.
+7. Owners see aggregate counts only, not installer identities.
+8. `visibility` lives on `skill_notes`, not per version.

@@ -9,10 +9,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!auth) return res.status(401).json({ error: "Unauthorized" });
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { skill_note_id, canvas_id } = req.body || {};
+  const { skill_note_id, canvas_id, attached_version_id } = req.body || {};
   if (!skill_note_id || !canvas_id) return res.status(400).json({ error: "skill_note_id and canvas_id required" });
 
-  const { data: skill } = await supabase.from("skill_notes").select("*").eq("id", skill_note_id).single();
+  let skill: Record<string, unknown> | null = null;
+  if (attached_version_id) {
+    const { data: version } = await supabase.from("skill_note_versions").select("*").eq("id", attached_version_id).single();
+    if (version) skill = {
+      title: version.title,
+      instruction_text: version.instruction_text,
+    };
+  } else {
+    const { data } = await supabase.from("skill_notes").select("*").eq("id", skill_note_id).single();
+    skill = data as Record<string, unknown> | null;
+  }
   if (!skill) return res.status(404).json({ error: "Skill not found" });
 
   const { data: canvas } = await supabase.from("canvases").select("mermaid_code").eq("id", canvas_id).eq("user_id", auth.userId).single();

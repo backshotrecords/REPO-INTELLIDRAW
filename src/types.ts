@@ -30,17 +30,34 @@ export interface SkillNote {
   version: number;
   source_skill_id: string | null;
   source_version: number | null;
+  status?: "draft" | "published" | "unpublished" | "archived";
+  visibility?: "private" | "shared" | "public";
+  current_published_version_id?: string | null;
+  has_unpublished_changes?: boolean;
+  archived_at?: string | null;
+  unpublished_at?: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields (from queries)
   owner_display_name?: string;
   owner_email?: string;
   has_update?: boolean;
+  latest_version_id?: string | null;
+  latest_version_number?: number | null;
+  relationship?: "not_installed" | "installed_current" | "installed_stale" | "owner";
+  installation_id?: string;
+  installed_version_id?: string;
+  installed_version_number?: number;
+  install_count?: number;
+  active_usage_count?: number;
+  deprecated?: boolean;
 }
 
 export interface SkillNoteAttachment {
   id: string;
-  skill_note_id: string;
+  skill_note_id: string | null;
+  skill_installation_id?: string | null;
+  attached_version_id?: string | null;
   user_id: string;
   canvas_id: string | null;
   scope: "local" | "global";
@@ -49,6 +66,37 @@ export interface SkillNoteAttachment {
   created_at: string;
   // Joined
   skill_note?: SkillNote;
+  installed_skill?: SkillInstallation;
+  attached_version?: SkillNoteVersion;
+  has_update?: boolean;
+}
+
+export interface SkillNoteVersion {
+  id: string;
+  skill_note_id: string;
+  version_number: number;
+  title: string;
+  description: string;
+  instruction_text: string;
+  category: string;
+  release_notes: string;
+  published_at: string;
+  created_by: string;
+}
+
+export interface SkillInstallation {
+  id: string;
+  user_id: string;
+  skill_note_id: string;
+  installed_version_id: string;
+  status: "active" | "uninstalled" | "archived";
+  installed_at: string;
+  updated_at: string;
+  skill_note?: SkillNote;
+  installed_version?: SkillNoteVersion;
+  latest_version?: SkillNoteVersion;
+  has_update?: boolean;
+  stale_attachment_count?: number;
 }
 
 export interface UserGroup {

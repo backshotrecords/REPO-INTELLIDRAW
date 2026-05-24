@@ -604,13 +604,13 @@ export async function apiInstallSkill(id: string) {
   const res = await apiFetch(`/skills/${id}/install`, { method: "POST" });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to install skill");
-  return data.skill;
+  return data;
 }
 
-export async function apiPublishSkill(id: string, publish: boolean) {
+export async function apiPublishSkill(id: string, publish: boolean, visibility: "public" | "shared" | "private" = publish ? "public" : "private") {
   const res = await apiFetch(`/skills/${id}/publish`, {
     method: "PUT",
-    body: JSON.stringify({ is_published: publish }),
+    body: JSON.stringify({ is_published: publish, visibility }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to update publish state");
@@ -652,6 +652,37 @@ export async function apiGetSharedWithMe() {
   return data.skills;
 }
 
+export async function apiListSkillInstallations() {
+  const res = await apiFetch("/skill-installations");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch installed skills");
+  return data.installations;
+}
+
+export async function apiUpdateSkillInstallation(id: string, updateAttachments = false) {
+  const res = await apiFetch(`/skill-installations/${id}/update`, {
+    method: "POST",
+    body: JSON.stringify({ update_attachments: updateAttachments }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update installed skill");
+  return data;
+}
+
+export async function apiUninstallSkill(id: string) {
+  const res = await apiFetch(`/skill-installations/${id}/uninstall`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to uninstall skill");
+  return data;
+}
+
+export async function apiRemixSkillInstallation(id: string) {
+  const res = await apiFetch(`/skill-installations/${id}/remix`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to make a private copy");
+  return data.skill;
+}
+
 // ===== Skill Attachments =====
 
 export async function apiGetSkillAttachments(canvasId?: string) {
@@ -663,7 +694,8 @@ export async function apiGetSkillAttachments(canvasId?: string) {
 }
 
 export async function apiAttachSkill(opts: {
-  skill_note_id: string;
+  skill_note_id?: string;
+  skill_installation_id?: string;
   canvas_id?: string;
   scope: "local" | "global";
   trigger_mode: "automatic" | "manual";
@@ -696,6 +728,15 @@ export async function apiDetachSkill(id: string) {
   return data;
 }
 
+export async function apiUpdateAttachmentVersion(id: string) {
+  const res = await apiFetch(`/skills/attachments/${id}/update-version`, {
+    method: "POST",
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update skill attachment");
+  return data.attachments;
+}
+
 export async function apiGetActiveSkills(canvasId: string) {
   const res = await apiFetch(`/skills/active?canvasId=${canvasId}`);
   const data = await res.json();
@@ -705,10 +746,10 @@ export async function apiGetActiveSkills(canvasId: string) {
 
 // ===== Manual Skill Trigger =====
 
-export async function apiTriggerSkill(skillNoteId: string, canvasId: string) {
+export async function apiTriggerSkill(skillNoteId: string, canvasId: string, attachedVersionId?: string | null) {
   const res = await apiFetch("/skills/trigger", {
     method: "POST",
-    body: JSON.stringify({ skill_note_id: skillNoteId, canvas_id: canvasId }),
+    body: JSON.stringify({ skill_note_id: skillNoteId, canvas_id: canvasId, attached_version_id: attachedVersionId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to trigger skill");

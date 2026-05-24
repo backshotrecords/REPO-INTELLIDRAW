@@ -26,6 +26,33 @@ function extractObjectives(mermaidCode: string): string | null {
   return match ? match[1].trim() : null;
 }
 
+async function loadActiveSkillInstructions(userId: string, canvasId: string): Promise<string> {
+  const { data: attachments } = await supabase.from("skill_note_attachments")
+    .select("skill_note_id, attached_version_id, skill_notes(title, instruction_text)")
+    .eq("user_id", userId).eq("is_active", true).eq("trigger_mode", "automatic")
+    .or(`canvas_id.eq.${canvasId},scope.eq.global`);
+
+  const skills: Array<{ title: string; instruction_text: string }> = [];
+  for (const attachment of (attachments || []) as Record<string, unknown>[]) {
+    if (attachment.attached_version_id) {
+      const { data: version } = await supabase
+        .from("skill_note_versions")
+        .select("title, instruction_text")
+        .eq("id", attachment.attached_version_id)
+        .single();
+      if (version) skills.push(version as { title: string; instruction_text: string });
+      continue;
+    }
+
+    const skill = attachment.skill_notes as { title: string; instruction_text: string } | null;
+    if (skill) skills.push(skill);
+  }
+
+  if (skills.length === 0) return "";
+  return "\n\nACTIVE SKILL NOTES (follow these as additional instructions and preferences):\n" +
+    skills.map((skill, i) => `--- Skill ${i + 1}: ${skill.title} ---\n${skill.instruction_text}`).join("\n\n");
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -75,18 +102,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let skillInstructions = "";
     if (canvasId) {
       try {
-        const { data: activeSkills } = await supabase.from("skill_note_attachments")
-          .select("skill_notes(title, instruction_text)")
-          .eq("user_id", authPayload.userId).eq("is_active", true).eq("trigger_mode", "automatic")
-          .or(`canvas_id.eq.${canvasId},scope.eq.global`);
-        const skills = (activeSkills || []).filter((d: Record<string, unknown>) => d.skill_notes);
-        if (skills.length > 0) {
-          skillInstructions = "\n\nACTIVE SKILL NOTES (follow these as additional instructions and preferences):\n" +
-            skills.map((s: Record<string, unknown>, i: number) => {
-              const sn = s.skill_notes as Record<string, unknown>;
-              return `--- Skill ${i + 1}: ${sn.title} ---\n${sn.instruction_text}`;
-            }).join("\n\n");
-        }
+        skillInstructions = await loadActiveSkillInstructions(authPayload.userId, canvasId);
       } catch { /* non-fatal */ }
     }
 
@@ -174,4 +190,3 @@ INSTRUCTIONS:
     return res.status(500).json({ error: errorMessage });
   }
 }
-

@@ -20,7 +20,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { title, description, instruction_text, category } = req.body || {};
     if (!title || !instruction_text) return res.status(400).json({ error: "Title and instruction_text are required" });
     const { data, error } = await supabase.from("skill_notes")
-      .insert({ owner_id: auth.userId, title, description: description || "", instruction_text, category: category || "general" })
+      .insert({
+        owner_id: auth.userId,
+        title,
+        description: description || "",
+        instruction_text,
+        category: category || "general",
+        status: "draft",
+        visibility: "private",
+      })
       .select("*").single();
     if (error) return res.status(500).json({ error: error.message || "Failed to create skill" });
     return res.status(201).json({ skill: data });
