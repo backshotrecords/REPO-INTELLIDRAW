@@ -1341,6 +1341,13 @@ export function getScopeViewCode(
     // (e.g., `A --> B` where B is the current scope — this is the container, not an inner node)
     if (ref.insideNodeId === scopeId) continue;
 
+    let insideVisibleId = ref.insideNodeId;
+    if (!visibleNodes.has(insideVisibleId)) {
+      const childOwner = findChildContaining(insideVisibleId, sg, ast.allSubgraphsFlat);
+      if (!childOwner || !visibleNodes.has(childOwner)) continue;
+      insideVisibleId = childOwner;
+    }
+
     const extId = `_ext_${ref.externalNodeId}`;
     if (!addedExternalNodes.has(ref.externalNodeId)) {
       addedExternalNodes.add(ref.externalNodeId);
@@ -1352,10 +1359,16 @@ export function getScopeViewCode(
     }
 
     // Emit the boundary edge (dotted)
+    const edgeKey = ref.direction === "incoming"
+      ? `${extId}-.->${insideVisibleId}`
+      : `${insideVisibleId}-.->${extId}`;
+    if (scopeRedirectedEdges.has(edgeKey)) continue;
+    scopeRedirectedEdges.add(edgeKey);
+
     if (ref.direction === "incoming") {
-      output.push(`    ${extId} -.-> ${ref.insideNodeId}`);
+      output.push(`    ${extId} -.-> ${insideVisibleId}`);
     } else {
-      output.push(`    ${ref.insideNodeId} -.-> ${extId}`);
+      output.push(`    ${insideVisibleId} -.-> ${extId}`);
     }
   }
 

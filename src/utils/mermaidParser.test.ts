@@ -149,6 +149,37 @@ const MARKETPLACE_EXPANDED_GROUP_FIXTURE = `flowchart TD
         Published --> P1[Owner opens published skill]
     end`;
 
+const PLUGIN_SCOPE_BOUNDARY_FIXTURE = `flowchart TD
+    subgraph CANVAS[IntelliDraw Canvas]
+        A[Canvas Surface]
+        B[Current Mermaid Code Snapshot]
+        T[Visual UI Update]
+
+        subgraph SKILLS[Skills Panel / Plugin System]
+            C[Skills Panel Entry Point]
+            D{Attach Scope}
+            E[Global Plugin Installation]
+            F[Local Canvas Plugin Installation]
+            G[Plugin Container]
+            H[Skill-as-Plugin Wrapper]
+            I[Prompt Injection Container]
+            J[Context Reader]
+            K[Context Injector]
+        end
+    end
+
+    subgraph LLM_PIPELINE[LLM Processing Pipeline]
+        PI[Prompt Injections]
+        N[Updated Mermaid Output]
+    end
+
+    A --> B
+    B --> J
+    I --> K
+    K --> PI
+    N --> T
+    T --> A`;
+
 const SACRED_ROUTER_FIXTURE = `flowchart TD
     A["User Question Received"]
 
@@ -469,6 +500,18 @@ describe('student support collapse regression', () => {
     expect(openedDraftFlow.code).toContain('D1 --> DB1[(skill notes stores author draft state)]');
     expect(openedDraftFlow.code).toContain('D2 --> D3{Author publishes}');
     expect(openedDraftFlow.code).toContain('D7 --> DB2[(skill note versions stores immutable snapshot)]');
+  });
+
+  it('redirects scoped boundary edges from hidden collapsed child nodes to the visible child group', () => {
+    const ast = parseMermaidAST(PLUGIN_SCOPE_BOUNDARY_FIXTURE);
+    const openedCanvas = getScopeViewCode(ast, 'CANVAS', new Set(['SKILLS']));
+
+    expect(openedCanvas.code).toContain('SKILLS["📂 Skills Panel / Plugin System"]');
+    expect(openedCanvas.code).toContain('_ext_PI[Prompt Injections]');
+    expect(openedCanvas.code).toContain('SKILLS -.-> _ext_PI');
+    expect(openedCanvas.code).toContain('_ext_N -.-> T');
+    expect(openedCanvas.code).not.toContain('K -.-> _ext_PI');
+    expect(openedCanvas.code).not.toContain('K[Context Injector]');
   });
 
   it('uses quoted external node labels in opened scopes and strips HTML from breadcrumbs', () => {
