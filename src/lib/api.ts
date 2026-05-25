@@ -607,10 +607,15 @@ export async function apiInstallSkill(id: string) {
   return data;
 }
 
-export async function apiPublishSkill(id: string, publish: boolean, visibility: "public" | "shared" | "private" = publish ? "public" : "private") {
+export async function apiPublishSkill(
+  id: string,
+  publish: boolean,
+  visibility: "public" | "shared" | "private" = publish ? "public" : "private",
+  releaseNotes = ""
+) {
   const res = await apiFetch(`/skills/${id}/publish`, {
     method: "PUT",
-    body: JSON.stringify({ is_published: publish, visibility }),
+    body: JSON.stringify({ is_published: publish, visibility, release_notes: releaseNotes }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to update publish state");

@@ -212,23 +212,44 @@ export async function countActiveUsage(skillId: string): Promise<number> {
     .map((row) => row.id as string)
     .filter(Boolean);
 
-  let installationUsage = 0;
+  const attachmentRows: SkillRecord[] = [];
   if (installationIds.length > 0) {
-    const { count } = await supabase
+    const { data } = await supabase
       .from("skill_note_attachments")
-      .select("id", { count: "exact", head: true })
+      .select("user_id, scope")
       .in("skill_installation_id", installationIds)
       .eq("is_active", true);
-    installationUsage = count || 0;
+    attachmentRows.push(...(((data || []) as SkillRecord[])));
   }
 
-  const { count: ownedUsage } = await supabase
+  const { data: ownedAttachments } = await supabase
     .from("skill_note_attachments")
-    .select("id", { count: "exact", head: true })
+    .select("user_id, scope")
     .eq("skill_note_id", skillId)
     .eq("is_active", true);
 
-  return installationUsage + (ownedUsage || 0);
+  attachmentRows.push(...(((ownedAttachments || []) as SkillRecord[])));
+
+  const canvasCounts = new Map<string, number>();
+  let usage = 0;
+
+  for (const attachment of attachmentRows) {
+    if (attachment.scope === "global") {
+      const userId = attachment.user_id as string;
+      if (!canvasCounts.has(userId)) {
+        const { count } = await supabase
+          .from("canvases")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", userId);
+        canvasCounts.set(userId, count || 0);
+      }
+      usage += canvasCounts.get(userId) || 0;
+    } else {
+      usage += 1;
+    }
+  }
+
+  return usage;
 }
 
 export async function enrichSkillForUser(

@@ -184,13 +184,99 @@ function ShareDialog({ skill, onClose, groups }: { skill: SkillNote; onClose: ()
   );
 }
 
+function PublishDialog({
+  skill, onClose, onPublish, onUnpublish, saving,
+}: {
+  skill: SkillNote;
+  onClose: () => void;
+  onPublish: (opts: { visibility: "public" | "shared"; releaseNotes: string }) => void;
+  onUnpublish: () => void;
+  saving: boolean;
+}) {
+  const isReleased = skill.status === "published" || skill.is_published || Boolean(skill.current_published_version_id);
+  const nextVersion = (skill.latest_version_number || skill.version || 0) + (isReleased ? 1 : 0);
+  const [visibility, setVisibility] = useState<"public" | "shared">(skill.visibility === "shared" ? "shared" : "public");
+  const [releaseNotes, setReleaseNotes] = useState("");
+
+  return (
+    <div className="fixed inset-0 z-[160] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 animate-in zoom-in-95 fade-in duration-200">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
+            <span className="material-symbols-outlined text-emerald-700" style={{ fontVariationSettings: "'FILL' 1" }}>workspace_premium</span>
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-on-surface">{isReleased ? "Publish Update" : "Publish Skill"}</h3>
+            <p className="text-xs text-on-surface-variant">This creates immutable version v{nextVersion || 1}.</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-xl bg-surface-container-high/70 px-4 py-3">
+            <p className="text-sm font-bold text-on-surface">{skill.title}</p>
+            {skill.description && <p className="text-xs text-on-surface-variant mt-1 line-clamp-2">{skill.description}</p>}
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-2">Visibility</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setVisibility("public")}
+                className={`rounded-xl px-3 py-3 text-left transition-all ${visibility === "public" ? "bg-primary text-white shadow-md" : "bg-surface-container-high text-on-surface hover:bg-surface-container-low"}`}>
+                <span className="material-symbols-outlined text-base block mb-1">storefront</span>
+                <span className="text-xs font-bold block">Public Marketplace</span>
+                <span className="text-[10px] opacity-75">Anyone can discover it.</span>
+              </button>
+              <button onClick={() => setVisibility("shared")}
+                className={`rounded-xl px-3 py-3 text-left transition-all ${visibility === "shared" ? "bg-primary text-white shadow-md" : "bg-surface-container-high text-on-surface hover:bg-surface-container-low"}`}>
+                <span className="material-symbols-outlined text-base block mb-1">group</span>
+                <span className="text-xs font-bold block">Shared Marketplace</span>
+                <span className="text-[10px] opacity-75">Only shared users/groups.</span>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1.5">Release Notes</label>
+            <textarea value={releaseNotes} onChange={e => setReleaseNotes(e.target.value)}
+              rows={4}
+              placeholder={isReleased ? "What changed in this version?" : "Optional notes for the first release"}
+              className="w-full bg-surface-container-high border-none rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary resize-none" />
+          </div>
+
+          <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-xs text-amber-900 leading-relaxed">
+            Published versions are immutable. Users who install this skill are pinned to a version, and future updates require them to explicitly update.
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-6">
+          <div>
+            {isReleased && (
+              <button onClick={onUnpublish} disabled={saving}
+                className="px-3 py-2 text-xs font-bold text-error hover:bg-error-container/20 rounded-lg transition-colors disabled:opacity-40">
+                Unpublish
+              </button>
+            )}
+          </div>
+          <div className="flex justify-end gap-3">
+            <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-on-surface-variant hover:text-on-surface">Cancel</button>
+            <button onClick={() => onPublish({ visibility, releaseNotes })} disabled={saving}
+              className="px-5 py-2.5 text-sm font-bold bg-primary text-white rounded-xl hover:bg-primary/90 active:scale-95 transition-all shadow-lg shadow-primary/20 disabled:opacity-40">
+              {saving ? "Publishing..." : isReleased ? "Publish Update" : "Publish Release"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Skill Card ──
 function SkillCard({
   skill, isOwner, onEdit, onDelete, onPublish, onInstall, onOpen, onUpdateInstall, onUninstall, onRemix, onShare, showInstall,
 }: {
   skill: SkillNote; isOwner: boolean;
   onEdit?: () => void; onDelete?: () => void;
-  onPublish?: (pub: boolean) => void; onInstall?: () => void; onOpen?: () => void;
+  onPublish?: () => void; onInstall?: () => void; onOpen?: () => void;
   onUpdateInstall?: () => void; onUninstall?: () => void; onRemix?: () => void; onShare?: () => void;
   showInstall?: boolean;
 }) {
@@ -286,7 +372,7 @@ function SkillCard({
           </button>
         )}
         {isOwner && onPublish && (
-          <button onClick={() => onPublish(!(skill.status === "published" || skill.is_published))}
+          <button onClick={onPublish}
             className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors ${(skill.status === "published" || skill.is_published) ? "text-emerald-600 hover:bg-emerald-50" : "text-on-surface-variant hover:text-primary hover:bg-primary/5"}`}>
             <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: (skill.status === "published" || skill.is_published) ? "'FILL' 1" : "'FILL' 0" }}>
               {(skill.status === "published" || skill.is_published) ? "public" : "public_off"}
@@ -329,6 +415,8 @@ export default function SkillsMarketplacePage() {
   const [saving, setSaving] = useState(false);
   const [disclaimerTarget, setDisclaimerTarget] = useState<SkillNote | null>(null);
   const [shareTarget, setShareTarget] = useState<SkillNote | null>(null);
+  const [publishTarget, setPublishTarget] = useState<SkillNote | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -394,8 +482,37 @@ export default function SkillsMarketplacePage() {
     try { await apiDeleteSkill(id); setMessage("Skill deleted."); loadData(); } catch (err) { setMessage(err instanceof Error ? err.message : "Delete failed"); console.error(err); }
   };
 
-  const handlePublish = async (id: string, pub: boolean) => {
-    try { await apiPublishSkill(id, pub, pub ? "public" : "private"); setMessage(pub ? "Published v1/update." : "Skill unpublished."); loadData(); } catch (err) { setMessage(err instanceof Error ? err.message : "Publish failed"); console.error(err); }
+  const handlePublishRelease = async (opts: { visibility: "public" | "shared"; releaseNotes: string }) => {
+    if (!publishTarget) return;
+    setPublishing(true);
+    try {
+      await apiPublishSkill(publishTarget.id, true, opts.visibility, opts.releaseNotes);
+      setMessage(opts.visibility === "public" ? "Skill published to Marketplace." : "Skill released to Shared With Me.");
+      setPublishTarget(null);
+      loadData();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Publish failed");
+      console.error(err);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleUnpublish = async () => {
+    if (!publishTarget) return;
+    if (!confirm("Unpublish this skill? Existing installs keep working, but it will leave marketplace discovery.")) return;
+    setPublishing(true);
+    try {
+      await apiPublishSkill(publishTarget.id, false, "private");
+      setMessage("Skill unpublished. Existing installs keep working.");
+      setPublishTarget(null);
+      loadData();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unpublish failed");
+      console.error(err);
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const handleInstallConfirmed = async () => {
@@ -549,7 +666,7 @@ export default function SkillsMarketplacePage() {
                 onRemix={activeTab === "installed" && skill.installation_id ? () => handleRemix(skill) : undefined}
                 onEdit={skill.owner_id === user?.id ? () => setEditorSkill(skill) : undefined}
                 onDelete={skill.owner_id === user?.id ? () => handleDelete(skill.id) : undefined}
-                onPublish={skill.owner_id === user?.id ? (pub) => handlePublish(skill.id, pub) : undefined}
+                onPublish={skill.owner_id === user?.id ? () => setPublishTarget(skill) : undefined}
                 onShare={skill.owner_id === user?.id ? () => setShareTarget(skill) : undefined}
               />
             ))}
@@ -566,6 +683,15 @@ export default function SkillsMarketplacePage() {
       )}
       {shareTarget && (
         <ShareDialog skill={shareTarget} groups={groups} onClose={() => { setShareTarget(null); loadData(); }} />
+      )}
+      {publishTarget && (
+        <PublishDialog
+          skill={publishTarget}
+          saving={publishing}
+          onClose={() => setPublishTarget(null)}
+          onPublish={handlePublishRelease}
+          onUnpublish={handleUnpublish}
+        />
       )}
 
       <BottomNav />
