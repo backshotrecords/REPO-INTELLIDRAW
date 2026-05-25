@@ -1050,18 +1050,49 @@ export default function WorkspacePage() {
   const selectedNodesRef = useRef<SelectedNode[]>([]);
   useEffect(() => { selectedNodesRef.current = selectedNodes; }, [selectedNodes]);
 
+  const openScopeContextNode = useMemo<SelectedNode | null>(() => {
+    if (!activeScopeId) return null;
+    const currentScope = scopePath[scopePath.length - 1];
+    return {
+      id: activeScopeId,
+      label: currentScope?.label || activeScopeId,
+      codeDefinition: findNodeDefinition(mermaidCode, activeScopeId),
+    };
+  }, [activeScopeId, scopePath, mermaidCode]);
+
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || chatLoadingRef.current) return;
     flushPreviewMode();
 
-    // Augment message with selected node context
+    // Augment message with open group + selected node context
     let augmentedMessage = text.trim();
-    const nodes = selectedNodesRef.current;
+    const openScopeId = activeScopeIdRef.current;
+    const currentScopePath = scopePathRef.current;
+    const currentScope = currentScopePath[currentScopePath.length - 1];
+    const contextBlocks: string[] = [];
+
+    if (openScopeId) {
+      const openScopeLabel = currentScope?.label || openScopeId;
+      const openScopeDefinition = findNodeDefinition(mermaidCodeRef.current, openScopeId);
+      contextBlocks.push(
+        `The user is currently opened into this group node:\n- Node "${openScopeId}", Label: ${openScopeLabel}, Definition: ${openScopeDefinition}`
+      );
+    }
+
+    const rawSelectedNodes = selectedNodesRef.current;
+    const nodes = rawSelectedNodes.filter((n) => n.id !== openScopeId);
     if (nodes.length > 0) {
       const nodeLines = nodes
         .map((n) => `- Node "${n.id}", Definition: ${n.codeDefinition}`)
         .join("\n");
-      augmentedMessage = `[The user has selected the following node(s) to target with their instruction:\n${nodeLines}\n]\n\n${augmentedMessage}`;
+      contextBlocks.push(`The user has selected the following node(s) to target with their instruction:\n${nodeLines}`);
+    }
+
+    if (contextBlocks.length > 0) {
+      augmentedMessage = `[Context for the user's instruction:\n${contextBlocks.join("\n\n")}\n]\n\n${augmentedMessage}`;
+    }
+
+    if (rawSelectedNodes.length > 0) {
       // Clear selections after consuming
       setSelectedNodes([]);
       setActiveNode(null);
@@ -1896,7 +1927,7 @@ export default function WorkspacePage() {
             <div className="bg-white/70 backdrop-blur-2xl border border-[#c4c4c4] rounded-[22px] shadow-[0_4px_32px_rgba(0,0,0,0.08)] overflow-hidden">
 
               {/* Node selection pills — scrollable tray */}
-              {selectedNodes.length > 0 && (
+              {(openScopeContextNode || selectedNodes.length > 0) && (
                 <div className="node-selection-tray-wrapper">
                   {/* Left scroll arrow */}
                   <button
@@ -1912,7 +1943,18 @@ export default function WorkspacePage() {
                   </button>
 
                   <div className="node-selection-tray">
-                    {selectedNodes.map((node) => (
+                    {openScopeContextNode && (
+                      <div
+                        className="node-selection-pill node-selection-pill-auto"
+                        title={`Current open group: ${openScopeContextNode.codeDefinition}`}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>folder_open</span>
+                        <span className="node-selection-pill-label">
+                          {openScopeContextNode.label.length > 30 ? `${openScopeContextNode.label.slice(0, 27)}...` : openScopeContextNode.label}
+                        </span>
+                      </div>
+                    )}
+                    {selectedNodes.filter((node) => node.id !== openScopeContextNode?.id).map((node) => (
                       <div
                         key={node.id}
                         className={`node-selection-pill ${flashPillId === node.id ? "node-selection-pill-flash" : ""}`}
