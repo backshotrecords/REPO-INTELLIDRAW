@@ -27,12 +27,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const seen = new Set<string>();
   const skills: Record<string, unknown>[] = [];
   for (const s of [...((directShares as Record<string, unknown>[]) || []), ...groupShares]) {
-    const sn = s.skill_notes as Record<string, unknown> | null;
     const snId = s.skill_note_id as string;
+    const sn = s.skill_notes as Record<string, unknown> | null;
     if (sn && !seen.has(snId)) {
       seen.add(snId);
-      const users = sn.users as Record<string, unknown> | null;
       if (sn.status === "published" && sn.current_published_version_id && sn.status !== "archived") {
+        const users = sn.users as Record<string, unknown> | null;
         skills.push(await enrichSkillForUser({
           ...sn,
           owner_display_name: users?.display_name,

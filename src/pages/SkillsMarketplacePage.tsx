@@ -4,7 +4,7 @@ import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
 import { useAuth } from "../hooks/useAuth";
 import {
-  apiListSkills, apiCreateSkill, apiUpdateSkill, apiDeleteSkill,
+  apiListSkills, apiCreateSkill, apiUpdateSkill, apiDeleteSkill, apiArchiveSkill,
   apiGetMarketplace, apiInstallSkill, apiPublishSkill,
   apiGetSharedWithMe, apiShareSkill,
   apiListGroups,
@@ -185,18 +185,24 @@ function ShareDialog({ skill, onClose, groups }: { skill: SkillNote; onClose: ()
 }
 
 function PublishDialog({
-  skill, onClose, onPublish, onUnpublish, saving,
+  skill, onClose, onPublish, onUnpublish, onArchive, saving, groups,
 }: {
   skill: SkillNote;
   onClose: () => void;
-  onPublish: (opts: { visibility: "public" | "shared"; releaseNotes: string }) => void;
+  onPublish: (opts: { visibility: "public" | "shared"; releaseNotes: string; email?: string; groupId?: string }) => void;
   onUnpublish: () => void;
+  onArchive: () => void;
   saving: boolean;
+  groups: UserGroup[];
 }) {
   const isReleased = skill.status === "published" || skill.is_published || Boolean(skill.current_published_version_id);
+  const isArchived = skill.status === "archived";
   const nextVersion = (skill.latest_version_number || skill.version || 0) + (isReleased ? 1 : 0);
   const [visibility, setVisibility] = useState<"public" | "shared">(skill.visibility === "shared" ? "shared" : "public");
   const [releaseNotes, setReleaseNotes] = useState("");
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareGroupId, setShareGroupId] = useState("");
+  const hasSharedRecipient = Boolean(shareEmail.trim() || shareGroupId);
 
   return (
     <div className="fixed inset-0 z-[160] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
@@ -235,6 +241,42 @@ function PublishDialog({
             </div>
           </div>
 
+          {visibility === "shared" && (
+            <div className="rounded-xl border border-outline-variant/20 bg-surface-container-high/40 px-4 py-3 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1.5">Share with User</label>
+                <input
+                  value={shareEmail}
+                  onChange={e => {
+                    setShareEmail(e.target.value);
+                    if (e.target.value.trim()) setShareGroupId("");
+                  }}
+                  placeholder="user@example.com"
+                  className="w-full bg-white border-none rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary"
+                />
+              </div>
+              {groups.length > 0 && (
+                <div>
+                  <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1.5">Or Share with Group</label>
+                  <select
+                    value={shareGroupId}
+                    onChange={e => {
+                      setShareGroupId(e.target.value);
+                      if (e.target.value) setShareEmail("");
+                    }}
+                    className="w-full bg-white border-none rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary"
+                  >
+                    <option value="">Select a group...</option>
+                    {groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                Shared releases appear in the recipient's Shared With Me marketplace after you choose at least one user or group.
+              </p>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1.5">Release Notes</label>
             <textarea value={releaseNotes} onChange={e => setReleaseNotes(e.target.value)}
@@ -251,15 +293,27 @@ function PublishDialog({
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-6">
           <div>
             {isReleased && (
-              <button onClick={onUnpublish} disabled={saving}
-                className="px-3 py-2 text-xs font-bold text-error hover:bg-error-container/20 rounded-lg transition-colors disabled:opacity-40">
-                Unpublish
-              </button>
+              <div className="flex flex-wrap gap-2">
+                {!isArchived && (
+                  <button onClick={onUnpublish} disabled={saving}
+                    className="px-3 py-2 text-xs font-bold text-error hover:bg-error-container/20 rounded-lg transition-colors disabled:opacity-40">
+                    Unpublish
+                  </button>
+                )}
+                {!isArchived && (
+                  <button onClick={onArchive} disabled={saving}
+                    className="px-3 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-colors disabled:opacity-40">
+                    Archive
+                  </button>
+                )}
+              </div>
             )}
           </div>
           <div className="flex justify-end gap-3">
             <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-on-surface-variant hover:text-on-surface">Cancel</button>
-            <button onClick={() => onPublish({ visibility, releaseNotes })} disabled={saving}
+            <button
+              onClick={() => onPublish({ visibility, releaseNotes, email: shareEmail.trim() || undefined, groupId: shareGroupId || undefined })}
+              disabled={saving || isArchived || (visibility === "shared" && !hasSharedRecipient)}
               className="px-5 py-2.5 text-sm font-bold bg-primary text-white rounded-xl hover:bg-primary/90 active:scale-95 transition-all shadow-lg shadow-primary/20 disabled:opacity-40">
               {saving ? "Publishing..." : isReleased ? "Publish Update" : "Publish Release"}
             </button>
@@ -313,6 +367,11 @@ function SkillCard({
               <span className="material-symbols-outlined text-[10px]">group</span>shared
             </span>
           )}
+          {(skill.status === "archived" || skill.deprecated) && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-zinc-100 text-zinc-700">
+              <span className="material-symbols-outlined text-[10px]">inventory_2</span>archived
+            </span>
+          )}
           {skill.has_unpublished_changes && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700">
               <span className="material-symbols-outlined text-[10px]">edit_note</span>draft changes
@@ -337,6 +396,11 @@ function SkillCard({
             {skill.instruction_text}
           </div>
         </button>
+        {skill.deprecated && (
+          <p className="mt-3 text-xs font-medium text-zinc-600 bg-zinc-50 rounded-lg px-3 py-2">
+            This skill was archived by its owner. Your installed version keeps working, but it is no longer available for new installs.
+          </p>
+        )}
       </div>
 
       {/* Actions */}
@@ -479,15 +543,41 @@ export default function SkillsMarketplacePage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this skill note? This cannot be undone.")) return;
-    try { await apiDeleteSkill(id); setMessage("Skill deleted."); loadData(); } catch (err) { setMessage(err instanceof Error ? err.message : "Delete failed"); console.error(err); }
+    try {
+      await apiDeleteSkill(id);
+      setMessage("Skill deleted.");
+      loadData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Delete failed";
+      if (message.includes("Archive or unpublish")) {
+        const shouldArchive = confirm("This skill has release history or installs, so it cannot be permanently deleted. Archive it instead? It will leave discovery, but existing installs keep working.");
+        if (shouldArchive) {
+          try {
+            await apiArchiveSkill(id);
+            setMessage("Skill archived. Existing installs keep working.");
+            loadData();
+            return;
+          } catch (archiveErr) {
+            setMessage(archiveErr instanceof Error ? archiveErr.message : "Archive failed");
+            console.error(archiveErr);
+            return;
+          }
+        }
+      }
+      setMessage(message);
+      console.error(err);
+    }
   };
 
-  const handlePublishRelease = async (opts: { visibility: "public" | "shared"; releaseNotes: string }) => {
+  const handlePublishRelease = async (opts: { visibility: "public" | "shared"; releaseNotes: string; email?: string; groupId?: string }) => {
     if (!publishTarget) return;
     setPublishing(true);
     try {
       await apiPublishSkill(publishTarget.id, true, opts.visibility, opts.releaseNotes);
-      setMessage(opts.visibility === "public" ? "Skill published to Marketplace." : "Skill released to Shared With Me.");
+      if (opts.visibility === "shared") {
+        await apiShareSkill(publishTarget.id, opts.email ? { email: opts.email } : { group_id: opts.groupId });
+      }
+      setMessage(opts.visibility === "public" ? "Skill published to Marketplace." : "Skill released and shared.");
       setPublishTarget(null);
       loadData();
     } catch (err) {
@@ -509,6 +599,23 @@ export default function SkillsMarketplacePage() {
       loadData();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Unpublish failed");
+      console.error(err);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!publishTarget) return;
+    if (!confirm("Archive this skill? It will leave marketplace and shared discovery, but existing installs and canvas attachments keep working.")) return;
+    setPublishing(true);
+    try {
+      await apiArchiveSkill(publishTarget.id);
+      setMessage("Skill archived. Existing installs keep working.");
+      setPublishTarget(null);
+      loadData();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Archive failed");
       console.error(err);
     } finally {
       setPublishing(false);
@@ -688,9 +795,11 @@ export default function SkillsMarketplacePage() {
         <PublishDialog
           skill={publishTarget}
           saving={publishing}
+          groups={groups}
           onClose={() => setPublishTarget(null)}
           onPublish={handlePublishRelease}
           onUnpublish={handleUnpublish}
+          onArchive={handleArchive}
         />
       )}
 

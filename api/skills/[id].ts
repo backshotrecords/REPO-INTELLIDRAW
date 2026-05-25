@@ -11,7 +11,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // PUT = update skill
   if (req.method === "PUT") {
-    const { title, description, instruction_text, category } = req.body || {};
+    const { title, description, instruction_text, category, status } = req.body || {};
+
+    if (status === "archived") {
+      const { data, error } = await supabase.from("skill_notes")
+        .update({
+          is_published: false,
+          status: "archived",
+          visibility: "private",
+          archived_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .eq("owner_id", auth.userId)
+        .select("*")
+        .single();
+
+      if (error || !data) return res.status(404).json({ error: "Skill not found or archive failed" });
+      return res.json({ skill: data });
+    }
+
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;

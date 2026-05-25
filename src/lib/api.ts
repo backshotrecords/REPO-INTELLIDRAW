@@ -582,6 +582,16 @@ export async function apiDeleteSkill(id: string) {
   return data;
 }
 
+export async function apiArchiveSkill(id: string) {
+  const res = await apiFetch(`/skills/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ status: "archived" }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to archive skill");
+  return data.skill;
+}
+
 // ===== Skills Marketplace =====
 
 export async function apiGetMarketplace(opts?: {
