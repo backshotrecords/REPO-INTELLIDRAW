@@ -1348,12 +1348,25 @@ export function getScopeViewCode(
       insideVisibleId = childOwner;
     }
 
-    const extId = `_ext_${ref.externalNodeId}`;
-    if (!addedExternalNodes.has(ref.externalNodeId)) {
-      addedExternalNodes.add(ref.externalNodeId);
+    const externalVisibleId = resolveVisibleBoundaryExternalId(
+      ref.externalNodeId,
+      ast,
+      collapsedSubgraphIds
+    );
+    const extId = `_ext_${externalVisibleId}`;
+
+    if (!addedExternalNodes.has(externalVisibleId)) {
+      addedExternalNodes.add(externalVisibleId);
       // Emit stub node preserving original shape (CSS handles the washed-out styling)
-      const safeLabel = ref.externalLabel.replace(/"/g, "'");
-      const shape = findNodeShapeBrackets(ast, ref.externalNodeId);
+      const externalSubgraph = ast.allSubgraphsFlat.get(externalVisibleId);
+      const isCollapsedExternalSubgraph = !!externalSubgraph && collapsedSubgraphIds?.has(externalVisibleId);
+      const safeLabel = (isCollapsedExternalSubgraph
+        ? `📂 ${externalSubgraph.label}`
+        : findNodeLabel(ast, externalVisibleId)
+      ).replace(/"/g, "'");
+      const shape = isCollapsedExternalSubgraph
+        ? { open: '["', close: '"]' }
+        : findNodeShapeBrackets(ast, externalVisibleId);
       output.push(`    ${extId}${shape.open}${safeLabel}${shape.close}`);
       boundaryNodeIds.push(extId);
     }
@@ -1509,6 +1522,16 @@ function findCollapsedVisibleOwner(
   }
 
   return null;
+}
+
+function resolveVisibleBoundaryExternalId(
+  nodeId: string,
+  ast: MermaidAST,
+  collapsedSubgraphIds?: Set<string>
+): string {
+  if (!collapsedSubgraphIds) return nodeId;
+  if (ast.allSubgraphsFlat.has(nodeId) && collapsedSubgraphIds.has(nodeId)) return nodeId;
+  return findCollapsedVisibleOwner(nodeId, ast, collapsedSubgraphIds) || nodeId;
 }
 
 /** Walk up to the top-level subgraph parent of a given subgraph. */

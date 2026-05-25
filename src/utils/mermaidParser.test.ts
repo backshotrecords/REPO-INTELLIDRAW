@@ -504,19 +504,21 @@ describe('student support collapse regression', () => {
 
   it('redirects scoped boundary edges from hidden collapsed child nodes to the visible child group', () => {
     const ast = parseMermaidAST(PLUGIN_SCOPE_BOUNDARY_FIXTURE);
-    const openedCanvas = getScopeViewCode(ast, 'CANVAS', new Set(['SKILLS']));
+    const openedCanvas = getScopeViewCode(ast, 'CANVAS', new Set(['SKILLS', 'LLM_PIPELINE']));
 
     expect(openedCanvas.code).toContain('SKILLS["📂 Skills Panel / Plugin System"]');
-    expect(openedCanvas.code).toContain('_ext_PI[Prompt Injections]');
-    expect(openedCanvas.code).toContain('SKILLS -.-> _ext_PI');
-    expect(openedCanvas.code).toContain('_ext_N -.-> T');
-    expect(openedCanvas.code).not.toContain('K -.-> _ext_PI');
+    expect(openedCanvas.code).toContain('_ext_LLM_PIPELINE["📂 LLM Processing Pipeline"]');
+    expect(openedCanvas.code).toContain('SKILLS -.-> _ext_LLM_PIPELINE');
+    expect(openedCanvas.code).toContain('_ext_LLM_PIPELINE -.-> T');
+    expect(openedCanvas.code).not.toContain('_ext_PI[Prompt Injections]');
+    expect(openedCanvas.code).not.toContain('_ext_N[Updated Mermaid Output]');
+    expect(openedCanvas.code).not.toContain('K -.->');
     expect(openedCanvas.code).not.toContain('K[Context Injector]');
   });
 
   it('uses quoted external node labels in opened scopes and strips HTML from breadcrumbs', () => {
     const ast = parseMermaidAST(SACRED_ROUTER_FIXTURE);
-    const openedListener = getScopeViewCode(ast, 'L1', new Set(['L0', 'L2']));
+    const openedListener = getScopeViewCode(ast, 'L1', new Set());
 
     expect(openedListener.code).toContain('_ext_C{Question Type}');
     expect(openedListener.code).toContain('_ext_M["Map Emotional State to Biblical Wisdom"]');
