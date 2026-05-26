@@ -648,7 +648,7 @@ export default function SettingsPage() {
           </div>
           <div className="md:col-span-2">
             <div className="bg-error-container/30 rounded-xl p-8 border border-error/10 space-y-6">
-              <div className="flex items-center justify-between gap-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 items-start">
                 <div>
                   <p className="font-bold text-on-error-container">Log Out</p>
                   <p className="text-sm text-on-error-container/70">
@@ -665,7 +665,7 @@ export default function SettingsPage() {
 
               {/* Delete Account */}
               <div className="border-t border-error/10 pt-6">
-                <div className="flex items-center justify-between gap-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 items-start">
                   <div>
                     <p className="font-bold text-on-error-container">Delete My Account</p>
                     <p className="text-sm text-on-error-container/70">
