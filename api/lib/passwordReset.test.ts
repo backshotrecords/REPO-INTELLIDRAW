@@ -45,7 +45,7 @@ describe("password reset helpers", () => {
       headers: { origin: "https://preview.intellidraw.dev" },
     } as VercelRequest, "abc123");
 
-    expect(url).toBe("https://preview.intellidraw.dev/reset-password?token=abc123");
+    expect(url).toBe("https://preview.intellidraw.dev/reset-password/abc123");
   });
 
   it("falls back to forwarded host when origin is unavailable", () => {
@@ -56,6 +56,6 @@ describe("password reset helpers", () => {
       },
     } as unknown as VercelRequest, "abc123");
 
-    expect(url).toBe("https://staging.intellidraw.dev/reset-password?token=abc123");
+    expect(url).toBe("https://staging.intellidraw.dev/reset-password/abc123");
   });
 });

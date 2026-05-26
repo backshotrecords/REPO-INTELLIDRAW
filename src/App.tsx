@@ -141,6 +141,7 @@ function AppRoutes() {
         }
       />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
       <Route path="/goodbye" element={<GoodbyePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

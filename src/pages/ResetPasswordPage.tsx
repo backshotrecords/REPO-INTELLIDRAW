@@ -1,13 +1,14 @@
 import { useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { apiConsumeResetToken } from "../lib/api";
 
 type ResetState = "form" | "success" | "error";
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
+  const params = useParams();
   const navigate = useNavigate();
-  const token = searchParams.get("token");
+  const token = params.token || searchParams.get("token");
 
   const [state, setState] = useState<ResetState>(token ? "form" : "error");
   const [newPassword, setNewPassword] = useState("");

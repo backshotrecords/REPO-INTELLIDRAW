@@ -59,8 +59,10 @@ export function getAppBaseUrl(req: VercelRequest): string {
 }
 
 export function buildResetUrl(req: VercelRequest, token: string): string {
-  const url = new URL("/reset-password", getAppBaseUrl(req));
-  url.searchParams.set("token", token);
+  const url = new URL(
+    `/reset-password/${encodeURIComponent(token)}`,
+    getAppBaseUrl(req)
+  );
   return url.toString();
 }
 
