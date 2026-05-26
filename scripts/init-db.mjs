@@ -24,6 +24,7 @@ async function initDatabase() {
       api_key_updated_at TIMESTAMPTZ,
       api_key_managed_by UUID REFERENCES users(id) ON DELETE SET NULL,
       active_model_id UUID,
+      password_changed_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
@@ -34,6 +35,7 @@ async function initDatabase() {
     ALTER TABLE users ALTER COLUMN api_key_source SET NOT NULL;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key_updated_at TIMESTAMPTZ;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key_managed_by UUID REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
     DO $$
     BEGIN
       IF NOT EXISTS (
@@ -45,6 +47,32 @@ async function initDatabase() {
     END $$;
   `);
   console.log('✅ users table ready');
+
+  console.log('Creating password_reset_tokens table...');
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT UNIQUE NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      source TEXT NOT NULL DEFAULT 'self_service',
+      created_by_admin UUID REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS password_reset_tokens_user_id_idx ON password_reset_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS password_reset_tokens_token_hash_idx ON password_reset_tokens(token_hash);
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'password_reset_tokens_source_check'
+      ) THEN
+        ALTER TABLE password_reset_tokens ADD CONSTRAINT password_reset_tokens_source_check
+        CHECK (source IN ('self_service', 'admin'));
+      END IF;
+    END $$;
+  `);
+  console.log('✅ password_reset_tokens table ready');
 
   // Create ai_models table
   console.log('Creating ai_models table...');
