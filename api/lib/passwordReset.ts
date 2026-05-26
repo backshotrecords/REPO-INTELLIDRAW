@@ -39,21 +39,6 @@ export function isResetExpired(expiresAt: string, now = new Date()): boolean {
 }
 
 export function getAppBaseUrl(req: VercelRequest): string {
-  const configured =
-    process.env.PUBLIC_APP_URL ||
-    process.env.VITE_PUBLIC_APP_URL ||
-    process.env.APP_BASE_URL;
-
-  if (configured) return configured.replace(/\/$/, "");
-
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
-    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`.replace(/\/$/, "");
-  }
-
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`.replace(/\/$/, "");
-  }
-
   const origin = req.headers.origin;
   if (typeof origin === "string" && origin) return origin.replace(/\/$/, "");
 
@@ -62,7 +47,15 @@ export function getAppBaseUrl(req: VercelRequest): string {
   const hostValue = Array.isArray(host) ? host[0] : host;
   const protocolValue = Array.isArray(protocol) ? protocol[0] : protocol;
 
-  return `${protocolValue}://${hostValue}`.replace(/\/$/, "");
+  if (hostValue) {
+    return `${protocolValue}://${hostValue}`.replace(/\/$/, "");
+  }
+
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`.replace(/\/$/, "");
+  }
+
+  throw new Error("Unable to determine reset link origin");
 }
 
 export function buildResetUrl(req: VercelRequest, token: string): string {

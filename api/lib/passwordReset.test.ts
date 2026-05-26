@@ -40,11 +40,22 @@ describe("password reset helpers", () => {
     expect(isResetExpired("2026-05-26T10:02:00.000Z", new Date("2026-05-26T10:01:00.000Z"))).toBe(false);
   });
 
-  it("builds reset URLs from the configured public app URL", () => {
-    vi.stubEnv("PUBLIC_APP_URL", "https://intellidraw.example.com/");
+  it("builds reset URLs from the request origin", () => {
+    const url = buildResetUrl({
+      headers: { origin: "https://preview.intellidraw.dev" },
+    } as VercelRequest, "abc123");
 
-    const url = buildResetUrl({ headers: {} } as VercelRequest, "abc123");
+    expect(url).toBe("https://preview.intellidraw.dev/reset-password?token=abc123");
+  });
 
-    expect(url).toBe("https://intellidraw.example.com/reset-password?token=abc123");
+  it("falls back to forwarded host when origin is unavailable", () => {
+    const url = buildResetUrl({
+      headers: {
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "staging.intellidraw.dev",
+      },
+    } as unknown as VercelRequest, "abc123");
+
+    expect(url).toBe("https://staging.intellidraw.dev/reset-password?token=abc123");
   });
 });
