@@ -12,7 +12,7 @@ export async function sendPasswordResetEmail(opts: {
 
   const from =
     process.env.PASSWORD_RESET_EMAIL_FROM ||
-    "IntelliDraw <onboarding@resend.dev>";
+    "IntelliDraw <no-reply@intellidraw.dev>";
   const name = opts.displayName || "there";
   const expiresMinutes = getResetTokenTtlMinutes();
 
