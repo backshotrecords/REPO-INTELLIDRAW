@@ -16,6 +16,32 @@ export async function getLatestSkillVersion(skillId: string): Promise<SkillVersi
   return (data as SkillVersionRecord | null) || null;
 }
 
+export async function getSkillVersion(versionId?: string | null): Promise<SkillVersionRecord | null> {
+  if (!versionId) return null;
+  const { data } = await supabase
+    .from("skill_note_versions")
+    .select("*")
+    .eq("id", versionId)
+    .maybeSingle();
+
+  return (data as SkillVersionRecord | null) || null;
+}
+
+export async function applyPublishedVersionFields(skill: SkillRecord): Promise<SkillRecord> {
+  const version = await getSkillVersion(skill.current_published_version_id as string | undefined);
+  if (!version) return skill;
+
+  return {
+    ...skill,
+    title: version.title,
+    description: version.description || "",
+    instruction_text: version.instruction_text,
+    category: version.category || "general",
+    displayed_version_id: version.id,
+    displayed_version_number: version.version_number,
+  };
+}
+
 export async function createSkillVersion(
   skill: SkillRecord,
   createdBy: string,

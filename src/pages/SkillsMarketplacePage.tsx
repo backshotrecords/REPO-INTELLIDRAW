@@ -335,6 +335,8 @@ function SkillCard({
   showInstall?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const isPublished = skill.status === "published" || skill.is_published;
+  const publishActionLabel = skill.has_unpublished_changes ? "Publish Update" : isPublished ? "Manage" : "Publish";
 
   return (
     <div className="group bg-white rounded-2xl border border-outline-variant/15 hover:border-outline-variant/30 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden">
@@ -357,7 +359,7 @@ function SkillCard({
               <span className="material-symbols-outlined text-[10px]">download</span>installed
             </span>
           )}
-          {(skill.status === "published" || skill.is_published) && isOwner && (
+          {isPublished && isOwner && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-600">
               <span className="material-symbols-outlined text-[10px]" style={{ fontVariationSettings: "'FILL' 1" }}>public</span>published
             </span>
@@ -437,10 +439,11 @@ function SkillCard({
         )}
         {isOwner && onPublish && (
           <button onClick={onPublish}
-            className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors ${(skill.status === "published" || skill.is_published) ? "text-emerald-600 hover:bg-emerald-50" : "text-on-surface-variant hover:text-primary hover:bg-primary/5"}`}>
-            <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: (skill.status === "published" || skill.is_published) ? "'FILL' 1" : "'FILL' 0" }}>
-              {(skill.status === "published" || skill.is_published) ? "public" : "public_off"}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors ${skill.has_unpublished_changes ? "text-amber-700 hover:bg-amber-50" : isPublished ? "text-emerald-600 hover:bg-emerald-50" : "text-on-surface-variant hover:text-primary hover:bg-primary/5"}`}>
+            <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: isPublished ? "'FILL' 1" : "'FILL' 0" }}>
+              {skill.has_unpublished_changes ? "published_with_changes" : isPublished ? "public" : "public_off"}
             </span>
+            <span>{publishActionLabel}</span>
           </button>
         )}
         {isOwner && onEdit && (
@@ -498,10 +501,10 @@ export default function SkillsMarketplacePage() {
       setInstalledSkills((installations as SkillInstallation[]).map((installation) => ({
         ...(installation.skill_note || {}),
         id: installation.skill_note?.id || installation.skill_note_id,
-        title: installation.skill_note?.title || installation.installed_version?.title || "Installed skill",
-        description: installation.skill_note?.description || installation.installed_version?.description || "",
+        title: installation.installed_version?.title || installation.skill_note?.title || "Installed skill",
+        description: installation.installed_version?.description || installation.skill_note?.description || "",
         instruction_text: installation.installed_version?.instruction_text || installation.skill_note?.instruction_text || "",
-        category: installation.skill_note?.category || installation.installed_version?.category || "general",
+        category: installation.installed_version?.category || installation.skill_note?.category || "general",
         owner_id: installation.skill_note?.owner_id || "",
         is_published: true,
         stars: installation.skill_note?.stars || 0,
@@ -530,13 +533,24 @@ export default function SkillsMarketplacePage() {
   const handleSave = async (data: { title: string; description: string; instruction_text: string; category: string }) => {
     setSaving(true);
     try {
+      const wasPublished = editorSkill && (
+        editorSkill.status === "published" ||
+        editorSkill.is_published ||
+        Boolean(editorSkill.current_published_version_id)
+      );
+      let savedSkill: SkillNote | null = null;
       if (editorSkill) {
-        await apiUpdateSkill(editorSkill.id, data);
+        savedSkill = await apiUpdateSkill(editorSkill.id, data);
       } else {
-        await apiCreateSkill(data);
+        savedSkill = await apiCreateSkill(data);
       }
       setEditorSkill(undefined);
-      setMessage(editorSkill ? "Skill saved." : "Skill created.");
+      if (wasPublished && savedSkill) {
+        setPublishTarget(savedSkill);
+        setMessage("Draft changes saved. Publish an update when you're ready.");
+      } else {
+        setMessage(editorSkill ? "Skill saved." : "Skill created.");
+      }
       loadData();
     } catch (err) { console.error("Save error:", err); }
     finally { setSaving(false); }

@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
-import { enrichSkillForUser } from "../lib/skill-marketplace.js";
+import { applyPublishedVersionFields, enrichSkillForUser } from "../lib/skill-marketplace.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -33,12 +33,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       seen.add(snId);
       if (sn.status === "published" && sn.current_published_version_id && sn.status !== "archived") {
         const users = sn.users as Record<string, unknown> | null;
-        skills.push(await enrichSkillForUser({
+        const publishedSkill = await applyPublishedVersionFields({
           ...sn,
           owner_display_name: users?.display_name,
           owner_email: users?.email,
           users: undefined,
-        }, auth.userId));
+        });
+        skills.push(await enrichSkillForUser(publishedSkill, auth.userId));
       }
     }
   }
