@@ -505,6 +505,7 @@ export default function SkillsMarketplacePage() {
         owner_id: installation.skill_note?.owner_id || "",
         is_published: true,
         stars: installation.skill_note?.stars || 0,
+        active_usage_count: installation.skill_note?.active_usage_count,
         version: installation.installed_version?.version_number || 1,
         source_skill_id: null,
         source_version: null,

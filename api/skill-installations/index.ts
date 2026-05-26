@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
-import { getLatestSkillVersion, getVersionNumber } from "../lib/skill-marketplace.js";
+import { countActiveUsage, getLatestSkillVersion, getVersionNumber } from "../lib/skill-marketplace.js";
 
 async function staleAttachmentCount(installationId: string, installedVersionId: string): Promise<number> {
   const { count } = await supabase
@@ -34,6 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (skill) {
       skill.owner_display_name = users?.display_name;
       skill.owner_email = users?.email;
+      skill.active_usage_count = await countActiveUsage(skill.id as string);
       skill.users = undefined;
     }
     const latest = skill ? await getLatestSkillVersion(skill.id as string) : null;
