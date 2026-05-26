@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
-import { recalculateSkillStars } from "../lib/skill-stars.js";
+import { enrichSkillForUser } from "../lib/skill-marketplace.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -16,7 +16,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   let query = supabase.from("skill_notes")
     .select("*, users!skill_notes_owner_id_fkey(display_name, email)", { count: "exact" })
-    .eq("is_published", true)
+    .eq("status", "published")
+    .eq("visibility", "public")
     .order("stars", { ascending: false })
     .range(offset, offset + pageSize - 1);
 
@@ -28,11 +29,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const skills = await Promise.all((data || []).map(async (s: Record<string, unknown>) => {
     const users = s.users as Record<string, unknown> | null;
-    const stars = await recalculateSkillStars(s.id as string);
-    return { ...s, stars, owner_display_name: users?.display_name, owner_email: users?.email, users: undefined };
+    return enrichSkillForUser({
+      ...s,
+      owner_display_name: users?.display_name,
+      owner_email: users?.email,
+      users: undefined,
+    }, auth.userId);
   }));
 
-  skills.sort((a, b) => ((b.stars as number) || 0) - ((a.stars as number) || 0));
+  skills.sort((a, b) => ((b.active_usage_count as number) || 0) - ((a.active_usage_count as number) || 0));
 
   return res.json({ skills, total: count || 0, page: pageNum, pageSize });
 }

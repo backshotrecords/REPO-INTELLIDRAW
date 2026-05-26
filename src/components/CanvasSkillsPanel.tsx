@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   apiGetSkillAttachments, apiAttachSkill, apiToggleAttachment,
-  apiDetachSkill, apiTriggerSkill, apiListSkills, apiCheckSkillUpdate, apiSyncSkill,
+  apiDetachSkill, apiTriggerSkill, apiListSkills,
+  apiListSkillInstallations, apiUpdateAttachmentVersion,
 } from "../lib/api";
-import type { SkillNoteAttachment, SkillNote } from "../types";
+import type { SkillInstallation, SkillNoteAttachment, SkillNote } from "../types";
 
 interface CanvasSkillsPanelProps {
   canvasId: string;
@@ -36,15 +37,9 @@ export default function CanvasSkillsPanel({ canvasId, isOpen, onClose, onSkillTr
     try {
       const data = await apiGetSkillAttachments(canvasId);
       setAttachments(data || []);
-      // Check for updates on installed skills
       const updates: Record<string, boolean> = {};
       for (const att of (data || [])) {
-        if (att.skill_note?.source_skill_id) {
-          try {
-            const result = await apiCheckSkillUpdate(att.skill_note_id);
-            if (result.has_update) updates[att.skill_note_id] = true;
-          } catch { /* ignore */ }
-        }
+        if (att.has_update && att.id) updates[att.id] = true;
       }
       setUpdatesMap(updates);
     } catch (err) { console.error("Failed to load attachments:", err); }
@@ -52,7 +47,29 @@ export default function CanvasSkillsPanel({ canvasId, isOpen, onClose, onSkillTr
   }, [canvasId]);
 
   const loadMySkills = useCallback(async () => {
-    try { setMySkills(await apiListSkills()); } catch { /* ignore */ }
+    try {
+      const [owned, installations] = await Promise.all([
+        apiListSkills().catch(() => []),
+        apiListSkillInstallations().catch(() => []),
+      ]);
+      const installedOptions = (installations as SkillInstallation[]).map((installation) => ({
+        ...(installation.skill_note || {}),
+        id: `installation:${installation.id}`,
+        owner_id: installation.skill_note?.owner_id || "",
+        title: installation.skill_note?.title || installation.installed_version?.title || "Installed skill",
+        description: installation.skill_note?.description || installation.installed_version?.description || "",
+        instruction_text: installation.installed_version?.instruction_text || "",
+        category: installation.skill_note?.category || installation.installed_version?.category || "general",
+        is_published: true,
+        stars: 0,
+        version: installation.installed_version?.version_number || 1,
+        source_skill_id: null,
+        source_version: null,
+        created_at: installation.installed_at,
+        updated_at: installation.updated_at,
+      } as SkillNote));
+      setMySkills([...(owned || []), ...installedOptions]);
+    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
@@ -73,20 +90,22 @@ export default function CanvasSkillsPanel({ canvasId, isOpen, onClose, onSkillTr
     } catch (err) { console.error(err); }
   };
 
-  const handleTrigger = async (skillNoteId: string) => {
-    setTriggeringId(skillNoteId);
+  const handleTrigger = async (attachmentId: string) => {
+    setTriggeringId(attachmentId);
     try {
-      const result = await apiTriggerSkill(skillNoteId, canvasId);
+      const att = attachments.find(a => a.id === attachmentId);
+      if (!att?.skill_note_id) return;
+      const result = await apiTriggerSkill(att.skill_note_id, canvasId, att.attached_version_id);
       onSkillTriggered(result);
     } catch (err) { console.error(err); }
     finally { setTriggeringId(null); }
   };
 
-  const handleSync = async (skillNoteId: string) => {
-    setSyncingId(skillNoteId);
+  const handleSync = async (attachmentId: string) => {
+    setSyncingId(attachmentId);
     try {
-      await apiSyncSkill(skillNoteId);
-      setUpdatesMap(prev => ({ ...prev, [skillNoteId]: false }));
+      await apiUpdateAttachmentVersion(attachmentId);
+      setUpdatesMap(prev => ({ ...prev, [attachmentId]: false }));
       loadAttachments();
     } catch (err) { console.error(err); }
     finally { setSyncingId(null); }
@@ -95,8 +114,10 @@ export default function CanvasSkillsPanel({ canvasId, isOpen, onClose, onSkillTr
   const handleAdd = async () => {
     if (!addSkillId) return;
     try {
+      const isInstallation = addSkillId.startsWith("installation:");
       const newAtt = await apiAttachSkill({
-        skill_note_id: addSkillId,
+        skill_note_id: isInstallation ? undefined : addSkillId,
+        skill_installation_id: isInstallation ? addSkillId.replace("installation:", "") : undefined,
         canvas_id: addScope === "local" ? canvasId : undefined,
         scope: addScope,
         trigger_mode: addMode,
@@ -157,7 +178,7 @@ export default function CanvasSkillsPanel({ canvasId, isOpen, onClose, onSkillTr
                 </div>
                 <div className="space-y-1.5">
                   {localAtts.map(att => (
-                    <AttachmentRow key={att.id} att={att} hasUpdate={updatesMap[att.skill_note_id]}
+                    <AttachmentRow key={att.id} att={att} hasUpdate={updatesMap[att.id]}
                       triggeringId={triggeringId} syncingId={syncingId}
                       onToggle={handleToggle} onDetach={handleDetach} onTrigger={handleTrigger} onSync={handleSync} />
                   ))}
@@ -174,7 +195,7 @@ export default function CanvasSkillsPanel({ canvasId, isOpen, onClose, onSkillTr
                 </div>
                 <div className="space-y-1.5">
                   {globalAtts.map(att => (
-                    <AttachmentRow key={att.id} att={att} hasUpdate={updatesMap[att.skill_note_id]}
+                    <AttachmentRow key={att.id} att={att} hasUpdate={updatesMap[att.id]}
                       triggeringId={triggeringId} syncingId={syncingId}
                       onToggle={handleToggle} onDetach={handleDetach} onTrigger={handleTrigger} onSync={handleSync} />
                   ))}
@@ -237,12 +258,12 @@ function AttachmentRow({ att, hasUpdate, triggeringId, syncingId, onToggle, onDe
   triggeringId: string | null; syncingId: string | null;
   onToggle: (att: SkillNoteAttachment) => void;
   onDetach: (id: string) => void;
-  onTrigger: (skillNoteId: string) => void;
-  onSync: (skillNoteId: string) => void;
+  onTrigger: (attachmentId: string) => void;
+  onSync: (attachmentId: string) => void;
 }) {
   const skill = att.skill_note;
-  const isTriggering = triggeringId === att.skill_note_id;
-  const isSyncing = syncingId === att.skill_note_id;
+  const isTriggering = triggeringId === att.id;
+  const isSyncing = syncingId === att.id;
 
   return (
     <div className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all ${att.is_active ? "bg-primary/5 border border-primary/10" : "bg-surface-container-high/40 border border-transparent"}`}>
@@ -259,7 +280,7 @@ function AttachmentRow({ att, hasUpdate, triggeringId, syncingId, onToggle, onDe
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-semibold text-on-surface truncate">{skill?.title || "Unknown"}</span>
           {hasUpdate && (
-            <button onClick={() => onSync(att.skill_note_id)} disabled={isSyncing}
+          <button onClick={() => onSync(att.id)} disabled={isSyncing}
               className="shrink-0" title="Update available">
               <span className={`material-symbols-outlined text-xs text-orange-500 ${isSyncing ? "animate-spin" : "animate-pulse"}`}>
                 {isSyncing ? "progress_activity" : "update"}
@@ -278,7 +299,7 @@ function AttachmentRow({ att, hasUpdate, triggeringId, syncingId, onToggle, onDe
       {/* Actions */}
       <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
         {att.trigger_mode === "manual" && (
-          <button onClick={() => onTrigger(att.skill_note_id)} disabled={isTriggering}
+          <button onClick={() => onTrigger(att.id)} disabled={isTriggering}
             className="p-1 text-primary hover:bg-primary/10 rounded-md transition-colors" title="Run Skill">
             <span className={`material-symbols-outlined text-sm ${isTriggering ? "animate-spin" : ""}`}>
               {isTriggering ? "progress_activity" : "play_arrow"}

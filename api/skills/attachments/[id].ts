@@ -16,7 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data, error } = await supabase.from("skill_note_attachments")
       .update({ is_active }).eq("id", id).eq("user_id", auth.userId).select("*, skill_notes(*)").single();
     if (error || !data) return res.status(404).json({ error: "Attachment not found" });
-    await recalculateSkillStars(data.skill_note_id as string);
+    if (data.skill_note_id) await recalculateSkillStars(data.skill_note_id as string);
     return res.json({ attachment: { ...data, skill_note: data.skill_notes, skill_notes: undefined } });
   }
 

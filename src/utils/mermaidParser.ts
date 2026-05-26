@@ -260,8 +260,16 @@ function parseSubgraphDeclaration(
   return { id: ensureUniqueSubgraphId(labelToSubgraphId(label), allSubgraphsFlat), label };
 }
 
+export function normalizeMermaidDisplayLabel(label: string): string {
+  return stripLabelQuotes(label)
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function stripLabelQuotes(label: string): string {
-  return label.replace(/^["']|["']$/g, "");
+  return label.trim().replace(/^["']|["']$/g, "");
 }
 
 function labelToSubgraphId(label: string): string {
@@ -424,7 +432,7 @@ export function getScopePath(
   const path: Array<{ id: string; label: string }> = [];
   let current = ast.allSubgraphsFlat.get(scopeId);
   while (current) {
-    path.unshift({ id: current.id, label: current.label });
+    path.unshift({ id: current.id, label: normalizeMermaidDisplayLabel(current.label) });
     current = current.parentId ? ast.allSubgraphsFlat.get(current.parentId) : undefined;
   }
   return path;
@@ -502,19 +510,86 @@ function findNodeLabel(ast: MermaidAST, nodeId: string): string {
     const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     // Match nodeId followed by a shape bracket, anywhere in the line
     // (handles inline definitions like `INTRO --> DEC{Decision node}`)
-    const match = trimmed.match(
-      new RegExp(`(?:^|\\s|>)\\s*${escaped}\\s*([\\[\\(\\{<"])([^\\]\\)\\}>"]*)`)
-    );
-    if (match) {
-      // Strip HTML tags from labels
-      let label = match[2];
-      if (match[1] === "[" && label.startsWith("(")) {
-        label = label.slice(1);
-      }
-      return label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim() || nodeId;
+    const match = trimmed.match(new RegExp(`(?:^|\\s|>)\\s*${escaped}\\s*([\\[\\(\\{<"])`));
+    if (!match || match.index === undefined) continue;
+
+    const openerIndex = match.index + match[0].length - 1;
+    const label = extractNodeLabelFromShape(trimmed, openerIndex);
+    if (label) {
+      return normalizeMermaidDisplayLabel(label) || nodeId;
     }
   }
   return nodeId;
+}
+
+function extractNodeLabelFromShape(line: string, openerIndex: number): string | null {
+  const opener = line[openerIndex];
+  const next = line[openerIndex + 1] || "";
+  let contentStart = openerIndex + 1;
+  let closeToken = "";
+
+  if (opener === "[") {
+    if (next === "(") {
+      contentStart++;
+      closeToken = ")]";
+    } else if (next === "[") {
+      contentStart++;
+      closeToken = "]]";
+    } else if (next === "/") {
+      contentStart++;
+      closeToken = "/]";
+    } else if (next === "\\") {
+      contentStart++;
+      closeToken = "\\]";
+    } else {
+      closeToken = "]";
+    }
+  } else if (opener === "(") {
+    if (next === "[") {
+      contentStart++;
+      closeToken = "])";
+    } else if (next === "(") {
+      contentStart++;
+      closeToken = "))";
+    } else {
+      closeToken = ")";
+    }
+  } else if (opener === "{") {
+    if (next === "{") {
+      contentStart++;
+      closeToken = "}}";
+    } else {
+      closeToken = "}";
+    }
+  } else if (opener === "<") {
+    closeToken = ">";
+  } else if (opener === "\"") {
+    closeToken = "\"";
+  } else {
+    return null;
+  }
+
+  const closeIndex = findShapeClose(line, contentStart, closeToken);
+  if (closeIndex < 0) return null;
+  return line.slice(contentStart, closeIndex);
+}
+
+function findShapeClose(line: string, start: number, closeToken: string): number {
+  let quote: string | null = null;
+  for (let i = start; i < line.length; i++) {
+    const ch = line[i];
+    const prev = line[i - 1];
+
+    if ((ch === "\"" || ch === "'") && prev !== "\\") {
+      quote = quote === ch ? null : quote ?? ch;
+      continue;
+    }
+
+    if (!quote && line.startsWith(closeToken, i)) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /**
@@ -1266,21 +1341,47 @@ export function getScopeViewCode(
     // (e.g., `A --> B` where B is the current scope — this is the container, not an inner node)
     if (ref.insideNodeId === scopeId) continue;
 
-    const extId = `_ext_${ref.externalNodeId}`;
-    if (!addedExternalNodes.has(ref.externalNodeId)) {
-      addedExternalNodes.add(ref.externalNodeId);
+    let insideVisibleId = ref.insideNodeId;
+    if (!visibleNodes.has(insideVisibleId)) {
+      const childOwner = findChildContaining(insideVisibleId, sg, ast.allSubgraphsFlat);
+      if (!childOwner || !visibleNodes.has(childOwner)) continue;
+      insideVisibleId = childOwner;
+    }
+
+    const externalVisibleId = resolveVisibleBoundaryExternalId(
+      ref.externalNodeId,
+      ast,
+      collapsedSubgraphIds
+    );
+    const extId = `_ext_${externalVisibleId}`;
+
+    if (!addedExternalNodes.has(externalVisibleId)) {
+      addedExternalNodes.add(externalVisibleId);
       // Emit stub node preserving original shape (CSS handles the washed-out styling)
-      const safeLabel = ref.externalLabel.replace(/"/g, "'");
-      const shape = findNodeShapeBrackets(ast, ref.externalNodeId);
+      const externalSubgraph = ast.allSubgraphsFlat.get(externalVisibleId);
+      const isCollapsedExternalSubgraph = !!externalSubgraph && collapsedSubgraphIds?.has(externalVisibleId);
+      const safeLabel = (isCollapsedExternalSubgraph
+        ? `📂 ${externalSubgraph.label}`
+        : findNodeLabel(ast, externalVisibleId)
+      ).replace(/"/g, "'");
+      const shape = isCollapsedExternalSubgraph
+        ? { open: '["', close: '"]' }
+        : findNodeShapeBrackets(ast, externalVisibleId);
       output.push(`    ${extId}${shape.open}${safeLabel}${shape.close}`);
       boundaryNodeIds.push(extId);
     }
 
     // Emit the boundary edge (dotted)
+    const edgeKey = ref.direction === "incoming"
+      ? `${extId}-.->${insideVisibleId}`
+      : `${insideVisibleId}-.->${extId}`;
+    if (scopeRedirectedEdges.has(edgeKey)) continue;
+    scopeRedirectedEdges.add(edgeKey);
+
     if (ref.direction === "incoming") {
-      output.push(`    ${extId} -.-> ${ref.insideNodeId}`);
+      output.push(`    ${extId} -.-> ${insideVisibleId}`);
     } else {
-      output.push(`    ${ref.insideNodeId} -.-> ${extId}`);
+      output.push(`    ${insideVisibleId} -.-> ${extId}`);
     }
   }
 
@@ -1421,6 +1522,16 @@ function findCollapsedVisibleOwner(
   }
 
   return null;
+}
+
+function resolveVisibleBoundaryExternalId(
+  nodeId: string,
+  ast: MermaidAST,
+  collapsedSubgraphIds?: Set<string>
+): string {
+  if (!collapsedSubgraphIds) return nodeId;
+  if (ast.allSubgraphsFlat.has(nodeId) && collapsedSubgraphIds.has(nodeId)) return nodeId;
+  return findCollapsedVisibleOwner(nodeId, ast, collapsedSubgraphIds) || nodeId;
 }
 
 /** Walk up to the top-level subgraph parent of a given subgraph. */

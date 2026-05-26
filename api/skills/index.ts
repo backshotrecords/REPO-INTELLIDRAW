@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
+import { enrichSkillForUser } from "../lib/skill-marketplace.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -13,14 +14,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .eq("owner_id", auth.userId)
       .order("updated_at", { ascending: false });
     if (error) return res.status(500).json({ error: error.message || "Failed to fetch skills" });
-    return res.json({ skills: data || [] });
+    const skills = await Promise.all(((data || []) as Record<string, unknown>[]).map((skill) => enrichSkillForUser(skill, auth.userId)));
+    return res.json({ skills });
   }
 
   if (req.method === "POST") {
     const { title, description, instruction_text, category } = req.body || {};
     if (!title || !instruction_text) return res.status(400).json({ error: "Title and instruction_text are required" });
     const { data, error } = await supabase.from("skill_notes")
-      .insert({ owner_id: auth.userId, title, description: description || "", instruction_text, category: category || "general" })
+      .insert({
+        owner_id: auth.userId,
+        title,
+        description: description || "",
+        instruction_text,
+        category: category || "general",
+        status: "draft",
+        visibility: "private",
+      })
       .select("*").single();
     if (error) return res.status(500).json({ error: error.message || "Failed to create skill" });
     return res.status(201).json({ skill: data });

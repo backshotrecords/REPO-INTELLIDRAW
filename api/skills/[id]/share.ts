@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { ensureReleasedSkill } from "../../lib/skill-marketplace.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -14,7 +15,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { email, group_id } = req.body || {};
     if (!email && !group_id) return res.status(400).json({ error: "email or group_id required" });
 
-    const { data: skill } = await supabase.from("skill_notes").select("id").eq("id", id).eq("owner_id", auth.userId).single();
+    const skill = await ensureReleasedSkill(id, auth.userId, "shared");
     if (!skill) return res.status(403).json({ error: "You can only share skills you own" });
 
     const shareRow: Record<string, string> = { skill_note_id: id, shared_by: auth.userId };

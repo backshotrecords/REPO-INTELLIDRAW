@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { apiCreateCanvas } from "../lib/api";
 
 const tabs = [
   { id: "canvases", label: "Canvases", icon: "dashboard", path: "/dashboard" },
@@ -10,6 +12,7 @@ const tabs = [
 export default function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [creatingCanvas, setCreatingCanvas] = useState(false);
 
   const getActiveTab = () => {
     if (location.pathname === "/settings") return "settings";
@@ -20,6 +23,24 @@ export default function BottomNav() {
 
   const activeTab = getActiveTab();
 
+  const handleNavigate = async (path: string) => {
+    if (path !== "/canvas/new") {
+      navigate(path);
+      return;
+    }
+
+    if (creatingCanvas) return;
+    setCreatingCanvas(true);
+    try {
+      const canvas = await apiCreateCanvas();
+      navigate(`/canvas/${canvas.id}`);
+    } catch (err) {
+      console.error("Failed to create canvas:", err);
+    } finally {
+      setCreatingCanvas(false);
+    }
+  };
+
   return (
     <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-2 bg-white/80 backdrop-blur-2xl rounded-t-3xl shadow-[0px_-12px_32px_rgba(24,28,30,0.06)] md:hidden">
       {tabs.map((tab) => {
@@ -27,7 +48,8 @@ export default function BottomNav() {
         return (
           <button
             key={tab.id}
-            onClick={() => navigate(tab.path)}
+            onClick={() => handleNavigate(tab.path)}
+            disabled={tab.path === "/canvas/new" && creatingCanvas}
             className={`flex flex-col items-center justify-center px-5 py-2 transition-all active:scale-90 duration-150 ${
               isActive
                 ? "bg-slate-900 text-white rounded-2xl"

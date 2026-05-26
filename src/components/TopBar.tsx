@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { apiCreateCanvas } from "../lib/api";
 import ProfileMenu from "./ProfileMenu";
 
 interface TopBarProps {
@@ -12,10 +13,25 @@ export default function TopBar({ showSearch, onSearchChange }: TopBarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [creatingCanvas, setCreatingCanvas] = useState(false);
 
   const handleLogout = () => {
     logout();
     navigate("/");
+  };
+
+  const handleCreateCanvas = async () => {
+    if (creatingCanvas) return;
+    setCreatingCanvas(true);
+    try {
+      const canvas = await apiCreateCanvas();
+      setShowMobileMenu(false);
+      navigate(`/canvas/${canvas.id}`);
+    } catch (err) {
+      console.error("Failed to create canvas:", err);
+    } finally {
+      setCreatingCanvas(false);
+    }
   };
 
   return (
@@ -108,10 +124,8 @@ export default function TopBar({ showSearch, onSearchChange }: TopBarProps) {
                 My Canvases
               </button>
               <button
-                onClick={() => {
-                  navigate("/canvas/new");
-                  setShowMobileMenu(false);
-                }}
+                onClick={handleCreateCanvas}
+                disabled={creatingCanvas}
                 className="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-semibold text-on-surface hover:bg-surface-container-low transition-colors"
               >
                 <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>

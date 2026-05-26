@@ -14,6 +14,7 @@ import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { fetchChatSettings } from "../lib/chatSettings";
 import { parseMermaidAST, getScopeViewCode, getRootViewWithCollapseState, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope } from "../utils/mermaidParser";
+import { getRenderedClusterSubgraphId } from "../utils/mermaidDom";
 import type { MermaidAST } from "../utils/mermaidParser";
 import type { ChatMessage, CanvasCommit } from "../types";
 
@@ -58,19 +59,7 @@ function findNodeDefinition(mermaidCode: string, nodeId: string): string {
 }
 
 function getClusterSubgraphId(cluster: Element, parsedAST: MermaidAST | null): string | null {
-  if (!parsedAST) return null;
-  const labelEl = cluster.querySelector(".cluster-label");
-  if (!labelEl) return null;
-  const clusterLabelText = (labelEl.textContent || "").trim().toLowerCase();
-  if (!clusterLabelText) return null;
-
-  for (const sg of parsedAST.allSubgraphsFlat.values()) {
-    const normalizedLabel = sg.label.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim().toLowerCase();
-    if (clusterLabelText === normalizedLabel || clusterLabelText.includes(normalizedLabel) || normalizedLabel.includes(clusterLabelText)) {
-      return sg.id;
-    }
-  }
-  return null;
+  return getRenderedClusterSubgraphId(cluster, parsedAST);
 }
 
 export default function WorkspacePage() {
@@ -84,6 +73,9 @@ export default function WorkspacePage() {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [commits, setCommits] = useState<CanvasCommit[]>([]);
   const [activeView, setActiveView] = useState<"flowchart" | "code">("flowchart");
+  const [isInitialCanvasDataReady, setIsInitialCanvasDataReady] = useState(false);
+  const [isInitialDiagramReady, setIsInitialDiagramReady] = useState(false);
+  const [lastRenderedDiagramCode, setLastRenderedDiagramCode] = useState<string | null>(null);
 
   // ── Compound-node scope state ──
   const [parsedAST, setParsedAST] = useState<MermaidAST | null>(null);
@@ -205,6 +197,23 @@ export default function WorkspacePage() {
       : [];
     return { filteredCode: result.code, boundaryNodeIds: result.boundaryNodeIds, compoundNodeIds: compIds };
   }, [parsedAST, activeScopeId, mermaidCode, collapsedSubgraphIds]);
+
+  const normalizedFilteredCode = filteredCode.trim();
+  const isInitialWorkspaceLoading = !isInitialCanvasDataReady || !isInitialDiagramReady;
+
+  useEffect(() => {
+    if (isInitialCanvasDataReady && lastRenderedDiagramCode === normalizedFilteredCode) {
+      setIsInitialDiagramReady(true);
+    }
+  }, [isInitialCanvasDataReady, lastRenderedDiagramCode, normalizedFilteredCode]);
+
+  const handleDiagramRenderComplete = useCallback((renderedCode: string) => {
+    setLastRenderedDiagramCode(renderedCode);
+  }, []);
+
+  const handleDiagramRenderError = useCallback(() => {
+    setIsInitialDiagramReady(true);
+  }, []);
 
   const [showChat, setShowChat] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -463,6 +472,9 @@ export default function WorkspacePage() {
 
   // Load canvas
   const loadCanvas = useCallback(async (canvasId: string) => {
+    setIsInitialCanvasDataReady(false);
+    setIsInitialDiagramReady(false);
+    setLastRenderedDiagramCode(null);
     try {
       const canvas = await apiGetCanvas(canvasId);
       setCanvasId(canvas.id);
@@ -485,6 +497,8 @@ export default function WorkspacePage() {
         setCommits(commitsList || []);
       } catch (commitErr) {
         console.error("Failed to load commits:", commitErr);
+      } finally {
+        setIsInitialCanvasDataReady(true);
       }
     } catch (err) {
       console.error("Failed to load canvas:", err);
@@ -495,11 +509,18 @@ export default function WorkspacePage() {
   }, [navigate]);
 
   const createNewCanvas = useCallback(async () => {
+    setIsInitialCanvasDataReady(false);
+    setIsInitialDiagramReady(false);
+    setLastRenderedDiagramCode(null);
     try {
       const canvas = await apiCreateCanvas();
       setCanvasId(canvas.id);
       setTitle(canvas.title);
       setMermaidCode(canvas.mermaid_code);
+      latestMermaidCodeRef.current = canvas.mermaid_code;
+      setChatHistory(canvas.chat_history || []);
+      setCommits([]);
+      setIsInitialCanvasDataReady(true);
       navigate(`/canvas/${canvas.id}`, { replace: true });
     } catch (err) {
       console.error("Failed to create canvas:", err);
@@ -507,6 +528,10 @@ export default function WorkspacePage() {
   }, [navigate]);
 
   useEffect(() => {
+    setIsInitialCanvasDataReady(false);
+    setIsInitialDiagramReady(false);
+    setLastRenderedDiagramCode(null);
+
     if (id && id !== "new") {
       loadCanvas(id);
     } else if (id === "new") {
@@ -1025,18 +1050,49 @@ export default function WorkspacePage() {
   const selectedNodesRef = useRef<SelectedNode[]>([]);
   useEffect(() => { selectedNodesRef.current = selectedNodes; }, [selectedNodes]);
 
+  const openScopeContextNode = useMemo<SelectedNode | null>(() => {
+    if (!activeScopeId) return null;
+    const currentScope = scopePath[scopePath.length - 1];
+    return {
+      id: activeScopeId,
+      label: currentScope?.label || activeScopeId,
+      codeDefinition: findNodeDefinition(mermaidCode, activeScopeId),
+    };
+  }, [activeScopeId, scopePath, mermaidCode]);
+
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || chatLoadingRef.current) return;
     flushPreviewMode();
 
-    // Augment message with selected node context
+    // Augment message with open group + selected node context
     let augmentedMessage = text.trim();
-    const nodes = selectedNodesRef.current;
+    const openScopeId = activeScopeIdRef.current;
+    const currentScopePath = scopePathRef.current;
+    const currentScope = currentScopePath[currentScopePath.length - 1];
+    const contextBlocks: string[] = [];
+
+    if (openScopeId) {
+      const openScopeLabel = currentScope?.label || openScopeId;
+      const openScopeDefinition = findNodeDefinition(mermaidCodeRef.current, openScopeId);
+      contextBlocks.push(
+        `The user is currently opened into this group node:\n- Node "${openScopeId}", Label: ${openScopeLabel}, Definition: ${openScopeDefinition}`
+      );
+    }
+
+    const rawSelectedNodes = selectedNodesRef.current;
+    const nodes = rawSelectedNodes.filter((n) => n.id !== openScopeId);
     if (nodes.length > 0) {
       const nodeLines = nodes
         .map((n) => `- Node "${n.id}", Definition: ${n.codeDefinition}`)
         .join("\n");
-      augmentedMessage = `[The user has selected the following node(s) to target with their instruction:\n${nodeLines}\n]\n\n${augmentedMessage}`;
+      contextBlocks.push(`The user has selected the following node(s) to target with their instruction:\n${nodeLines}`);
+    }
+
+    if (contextBlocks.length > 0) {
+      augmentedMessage = `[Context for the user's instruction:\n${contextBlocks.join("\n\n")}\n]\n\n${augmentedMessage}`;
+    }
+
+    if (rawSelectedNodes.length > 0) {
       // Clear selections after consuming
       setSelectedNodes([]);
       setActiveNode(null);
@@ -1555,11 +1611,20 @@ export default function WorkspacePage() {
 
       {/* Main content */}
       <main className="relative flex-1 flex overflow-hidden min-h-0">
+        {isInitialWorkspaceLoading && (
+          <div className="absolute inset-0 z-[80] bg-surface flex items-center justify-center">
+            <div className="flex flex-col items-center gap-4 text-on-surface-variant">
+              <div className="spinner w-9 h-9 border-t-primary" />
+              <p className="text-sm font-semibold">Loading canvas...</p>
+            </div>
+          </div>
+        )}
+
         {/* Canvas / Code area */}
         <div className="flex-1 flex flex-col overflow-hidden relative">
           {/* Floating view toggle toolbar */}
           {/* Scope breadcrumb (between header and toggle bar) */}
-          {activeScopeId && scopePath.length > 0 && (
+          {!isInitialWorkspaceLoading && activeScopeId && scopePath.length > 0 && (
             <div className="absolute top-4 left-4 z-10 md:z-40 pointer-events-auto">
               <div className="bg-white/80 backdrop-blur-xl rounded-full border border-outline-variant/20 px-2 py-1 shadow-lg shadow-black/5 max-w-[calc(100vw-200px)]">
                 <ScopeBreadcrumb
@@ -1570,6 +1635,7 @@ export default function WorkspacePage() {
             </div>
           )}
 
+          {!isInitialWorkspaceLoading && (
           <div className={`absolute ${activeScopeId ? 'top-14' : 'top-4'} left-1/2 -translate-x-1/2 z-10 md:z-40 pointer-events-auto transition-all duration-300`}>
             <div className="inline-flex items-center bg-white/80 backdrop-blur-xl rounded-full border border-outline-variant/20 px-1 py-1 gap-0.5 shadow-lg shadow-black/5">
               <button
@@ -1698,6 +1764,7 @@ export default function WorkspacePage() {
               </div>
             </div>
           </div>
+          )}
           {activeView === "flowchart" ? (
             <>
             {/* Infinite canvas */}
@@ -1713,6 +1780,7 @@ export default function WorkspacePage() {
               style={{ cursor: isPanningVisual ? "grabbing" : "grab" }}
             >
               {/* Zoom controls */}
+              {!isInitialWorkspaceLoading && (
               <div className={`absolute left-4 flex flex-col gap-2 z-40 transition-all duration-300 ${showChat ? "md:opacity-100 md:pointer-events-auto opacity-0 pointer-events-none" : "opacity-100"}`} style={{ bottom: `${inputBarHeight + 16}px` }}>
                 <div className="flex flex-col bg-white shadow-xl border border-outline-variant/30 rounded-full overflow-hidden">
                   <button
@@ -1747,6 +1815,7 @@ export default function WorkspacePage() {
                   auto_awesome
                 </button>
               </div>
+              )}
 
               {/* Mobile floating action buttons (mic + paperclip) moved to main level to avoid canvas z-index context */}
 
@@ -1754,7 +1823,7 @@ export default function WorkspacePage() {
               {/* Rendered diagram */}
               <div
                 ref={diagramLayerRef}
-                className="min-h-full w-full flex items-center justify-center relative"
+                className="h-full min-h-0 w-full flex items-center justify-center relative"
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                   transformOrigin: "center center",
@@ -1765,6 +1834,8 @@ export default function WorkspacePage() {
                   code={filteredCode}
                   className="min-h-[400px] min-w-[300px]"
                   onSyntaxError={handleSyntaxError}
+                  onRenderComplete={handleDiagramRenderComplete}
+                  onRenderError={handleDiagramRenderError}
                   isFixing={isFixing}
                   activeNodeId={activeNode?.id ?? null}
                   selectedNodeIds={selectedNodes.map((n) => n.id)}
@@ -1774,6 +1845,7 @@ export default function WorkspacePage() {
                 />
 
                 {/* Floating expand/collapse buttons for subgraphs */}
+                {!isInitialWorkspaceLoading && (
                 <SubgraphCollapseOverlay
                   diagramLayerRef={diagramLayerRef}
                   parsedAST={parsedAST}
@@ -1792,6 +1864,7 @@ export default function WorkspacePage() {
                   zoom={zoom}
                   isCanvasInteracting={isPanningVisual || isWheeling || isPinchingVisual}
                 />
+                )}
               </div>
 
               {/* Skills Panel */}
@@ -1820,7 +1893,7 @@ export default function WorkspacePage() {
             </div>
 
             {/* Node Action Overlay — rendered OUTSIDE the canvas div to escape overflow:hidden */}
-            {activeView === "flowchart" && (
+            {activeView === "flowchart" && !isInitialWorkspaceLoading && (
               <NodeActionOverlay
                 nodeRect={activeNode?.rect ?? null}
                 visible={!!activeNode}
@@ -1849,11 +1922,12 @@ export default function WorkspacePage() {
           )}
 
           {/* ── Floating chat input bar ─────────────────────── */}
+          {!isInitialWorkspaceLoading && (
           <div ref={inputBarRef} className="absolute bottom-3 md:bottom-5 left-3 right-3 md:left-1/2 md:-translate-x-1/2 md:w-[calc(100%-40px)] md:max-w-[700px] z-30">
             <div className="bg-white/70 backdrop-blur-2xl border border-[#c4c4c4] rounded-[22px] shadow-[0_4px_32px_rgba(0,0,0,0.08)] overflow-hidden">
 
               {/* Node selection pills — scrollable tray */}
-              {selectedNodes.length > 0 && (
+              {(openScopeContextNode || selectedNodes.length > 0) && (
                 <div className="node-selection-tray-wrapper">
                   {/* Left scroll arrow */}
                   <button
@@ -1869,7 +1943,18 @@ export default function WorkspacePage() {
                   </button>
 
                   <div className="node-selection-tray">
-                    {selectedNodes.map((node) => (
+                    {openScopeContextNode && (
+                      <div
+                        className="node-selection-pill node-selection-pill-auto"
+                        title={`Current open group: ${openScopeContextNode.codeDefinition}`}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>folder_open</span>
+                        <span className="node-selection-pill-label">
+                          {openScopeContextNode.label.length > 30 ? `${openScopeContextNode.label.slice(0, 27)}...` : openScopeContextNode.label}
+                        </span>
+                      </div>
+                    )}
+                    {selectedNodes.filter((node) => node.id !== openScopeContextNode?.id).map((node) => (
                       <div
                         key={node.id}
                         className={`node-selection-pill ${flashPillId === node.id ? "node-selection-pill-flash" : ""}`}
@@ -1992,9 +2077,11 @@ export default function WorkspacePage() {
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {/* Agent Manager panel (desktop sidebar / mobile bottom sheet) */}
+        {!isInitialWorkspaceLoading && (
         <div
           className={`absolute md:relative left-0 md:left-auto right-0 bottom-[var(--chat-bottom)] md:bottom-auto top-0 md:top-0 h-auto md:h-full w-full md:w-[380px] bg-white/95 backdrop-blur-2xl md:bg-white/90 md:backdrop-blur-xl border-t md:border-t-0 md:border-l md:border-l-[#c4c4c4] border-outline-variant/15 z-20 md:z-auto transition-all duration-300 flex flex-col shadow-[0_-10px_40px_rgb(0,0,0,0.08)] md:shadow-none ${showChat ? "translate-y-0 scale-100 opacity-100" : "translate-y-4 scale-[0.98] opacity-0 pointer-events-none md:translate-y-0 md:scale-100 md:opacity-100 md:pointer-events-auto"
             }`}
@@ -2018,8 +2105,10 @@ export default function WorkspacePage() {
 
 
         </div>
+        )}
 
         {/* Mobile floating action buttons (mic + paperclip) */}
+        {!isInitialWorkspaceLoading && (
         <div className="md:hidden absolute right-4 flex flex-col items-center gap-2 z-[10000] transition-all duration-300" style={{ bottom: `${inputBarHeight + 16}px` }}>
           <label className="cursor-pointer shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all bg-white shadow-xl border border-outline-variant/30 shadow-[0_8px_32px_rgba(0,0,0,0.15)]">
             <span className="material-symbols-outlined text-xl">attach_file</span>
@@ -2038,6 +2127,7 @@ export default function WorkspacePage() {
             />
           </div>
         </div>
+        )}
       </main>
     </div>
   );

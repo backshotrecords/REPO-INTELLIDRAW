@@ -1161,6 +1161,13 @@
   max-width: 160px;
 }
 
+.node-selection-pill-auto {
+  background: #eef6ff;
+  border-color: #bfdbfe;
+  color: #1e3a5f;
+  padding-right: 12px;
+}
+
 .node-selection-pill-dismiss {
   display: flex;
   align-items: center;
