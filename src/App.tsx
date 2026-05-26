@@ -10,6 +10,7 @@ import AdminPage from "./pages/AdminPage";
 import PublicViewPage from "./pages/PublicViewPage";
 import SkillsMarketplacePage from "./pages/SkillsMarketplacePage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import GuildPage from "./pages/GuildPage";
 import GoodbyePage from "./pages/GoodbyePage";
 import OnboardingOverlay from "./components/OnboardingOverlay";
@@ -131,7 +132,16 @@ function AppRoutes() {
         }
       />
       <Route path="/view/:id" element={<PublicViewPage />} />
+      <Route
+        path="/forgot-password"
+        element={
+          <PublicRoute>
+            <ForgotPasswordPage />
+          </PublicRoute>
+        }
+      />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
       <Route path="/goodbye" element={<GoodbyePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

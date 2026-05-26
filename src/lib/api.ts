@@ -96,6 +96,16 @@ export async function apiGoogleLogin(code: string, redirectUri: string) {
   return data;
 }
 
+export async function apiRequestPasswordReset(email: string) {
+  const res = await apiFetch("/auth/request-password-reset", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to request password reset");
+  return data;
+}
+
 // ===== Canvases =====
 
 export async function apiListCanvases() {
@@ -522,14 +532,15 @@ export async function apiGenerateResetLink(email: string) {
  * Consume a reset token (public — no auth needed).
  * Called from the /reset-password page when a user clicks their link.
  */
-export async function apiConsumeResetToken(token: string) {
+export async function apiConsumeResetToken(token: string, newPassword: string) {
   const res = await fetch(`${API_BASE}/auth/reset-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({ token, newPassword }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to reset password");
+  removeToken();
   return data;
 }
 

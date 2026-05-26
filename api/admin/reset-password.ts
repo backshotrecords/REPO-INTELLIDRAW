@@ -1,6 +1,10 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
+import {
+  buildResetUrl,
+  createPasswordResetToken,
+} from "../lib/passwordReset.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
@@ -41,22 +45,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).json({ error: "No user found with that email" });
     }
 
-    // Generate a reset token
-    const resetToken = crypto.randomUUID();
-
-    // Store token on the user row
-    const { error: updateError } = await supabase
-      .from("users")
-      .update({ reset_token: resetToken })
-      .eq("id", targetUser.id);
-
-    if (updateError) {
-      console.error("Failed to store reset token:", updateError);
-      return res.status(500).json({ error: "Failed to generate reset link" });
-    }
-
-    // Build the reset link (relative — frontend will resolve to full URL)
-    const resetLink = `/reset-password?token=${resetToken}`;
+    const { token } = await createPasswordResetToken({
+      userId: targetUser.id,
+      source: "admin",
+      createdByAdmin: authPayload.userId,
+    });
+    const resetLink = buildResetUrl(req, token);
 
     return res.status(200).json({
       success: true,

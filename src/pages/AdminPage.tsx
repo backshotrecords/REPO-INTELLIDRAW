@@ -627,7 +627,9 @@ export default function AdminPage() {
     setLinkCopied(false);
     try {
       const data = await apiGenerateResetLink(resetEmail.trim());
-      const fullLink = `${window.location.origin}${data.resetLink}`;
+      const fullLink = String(data.resetLink || "").startsWith("http")
+        ? data.resetLink
+        : `${window.location.origin}${data.resetLink}`;
       setGeneratedLink(fullLink);
       setResetEmail("");
     } catch (err) {
@@ -1520,7 +1522,7 @@ export default function AdminPage() {
                 <div className="flex items-start gap-3 pt-4">
                   <span className="material-symbols-outlined text-lg text-amber-500 mt-0.5" style={{ fontVariationSettings: "'FILL' 1" }}>info</span>
                   <p className="text-sm text-on-surface-variant leading-relaxed">
-                    Enter a user's email to generate a one-time reset link. When the link is visited, the user's password will be set to: <span className="font-bold text-on-surface font-mono bg-surface-container-high px-1.5 py-0.5 rounded">password</span>
+                    Enter a user's email to generate a one-time reset link. When the link is opened, the user will choose their own new password.
                   </p>
                 </div>
 
@@ -1583,7 +1585,7 @@ export default function AdminPage() {
                       </button>
                     </div>
                     <p className="text-[11px] text-on-surface-variant/60">
-                      This link is single-use. Once visited, it will expire and cannot be reused.
+                      This link is single-use and expires automatically. The user must enter their new password after opening it.
                     </p>
                   </div>
                 )}

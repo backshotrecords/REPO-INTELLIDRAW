@@ -47,7 +47,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Update
     const { error: updateError } = await supabase
       .from("users")
-      .update({ password_hash: newHash })
+      .update({
+        password_hash: newHash,
+        password_changed_at: new Date().toISOString(),
+      })
       .eq("id", authPayload.userId);
 
     if (updateError) {

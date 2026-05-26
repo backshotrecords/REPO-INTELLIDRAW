@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import type { VercelRequest } from "@vercel/node";
+import { supabase } from "./db.js";
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || "intellidraw-jwt-secret-change-in-prod"
@@ -8,6 +9,8 @@ const JWT_SECRET = new TextEncoder().encode(
 export interface JWTPayload {
   userId: string;
   email: string;
+  iat?: number;
+  exp?: number;
 }
 
 /**
@@ -53,5 +56,29 @@ export async function authenticateRequest(
 ): Promise<JWTPayload | null> {
   const token = extractToken(req);
   if (!token) return null;
-  return verifyToken(token);
+  const payload = await verifyToken(token);
+  if (!payload) return null;
+
+  const { data: user, error } = await supabase
+    .from("users")
+    .select("password_changed_at")
+    .eq("id", payload.userId)
+    .single();
+
+  if (error) {
+    const missingPasswordChangedAt =
+      error.code === "42703" ||
+      error.message?.includes("password_changed_at");
+    if (missingPasswordChangedAt) return payload;
+    return null;
+  }
+  if (!user) return null;
+
+  if (user?.password_changed_at && payload.iat) {
+    const issuedAtMs = payload.iat * 1000;
+    const changedAtMs = new Date(user.password_changed_at).getTime();
+    if (issuedAtMs < changedAtMs) return null;
+  }
+
+  return payload;
 }

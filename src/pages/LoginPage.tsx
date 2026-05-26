@@ -183,6 +183,15 @@ export default function LoginPage() {
                 <label className="block text-xs font-semibold uppercase tracking-widest text-on-surface-variant font-label">
                   Password
                 </label>
+                {!isRegister && (
+                  <button
+                    type="button"
+                    onClick={() => navigate("/forgot-password")}
+                    className="text-xs font-bold text-secondary hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                )}
               </div>
               <div className="relative">
                 <input
