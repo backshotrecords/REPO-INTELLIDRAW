@@ -32,3 +32,6 @@ uploads/
 
 # Cloned reference repos
 voice-type-ref/
+
+# Local-only component sandbox
+simulator/

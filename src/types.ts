@@ -18,6 +18,9 @@ export interface CanvasCommit {
 
 // ===== Skill Notes =====
 
+export type SkillScope = "local" | "global";
+export type SkillTriggerMode = "automatic" | "manual" | "contextual";
+
 export interface SkillNote {
   id: string;
   owner_id: string;
@@ -60,8 +63,8 @@ export interface SkillNoteAttachment {
   attached_version_id?: string | null;
   user_id: string;
   canvas_id: string | null;
-  scope: "local" | "global";
-  trigger_mode: "automatic" | "manual";
+  scope: SkillScope;
+  trigger_mode: SkillTriggerMode;
   is_active: boolean;
   created_at: string;
   // Joined

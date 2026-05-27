@@ -3,6 +3,9 @@ import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
 import { recalculateSkillStars } from "../../lib/skill-stars.js";
 
+const VALID_SCOPES = new Set(["local", "global"]);
+const VALID_TRIGGER_MODES = new Set(["automatic", "manual", "contextual"]);
+
 async function enrichAttachment(a: Record<string, unknown>) {
   if (a.attached_version_id) {
     const { data: version } = await supabase
@@ -71,6 +74,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if ((!skill_note_id && !skill_installation_id) || !scope || !trigger_mode) {
       return res.status(400).json({ error: "skill_note_id or skill_installation_id, scope, trigger_mode required" });
     }
+    if (!VALID_SCOPES.has(scope) || !VALID_TRIGGER_MODES.has(trigger_mode)) {
+      return res.status(400).json({ error: "Invalid scope or trigger_mode" });
+    }
 
     const row: Record<string, unknown> = { skill_note_id, skill_installation_id, user_id: auth.userId, scope, trigger_mode, is_active: true };
     if (canvas_id && scope === "local") row.canvas_id = canvas_id;
@@ -91,6 +97,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data, error } = await supabase.from("skill_note_attachments").insert(row).select("*, skill_notes(*)").single();
     if (error) {
       if (error.code === "23505") return res.status(409).json({ error: "Already attached" });
+      if (error.code === "23514" && trigger_mode === "contextual") {
+        return res.status(409).json({
+          error: "Contextual skills require the production database migration for trigger_mode = contextual.",
+        });
+      }
       return res.status(500).json({ error: error.message || "Failed to attach" });
     }
 

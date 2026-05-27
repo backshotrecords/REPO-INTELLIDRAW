@@ -1145,6 +1145,14 @@ export default function WorkspacePage() {
     }
   }, [autoSave, playCanvasSound, createCommit, flushPreviewMode]);
 
+  const handleAddSkillToContext = useCallback((skill: { title: string; instructionText: string }) => {
+    const block = `Use this skill as context:\n\nSkill: ${skill.title}\n${skill.instructionText}`;
+    setChatInput(prev => prev.trim() ? `${prev.trim()}\n\n${block}` : block);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  }, []);
+
 
   // File upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1873,6 +1881,7 @@ export default function WorkspacePage() {
                   canvasId={canvasId}
                   isOpen={showSkillsPanel}
                   onClose={() => setShowSkillsPanel(false)}
+                  onAddSkillToContext={handleAddSkillToContext}
                   onSkillTriggered={(result) => {
                     flushPreviewMode();
                     if (result.updatedMermaidCode) {

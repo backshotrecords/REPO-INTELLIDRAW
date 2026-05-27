@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS skill_note_attachments (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   canvas_id UUID REFERENCES canvases(id) ON DELETE CASCADE,
   scope TEXT NOT NULL CHECK (scope IN ('local', 'global')),
-  trigger_mode TEXT NOT NULL CHECK (trigger_mode IN ('automatic', 'manual')),
+  trigger_mode TEXT NOT NULL CHECK (trigger_mode IN ('automatic', 'manual', 'contextual')),
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now()
 );
@@ -127,6 +127,15 @@ ALTER TABLE skill_note_attachments
 
 DO $$
 BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'skill_note_attachments_trigger_mode_check'
+  ) THEN
+    ALTER TABLE skill_note_attachments DROP CONSTRAINT skill_note_attachments_trigger_mode_check;
+  END IF;
+
+  ALTER TABLE skill_note_attachments ADD CONSTRAINT skill_note_attachments_trigger_mode_check
+    CHECK (trigger_mode IN ('automatic', 'manual', 'contextual'));
+
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'skill_attachment_source_check'
   ) THEN

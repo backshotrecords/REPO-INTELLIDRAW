@@ -1,3 +1,5 @@
+import type { SkillScope, SkillTriggerMode } from "../types";
+
 const API_BASE = "/api";
 
 /**
@@ -723,8 +725,8 @@ export async function apiAttachSkill(opts: {
   skill_note_id?: string;
   skill_installation_id?: string;
   canvas_id?: string;
-  scope: "local" | "global";
-  trigger_mode: "automatic" | "manual";
+  scope: SkillScope;
+  trigger_mode: SkillTriggerMode;
 }) {
   const res = await apiFetch("/skills/attachments", {
     method: "POST",
@@ -732,6 +734,24 @@ export async function apiAttachSkill(opts: {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to attach skill");
+  return data.attachment;
+}
+
+export async function apiUpdateAttachmentSettings(
+  id: string,
+  updates: {
+    is_active?: boolean;
+    scope?: SkillScope;
+    trigger_mode?: SkillTriggerMode;
+    canvas_id?: string | null;
+  }
+) {
+  const res = await apiFetch(`/skills/attachments/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update skill attachment");
   return data.attachment;
 }
 
