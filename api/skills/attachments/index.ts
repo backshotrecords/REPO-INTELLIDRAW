@@ -97,6 +97,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data, error } = await supabase.from("skill_note_attachments").insert(row).select("*, skill_notes(*)").single();
     if (error) {
       if (error.code === "23505") return res.status(409).json({ error: "Already attached" });
+      if (error.code === "23514" && trigger_mode === "contextual") {
+        return res.status(409).json({
+          error: "Contextual skills require the production database migration for trigger_mode = contextual.",
+        });
+      }
       return res.status(500).json({ error: error.message || "Failed to attach" });
     }
 

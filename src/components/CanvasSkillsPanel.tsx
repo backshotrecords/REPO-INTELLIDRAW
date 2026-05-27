@@ -45,6 +45,7 @@ export default function CanvasSkillsPanel({
   const [triggeringId, setTriggeringId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [updatesMap, setUpdatesMap] = useState<Record<string, boolean>>({});
+  const [panelMessage, setPanelMessage] = useState("");
 
   const [addSkillId, setAddSkillId] = useState("");
   const [addScope, setAddScope] = useState<SkillScope>("local");
@@ -103,20 +104,37 @@ export default function CanvasSkillsPanel({
     try {
       const updated = await apiToggleAttachment(att.id, !att.is_active);
       updateAttachmentInState(updated);
-    } catch (err) { console.error(err); }
+      setPanelMessage("");
+    } catch (err) {
+      console.error(err);
+      setPanelMessage(err instanceof Error ? err.message : "Failed to update attachment");
+    }
   };
 
   const handleUpdateSettings = async (
     att: SkillNoteAttachment,
     updates: { scope?: SkillScope; trigger_mode?: SkillTriggerMode },
   ) => {
+    const optimisticAttachment: SkillNoteAttachment = {
+      ...att,
+      ...updates,
+      canvas_id: updates.scope === "local" ? canvasId : updates.scope === "global" ? null : att.canvas_id,
+    };
+    updateAttachmentInState(optimisticAttachment);
+    setPanelMessage("");
+
     try {
       const updated = await apiUpdateAttachmentSettings(att.id, {
         ...updates,
         canvas_id: updates.scope === "local" ? canvasId : updates.scope === "global" ? null : undefined,
       });
       updateAttachmentInState(updated);
-    } catch (err) { console.error(err); }
+      setPanelMessage("");
+    } catch (err) {
+      console.error(err);
+      updateAttachmentInState(att);
+      setPanelMessage(err instanceof Error ? err.message : "Failed to update attachment settings");
+    }
   };
 
   const handleDetach = async (id: string) => {
@@ -124,7 +142,11 @@ export default function CanvasSkillsPanel({
       await apiDetachSkill(id);
       setExpandedAttachmentId(prev => prev === id ? null : prev);
       setAttachments(prev => prev.filter(a => a.id !== id));
-    } catch (err) { console.error(err); }
+      setPanelMessage("");
+    } catch (err) {
+      console.error(err);
+      setPanelMessage(err instanceof Error ? err.message : "Failed to remove skill");
+    }
   };
 
   const handleTrigger = async (attachmentId: string) => {
@@ -159,9 +181,28 @@ export default function CanvasSkillsPanel({
     if (!addSkillId) return;
     try {
       const isInstallation = addSkillId.startsWith("installation:");
+      const installationId = isInstallation ? addSkillId.replace("installation:", "") : undefined;
+      const existing = attachments.find(att =>
+        att.scope === addScope &&
+        (isInstallation ? att.skill_installation_id === installationId : att.skill_note_id === addSkillId)
+      );
+
+      if (existing) {
+        const updated = await apiUpdateAttachmentSettings(existing.id, {
+          trigger_mode: addMode,
+          scope: addScope,
+          canvas_id: addScope === "local" ? canvasId : null,
+        });
+        updateAttachmentInState(updated);
+        setShowAddDialog(false);
+        setAddSkillId("");
+        setPanelMessage("Existing attachment updated.");
+        return;
+      }
+
       const newAtt = await apiAttachSkill({
         skill_note_id: isInstallation ? undefined : addSkillId,
-        skill_installation_id: isInstallation ? addSkillId.replace("installation:", "") : undefined,
+        skill_installation_id: installationId,
         canvas_id: addScope === "local" ? canvasId : undefined,
         scope: addScope,
         trigger_mode: addMode,
@@ -169,7 +210,11 @@ export default function CanvasSkillsPanel({
       setAttachments(prev => [...prev, newAtt]);
       setShowAddDialog(false);
       setAddSkillId("");
-    } catch (err) { console.error(err); }
+      setPanelMessage("");
+    } catch (err) {
+      console.error(err);
+      setPanelMessage(err instanceof Error ? err.message : "Failed to attach skill");
+    }
   };
 
   const localAtts = attachments.filter(a => a.scope === "local");
@@ -214,6 +259,11 @@ export default function CanvasSkillsPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 custom-scrollbar">
+        {panelMessage && (
+          <div className="rounded-lg bg-surface-container-high/70 px-3 py-2 text-[11px] font-semibold text-on-surface-variant">
+            {panelMessage}
+          </div>
+        )}
         {loading ? (
           <div className="flex justify-center py-8"><div className="spinner w-6 h-6" /></div>
         ) : attachments.length === 0 ? (

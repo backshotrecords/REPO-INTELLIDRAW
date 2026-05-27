@@ -74,7 +74,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { data, error } = await supabase.from("skill_note_attachments")
       .update(updates).eq("id", id).eq("user_id", auth.userId).select("*, skill_notes(*)").single();
-    if (error || !data) return res.status(404).json({ error: "Attachment not found" });
+    if (error) {
+      if (error.code === "23514" && trigger_mode === "contextual") {
+        return res.status(409).json({
+          error: "Contextual skills require the production database migration for trigger_mode = contextual.",
+        });
+      }
+      return res.status(404).json({ error: "Attachment not found" });
+    }
+    if (!data) return res.status(404).json({ error: "Attachment not found" });
     if (data.skill_note_id) await recalculateSkillStars(data.skill_note_id as string);
     return res.json({ attachment: await enrichAttachment(data as Record<string, unknown>) });
   }
