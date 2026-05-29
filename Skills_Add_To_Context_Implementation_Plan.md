@@ -45,7 +45,7 @@ Production priority: this plan assumes the Vercel serverless API architecture is
 
 ### Data Model
 
-Current schema is in `scripts/migration_skills.sql`.
+Current schema is in `db/migrations/migration_skills.sql`.
 
 - `skill_note_attachments.scope` already supports `local` and `global`.
 - `skill_note_attachments.trigger_mode` currently has a check constraint with only `automatic` and `manual`.
@@ -345,4 +345,3 @@ Mitigation:
 4. Update Canvas Skills panel add dialog and row actions.
 5. Run `npm run build`.
 6. Deploy DB migration before deploying frontend/API code that emits `contextual`.
-

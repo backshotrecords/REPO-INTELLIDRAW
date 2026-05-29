@@ -49,7 +49,7 @@ BEGIN
 END $$;
 ```
 
-The same SQL is also saved at `scripts/migration_admin_api_keys.sql`.
+The same SQL is also saved at `db/migrations/migration_admin_api_keys.sql`.
 
 ## How To Use
 
@@ -79,8 +79,7 @@ The same SQL is also saved at `scripts/migration_admin_api_keys.sql`.
 - `api/settings/index.ts`
 - `api/lib/db.ts`
 - `server.dev.mjs`
-- `scripts/init-db.mjs`
-- `scripts/migration_admin_api_keys.sql`
+- `db/migrations/migration_admin_api_keys.sql`
 
 ## Verification Checklist
 

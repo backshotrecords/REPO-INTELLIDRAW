@@ -8,6 +8,7 @@ import {
   normalizeProjectId,
   touchProjectAncestors,
 } from "../lib/canvas-projects.js";
+import { deleteCanvasesInProjectsForUser } from "../lib/canvas-lifecycle.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -116,6 +117,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === "DELETE") {
     try {
+      const projectIdsToDelete = await getProjectAndDescendantIds(projectId, userId);
+      const canvasDeletion = await deleteCanvasesInProjectsForUser({
+        projectIds: [...projectIdsToDelete],
+        userId,
+      });
+
       const { error } = await supabase
         .from("canvas_projects")
         .delete()
@@ -129,7 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       await touchProjectAncestors(existingProject.parent_project_id, userId);
 
-      return res.status(200).json({ success: true });
+      return res.status(200).json({ success: true, deletedProjectIds: [...projectIdsToDelete], ...canvasDeletion });
     } catch (err) {
       console.error("Delete project error:", err);
       return res.status(500).json({ error: "Internal server error" });

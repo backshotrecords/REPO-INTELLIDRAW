@@ -81,7 +81,6 @@ export default function CanvasSkillsPanel({
         instruction_text: installation.installed_version?.instruction_text || "",
         category: installation.skill_note?.category || installation.installed_version?.category || "general",
         is_published: true,
-        stars: 0,
         version: installation.installed_version?.version_number || 1,
         source_skill_id: null,
         source_version: null,

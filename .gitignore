@@ -30,6 +30,9 @@ dist-ssr
 # Voice transcription temp files
 uploads/
 
+# Local-only scripts and DB helpers
+scripts/
+
 # Cloned reference repos
 voice-type-ref/
 

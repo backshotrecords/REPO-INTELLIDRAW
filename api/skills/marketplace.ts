@@ -17,7 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .select("*, users!skill_notes_owner_id_fkey(display_name, email)")
     .eq("status", "published")
     .eq("visibility", "public")
-    .order("stars", { ascending: false });
+    .order("updated_at", { ascending: false });
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message || "Failed to fetch marketplace" });

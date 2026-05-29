@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
-import { recalculateSkillStars } from "../../lib/skill-stars.js";
 
 const VALID_SCOPES = new Set(["local", "global"]);
 const VALID_TRIGGER_MODES = new Set(["automatic", "manual", "contextual"]);
@@ -31,7 +30,6 @@ async function enrichAttachment(a: Record<string, unknown>) {
         instruction_text: version.instruction_text,
         category: version.category,
         is_published: true,
-        stars: 0,
         version: version.version_number,
         source_skill_id: null,
         source_version: null,
@@ -104,8 +102,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       return res.status(500).json({ error: error.message || "Failed to attach" });
     }
-
-    await recalculateSkillStars(row.skill_note_id as string);
 
     return res.status(201).json({ attachment: await enrichAttachment(data as Record<string, unknown>) });
   }

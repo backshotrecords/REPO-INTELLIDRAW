@@ -241,13 +241,13 @@ export default function DashboardPage() {
     if (!confirm("Are you sure you want to delete this canvas?")) return;
     try {
       await apiDeleteCanvas(id);
-      setCanvases((prev) => prev.filter((canvas) => canvas.id !== id));
       setSelectedForExport((current) => {
         const next = new Set(current);
         next.delete(id);
         return next;
       });
       setMenuOpen(null);
+      await loadDashboard();
     } catch (err) {
       console.error("Failed to delete canvas:", err);
       setError(err instanceof Error ? err.message : "Failed to delete canvas");
@@ -269,15 +269,14 @@ export default function DashboardPage() {
 
   async function handleDeleteProject(project: CanvasProject) {
     if (!confirm(`Delete "${project.title}" and all canvases inside it?`)) return;
+    const idsToDelete = getProjectAndDescendantIds(project.id, projects);
     try {
       await apiDeleteProject(project.id);
-      const idsToDelete = getProjectAndDescendantIds(project.id, projects);
-      setProjects((current) => current.filter((item) => !idsToDelete.has(item.id)));
-      setCanvases((current) => current.filter((canvas) => !canvas.project_id || !idsToDelete.has(canvas.project_id)));
       setMenuOpen(null);
       if (activeProjectId && idsToDelete.has(activeProjectId)) {
         navigateToProject(project.parent_project_id);
       }
+      await loadDashboard();
     } catch (err) {
       console.error("Failed to delete project:", err);
       setError(err instanceof Error ? err.message : "Failed to delete project");
@@ -384,10 +383,10 @@ export default function DashboardPage() {
               type="button"
               aria-pressed={archiveOnly}
               onClick={() => setArchiveOnly((current) => !current)}
-              className={`archive-memory-card bg-surface-container-lowest px-6 py-4 rounded-xl flex items-center gap-4 border border-outline-variant/20 shadow-sm hover:bg-surface-container-low transition-colors ${archiveOnly ? "ring-2 ring-secondary" : ""}`}
+              className={`archive-memory-card bg-surface-container-lowest px-6 py-4 rounded-xl flex items-center gap-4 border shadow-sm hover:bg-surface-container-low transition-colors ${archiveOnly ? "border-black ring-2 ring-black" : "border-outline-variant/20"}`}
             >
-              <span className="w-12 h-12 rounded-xl bg-surface-container-high flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-primary">archive</span>
+              <span className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 transition-colors ${archiveOnly ? "bg-primary" : "bg-surface-container-high"}`}>
+                <span className={`material-symbols-outlined ${archiveOnly ? "text-white" : "text-primary"}`}>archive</span>
               </span>
               <span className="archive-memory-content text-left">
                 <strong className="block text-2xl font-bold font-headline">{archiveCount} Items</strong>

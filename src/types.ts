@@ -59,7 +59,6 @@ export interface SkillNote {
   instruction_text: string;
   category: string;
   is_published: boolean;
-  stars: number;
   version: number;
   source_skill_id: string | null;
   source_version: number | null;

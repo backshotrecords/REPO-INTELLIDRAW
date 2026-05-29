@@ -2,10 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { assertProjectOwned, normalizeProjectId, touchProjectAncestors } from "../lib/canvas-projects.js";
-import {
-  recalculateGlobalSkillStarsForUser,
-  recalculateSkillStarsForAttachments,
-} from "../lib/skill-stars.js";
+import { deleteCanvasForUser } from "../lib/canvas-lifecycle.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -116,26 +113,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // DELETE /api/canvases/[id] — Delete a canvas
   if (req.method === "DELETE") {
     try {
-      const { data: localAttachments } = await supabase
-        .from("skill_note_attachments")
-        .select("skill_note_id")
-        .eq("canvas_id", canvasId)
-        .eq("user_id", userId);
-
-      const { error } = await supabase
-        .from("canvases")
-        .delete()
-        .eq("id", canvasId)
-        .eq("user_id", userId);
-
-      if (error) {
-        return res.status(500).json({ error: "Failed to delete canvas" });
-      }
-
-      await recalculateSkillStarsForAttachments((localAttachments || []) as Array<{ skill_note_id: string }>);
-      await recalculateGlobalSkillStarsForUser(userId);
-
-      return res.status(200).json({ success: true });
+      const result = await deleteCanvasForUser({ canvasId, userId });
+      return res.status(200).json({ success: true, ...result });
     } catch (err) {
       console.error("Delete canvas error:", err);
       return res.status(500).json({ error: "Internal server error" });
