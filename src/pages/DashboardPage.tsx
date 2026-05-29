@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
@@ -7,6 +7,7 @@ import {
   apiCreateProject,
   apiDeleteCanvas,
   apiDeleteProject,
+  apiGetCanvasPreviewCodes,
   apiListCanvases,
   apiListProjects,
   apiUpdateCanvas,
@@ -16,6 +17,8 @@ import { exportAsImage, exportAsMarkdown, exportAsZip } from "../utils/export";
 import { useMermaidThumbnails } from "../hooks/useMermaidThumbnails";
 import type { CanvasProject, DashboardCanvas, ProjectAccent } from "../types";
 import { isLongTermMemoryItem } from "../types";
+
+const THUMBNAIL_BATCH_SIZE = 9;
 
 const INITIAL_LEVELS = [
   { id: 1, threshold: 0, name: "Initiate", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="50" stroke="currentColor" stroke-width="2" />\n<circle cx="110" cy="110" r="6" fill="currentColor" stroke="none" />' },
@@ -48,11 +51,12 @@ export default function DashboardPage() {
   const [movingCanvasId, setMovingCanvasId] = useState<string | null>(null);
   const [movingProjectId, setMovingProjectId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [thumbnailLimit, setThumbnailLimit] = useState(THUMBNAIL_BATCH_SIZE);
   const menuRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadMoreThumbsRef = useRef<HTMLSpanElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const thumbnails = useMermaidThumbnails(canvases);
 
   const activeProjectId = useMemo(() => new URLSearchParams(location.search).get("project"), [location.search]);
   const activeProject = activeProjectId ? projects.find((project) => project.id === activeProjectId) ?? null : null;
@@ -90,6 +94,11 @@ export default function DashboardPage() {
       .filter((canvas) => matchesSearch(canvas.title, search)),
     [archiveOnly, scopedCanvases, search],
   );
+  const previewEligibleCanvases = useMemo(
+    () => visibleCanvases.slice(0, thumbnailLimit),
+    [thumbnailLimit, visibleCanvases],
+  );
+  const thumbnails = useMermaidThumbnails(previewEligibleCanvases);
   const projectCanvasCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const project of projects) counts.set(project.id, 0);
@@ -121,6 +130,26 @@ export default function DashboardPage() {
   useEffect(() => {
     void loadDashboard();
   }, []);
+
+  useEffect(() => {
+    setThumbnailLimit(THUMBNAIL_BATCH_SIZE);
+  }, [activeProjectId, archiveOnly, search]);
+
+  useEffect(() => {
+    const sentinel = loadMoreThumbsRef.current;
+    if (!sentinel || thumbnailLimit >= visibleCanvases.length) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        setThumbnailLimit((current) => Math.min(current + THUMBNAIL_BATCH_SIZE, visibleCanvases.length));
+      },
+      { rootMargin: "700px 0px" },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [thumbnailLimit, visibleCanvases.length]);
 
   useEffect(() => {
     if (!activeProjectId || loading) return;
@@ -313,18 +342,37 @@ export default function DashboardPage() {
     }
   }
 
-  function handleExport() {
-    const selected = canvases.filter((canvas) => selectedForExport.has(canvas.id));
-    if (selected.length === 0) return;
-    if (selected.length === 1) {
-      if (exportOptions.markdown && !exportOptions.png) exportAsMarkdown(selected[0]);
-      else if (!exportOptions.markdown && exportOptions.png) void exportAsImage(selected[0]);
-      else void exportAsZip(selected, exportOptions);
-    } else {
-      void exportAsZip(selected, exportOptions);
+  async function loadCanvasExportData(ids: string[]) {
+    const previewCodes = await apiGetCanvasPreviewCodes(ids);
+    const byId = new Map(previewCodes.map((canvas) => [canvas.id, canvas]));
+    return ids.map((id) => {
+      const canvas = byId.get(id);
+      if (!canvas) throw new Error("Failed to fetch one or more selected canvases");
+      return { title: canvas.title, mermaid_code: canvas.mermaid_code };
+    });
+  }
+
+  async function handleExport() {
+    const selectedIds = canvases
+      .filter((canvas) => selectedForExport.has(canvas.id))
+      .map((canvas) => canvas.id);
+    if (selectedIds.length === 0) return;
+
+    try {
+      const selected = await loadCanvasExportData(selectedIds);
+      if (selected.length === 1) {
+        if (exportOptions.markdown && !exportOptions.png) exportAsMarkdown(selected[0]);
+        else if (!exportOptions.markdown && exportOptions.png) await exportAsImage(selected[0]);
+        else await exportAsZip(selected, exportOptions);
+      } else {
+        await exportAsZip(selected, exportOptions);
+      }
+      setExportMode(false);
+      setSelectedForExport(new Set());
+    } catch (err) {
+      console.error("Failed to export canvases:", err);
+      setError(err instanceof Error ? err.message : "Failed to export canvases");
     }
-    setExportMode(false);
-    setSelectedForExport(new Set());
   }
 
   function toggleExportSelection(id: string) {
@@ -494,40 +542,57 @@ export default function DashboardPage() {
               />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {visibleCanvases.map((canvas) => (
-                  <CanvasCard
-                    key={canvas.id}
-                    canvas={canvas}
-                    thumbnail={thumbnails[canvas.id]}
-                    exportMode={exportMode}
-                    isSelected={selectedForExport.has(canvas.id)}
-                    isHighlighted={highlightId === canvas.id}
-                    menuOpen={menuOpen?.type === "canvas" && menuOpen.id === canvas.id}
-                    menuAbove={menuAbove}
-                    menuClosing={menuClosing}
-                    menuRef={menuOpen?.type === "canvas" && menuOpen.id === canvas.id ? menuRef : undefined}
-                    onCardClick={() => {
-                      if (exportMode) toggleExportSelection(canvas.id);
-                      else navigate(`/canvas/${canvas.id}`);
-                    }}
-                    onToggleSelect={() => toggleExportSelection(canvas.id)}
-                    onToggleMenu={(button) => openMenu("canvas", canvas.id, button)}
-                    onEdit={() => navigate(`/canvas/${canvas.id}`)}
-                    onMove={() => {
-                      setMenuOpen(null);
-                      setMovingCanvasId(canvas.id);
-                    }}
-                    onExportMarkdown={() => {
-                      exportAsMarkdown(canvas);
-                      setMenuOpen(null);
-                    }}
-                    onExportPng={() => {
-                      void exportAsImage(canvas);
-                      setMenuOpen(null);
-                    }}
-                    onArchive={() => void handleArchiveCanvas(canvas)}
-                    onDelete={() => void handleDeleteCanvas(canvas.id)}
-                  />
+                {visibleCanvases.map((canvas, index) => (
+                  <Fragment key={canvas.id}>
+                    <CanvasCard
+                      canvas={canvas}
+                      thumbnail={thumbnails[canvas.id]}
+                      previewQueued={index < thumbnailLimit}
+                      loadMoreSentinelRef={
+                        index === Math.min(thumbnailLimit, visibleCanvases.length) - 1 && thumbnailLimit < visibleCanvases.length
+                          ? loadMoreThumbsRef
+                          : undefined
+                      }
+                      exportMode={exportMode}
+                      isSelected={selectedForExport.has(canvas.id)}
+                      isHighlighted={highlightId === canvas.id}
+                      menuOpen={menuOpen?.type === "canvas" && menuOpen.id === canvas.id}
+                      menuAbove={menuAbove}
+                      menuClosing={menuClosing}
+                      menuRef={menuOpen?.type === "canvas" && menuOpen.id === canvas.id ? menuRef : undefined}
+                      onCardClick={() => {
+                        if (exportMode) toggleExportSelection(canvas.id);
+                        else navigate(`/canvas/${canvas.id}`);
+                      }}
+                      onToggleSelect={() => toggleExportSelection(canvas.id)}
+                      onToggleMenu={(button) => openMenu("canvas", canvas.id, button)}
+                      onEdit={() => navigate(`/canvas/${canvas.id}`)}
+                      onMove={() => {
+                        setMenuOpen(null);
+                        setMovingCanvasId(canvas.id);
+                      }}
+                      onExportMarkdown={() => {
+                        void loadCanvasExportData([canvas.id])
+                          .then(([exportCanvas]) => exportAsMarkdown(exportCanvas))
+                          .catch((err) => {
+                            console.error("Failed to export canvas markdown:", err);
+                            setError(err instanceof Error ? err.message : "Failed to export canvas");
+                          });
+                        setMenuOpen(null);
+                      }}
+                      onExportPng={() => {
+                        void loadCanvasExportData([canvas.id])
+                          .then(([exportCanvas]) => exportAsImage(exportCanvas))
+                          .catch((err) => {
+                            console.error("Failed to export canvas image:", err);
+                            setError(err instanceof Error ? err.message : "Failed to export canvas");
+                          });
+                        setMenuOpen(null);
+                      }}
+                      onArchive={() => void handleArchiveCanvas(canvas)}
+                      onDelete={() => void handleDeleteCanvas(canvas.id)}
+                    />
+                  </Fragment>
                 ))}
               </div>
             )}
@@ -755,6 +820,8 @@ function ProjectCard({
 function CanvasCard({
   canvas,
   thumbnail,
+  previewQueued,
+  loadMoreSentinelRef,
   exportMode,
   isSelected,
   isHighlighted,
@@ -774,6 +841,8 @@ function CanvasCard({
 }: {
   canvas: DashboardCanvas;
   thumbnail?: string;
+  previewQueued: boolean;
+  loadMoreSentinelRef?: RefObject<HTMLSpanElement | null>;
   exportMode: boolean;
   isSelected: boolean;
   isHighlighted: boolean;
@@ -809,6 +878,7 @@ function CanvasCard({
           {isSelected && <span className="material-symbols-outlined text-sm">check</span>}
         </button>
       )}
+      {loadMoreSentinelRef && <span ref={loadMoreSentinelRef} className="absolute bottom-0 left-0 h-px w-px opacity-0 pointer-events-none" aria-hidden="true" />}
       <div className="aspect-video relative overflow-hidden bg-surface-container-high rounded-t-xl">
         {canvas.is_public && (
           <div className="absolute top-3 left-3 z-20 inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500/90 backdrop-blur-sm shadow-sm" title="Public">
@@ -818,7 +888,7 @@ function CanvasCard({
         <div className="w-full h-full flex items-center justify-center bg-surface-container-low canvas-grid">
           {thumbnail ? (
             <div className="thumb-preview w-full h-full flex items-center justify-center p-2 pointer-events-none" dangerouslySetInnerHTML={{ __html: thumbnail }} />
-          ) : canvas.mermaid_code?.trim() ? (
+          ) : previewQueued ? (
             <div className="flex flex-col items-center gap-2">
               <div className="spinner w-5 h-5" />
               <span className="text-[10px] text-on-surface-variant/50 font-medium">Rendering...</span>

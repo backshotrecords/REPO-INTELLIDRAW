@@ -1,6 +1,7 @@
-import type { CanvasProject, ProjectAccent, SkillScope, SkillTriggerMode } from "../types";
+import type { CanvasPreviewCode, CanvasProject, DashboardCanvas, ProjectAccent, SkillScope, SkillTriggerMode } from "../types";
 
 const API_BASE = "/api";
+const PREVIEW_CODE_BATCH_SIZE = 100;
 
 /**
  * Get the stored JWT token from localStorage.
@@ -110,11 +111,30 @@ export async function apiRequestPasswordReset(email: string) {
 
 // ===== Canvases =====
 
-export async function apiListCanvases() {
+export async function apiListCanvases(): Promise<DashboardCanvas[]> {
   const res = await apiFetch("/canvases");
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to fetch canvases");
   return data.canvases;
+}
+
+export async function apiGetCanvasPreviewCodes(ids: string[]): Promise<CanvasPreviewCode[]> {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+
+  const canvases: CanvasPreviewCode[] = [];
+  for (let i = 0; i < uniqueIds.length; i += PREVIEW_CODE_BATCH_SIZE) {
+    const batch = uniqueIds.slice(i, i + PREVIEW_CODE_BATCH_SIZE);
+    const res = await apiFetch("/canvases/preview-code", {
+      method: "POST",
+      body: JSON.stringify({ ids: batch }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to fetch canvas preview code");
+    canvases.push(...data.canvases);
+  }
+
+  return canvases;
 }
 
 export async function apiCreateCanvas(title?: string, mermaidCode?: string, projectId?: string | null) {

@@ -16,7 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const { data, error } = await supabase
         .from("canvases")
-        .select("id, title, mermaid_code, is_public, project_id, manually_archived, created_at, updated_at")
+        .select("id, title, is_public, project_id, manually_archived, created_at, updated_at")
         .eq("user_id", userId)
         .order("updated_at", { ascending: false });
 

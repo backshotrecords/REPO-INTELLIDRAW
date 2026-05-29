@@ -21,11 +21,18 @@ export type ProjectAccent = "blue" | "cyan" | "green" | "violet" | "amber";
 export interface DashboardCanvas {
   id: string;
   title: string;
-  mermaid_code: string;
+  mermaid_code?: string;
   is_public: boolean;
   project_id: string | null;
   manually_archived: boolean;
   created_at: string;
+  updated_at: string;
+}
+
+export interface CanvasPreviewCode {
+  id: string;
+  title: string;
+  mermaid_code: string;
   updated_at: string;
 }
 
