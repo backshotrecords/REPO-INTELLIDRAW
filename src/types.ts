@@ -16,6 +16,36 @@ export interface CanvasCommit {
   created_at: string;
 }
 
+export type ProjectAccent = "blue" | "cyan" | "green" | "violet" | "amber";
+
+export interface DashboardCanvas {
+  id: string;
+  title: string;
+  mermaid_code: string;
+  is_public: boolean;
+  project_id: string | null;
+  manually_archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CanvasProject {
+  id: string;
+  user_id: string;
+  parent_project_id: string | null;
+  title: string;
+  description: string;
+  accent: ProjectAccent;
+  manually_archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export function isLongTermMemoryItem(item: { updated_at: string; manually_archived?: boolean }) {
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+  return Boolean(item.manually_archived) || Date.now() - new Date(item.updated_at).getTime() > thirtyDaysMs;
+}
+
 // ===== Skill Notes =====
 
 export type SkillScope = "local" | "global";
