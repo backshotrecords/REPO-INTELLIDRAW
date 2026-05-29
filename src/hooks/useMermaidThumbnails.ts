@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import mermaid from "mermaid";
+import { apiGetCanvasPreviewCodes } from "../lib/api";
 
 // ─── Types ───────────────────────────────────────────────────────────
 interface CanvasInfo {
   id: string;
-  mermaid_code: string;
   updated_at: string;
+  mermaid_code?: string | null;
 }
 
 // ─── Cache helpers (localStorage, keyed by id::updated_at) ──────────
@@ -34,6 +35,18 @@ function persistCache(cache: Record<string, string>) {
   }
 }
 
+function pruneStaleEntriesForCanvases(cache: Record<string, string>, canvases: CanvasInfo[]) {
+  const currentKeys = new Set(canvases.map((c) => cacheId(c.id, c.updated_at)));
+  const currentIds = new Set(canvases.map((c) => c.id));
+
+  for (const key of Object.keys(cache)) {
+    const [id] = key.split("::");
+    if (currentIds.has(id) && !currentKeys.has(key)) {
+      delete cache[key];
+    }
+  }
+}
+
 // Offset counter to avoid ID collisions with the full MermaidRenderer
 let thumbCounter = 10_000;
 
@@ -51,51 +64,67 @@ let thumbCounter = 10_000;
  */
 export function useMermaidThumbnails(canvases: CanvasInfo[]) {
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
-  const cancelledRef = useRef(false);
 
   useEffect(() => {
-    cancelledRef.current = false;
+    let cancelled = false;
+    const isStaleRun = () => cancelled;
 
-    // 1. Load cache & prune entries for deleted / updated canvases
+    // 1. Load cache & prune stale entries for this visible preview window.
     const raw = loadCache();
-    const validKeys = new Set(
-      canvases.map((c) => cacheId(c.id, c.updated_at))
-    );
-    const pruned: Record<string, string> = {};
-    for (const [k, v] of Object.entries(raw)) {
-      if (validKeys.has(k)) pruned[k] = v;
-    }
-    persistCache(pruned);
+    pruneStaleEntriesForCanvases(raw, canvases);
+    persistCache(raw);
 
-    // 2. Split canvases into "already cached" vs "needs render"
+    // 2. Split canvases into "already cached" vs "needs code/render"
     const initial: Record<string, string> = {};
-    const queue: CanvasInfo[] = [];
+    const queue: Array<CanvasInfo & { mermaid_code: string }> = [];
+    const missingCode: CanvasInfo[] = [];
 
     for (const c of canvases) {
       const key = cacheId(c.id, c.updated_at);
-      if (pruned[key]) {
-        initial[c.id] = pruned[key];
+      if (raw[key]) {
+        initial[c.id] = raw[key];
       } else if (c.mermaid_code?.trim()) {
-        queue.push(c);
+        queue.push({ ...c, mermaid_code: c.mermaid_code.trim() });
+      } else {
+        missingCode.push(c);
       }
     }
 
     // Serve cached thumbnails immediately (no flash of placeholder)
     setThumbnails(initial);
 
-    // 3. Process the render queue sequentially
+    // 3. Fetch code only for uncached thumbnails, then render sequentially.
     const processQueue = async () => {
-      for (const canvas of queue) {
-        if (cancelledRef.current) return;
+      let renderQueue = queue;
+
+      if (missingCode.length > 0) {
+        try {
+          const previewCodes = await apiGetCanvasPreviewCodes(missingCode.map((canvas) => canvas.id));
+          const byId = new Map(previewCodes.map((canvas) => [canvas.id, canvas]));
+          renderQueue = [
+            ...renderQueue,
+            ...missingCode.flatMap((canvas) => {
+              const preview = byId.get(canvas.id);
+              const code = preview?.mermaid_code?.trim();
+              return code ? [{ ...canvas, mermaid_code: code }] : [];
+            }),
+          ];
+        } catch (err) {
+          console.warn("Thumbnail preview code fetch failed:", err);
+        }
+      }
+
+      for (const canvas of renderQueue) {
+        if (isStaleRun()) return;
 
         try {
           thumbCounter++;
           const { svg } = await mermaid.render(
             `thumb-${thumbCounter}`,
-            canvas.mermaid_code.trim()
+            canvas.mermaid_code
           );
 
-          if (cancelledRef.current) return;
+          if (isStaleRun()) return;
 
           // Update React state so the card updates in real-time
           setThumbnails((prev) => ({ ...prev, [canvas.id]: svg }));
@@ -121,7 +150,7 @@ export function useMermaidThumbnails(canvases: CanvasInfo[]) {
 
     // Cleanup: cancel on unmount (navigating away from dashboard)
     return () => {
-      cancelledRef.current = true;
+      cancelled = true;
     };
   }, [canvases]);
 

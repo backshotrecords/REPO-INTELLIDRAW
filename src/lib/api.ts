@@ -1,6 +1,7 @@
-import type { SkillScope, SkillTriggerMode } from "../types";
+import type { CanvasPreviewCode, CanvasProject, DashboardCanvas, ProjectAccent, SkillScope, SkillTriggerMode } from "../types";
 
 const API_BASE = "/api";
+const PREVIEW_CODE_BATCH_SIZE = 100;
 
 /**
  * Get the stored JWT token from localStorage.
@@ -110,17 +111,36 @@ export async function apiRequestPasswordReset(email: string) {
 
 // ===== Canvases =====
 
-export async function apiListCanvases() {
+export async function apiListCanvases(): Promise<DashboardCanvas[]> {
   const res = await apiFetch("/canvases");
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to fetch canvases");
   return data.canvases;
 }
 
-export async function apiCreateCanvas(title?: string, mermaidCode?: string) {
+export async function apiGetCanvasPreviewCodes(ids: string[]): Promise<CanvasPreviewCode[]> {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+
+  const canvases: CanvasPreviewCode[] = [];
+  for (let i = 0; i < uniqueIds.length; i += PREVIEW_CODE_BATCH_SIZE) {
+    const batch = uniqueIds.slice(i, i + PREVIEW_CODE_BATCH_SIZE);
+    const res = await apiFetch("/canvases/preview-code", {
+      method: "POST",
+      body: JSON.stringify({ ids: batch }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to fetch canvas preview code");
+    canvases.push(...data.canvases);
+  }
+
+  return canvases;
+}
+
+export async function apiCreateCanvas(title?: string, mermaidCode?: string, projectId?: string | null) {
   const res = await apiFetch("/canvases", {
     method: "POST",
-    body: JSON.stringify({ title, mermaidCode }),
+    body: JSON.stringify({ title, mermaidCode, projectId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to create canvas");
@@ -140,6 +160,9 @@ export async function apiUpdateCanvas(
     title?: string;
     mermaidCode?: string;
     chatHistory?: Array<{ role: string; content: string; timestamp: string }>;
+    isPublic?: boolean;
+    projectId?: string | null;
+    manuallyArchived?: boolean;
   }
 ) {
   const res = await apiFetch(`/canvases/${id}`, {
@@ -155,6 +178,54 @@ export async function apiDeleteCanvas(id: string) {
   const res = await apiFetch(`/canvases/${id}`, { method: "DELETE" });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to delete canvas");
+  return data;
+}
+
+export async function apiListProjects(): Promise<CanvasProject[]> {
+  const res = await apiFetch("/projects");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch projects");
+  return data.projects;
+}
+
+export async function apiCreateProject(project: {
+  title: string;
+  description: string;
+  accent: ProjectAccent;
+  parentProjectId?: string | null;
+}): Promise<CanvasProject> {
+  const res = await apiFetch("/projects", {
+    method: "POST",
+    body: JSON.stringify(project),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to create project");
+  return data.project;
+}
+
+export async function apiUpdateProject(
+  id: string,
+  updates: {
+    title?: string;
+    description?: string;
+    accent?: ProjectAccent;
+    parentProjectId?: string | null;
+    manuallyArchived?: boolean;
+  }
+): Promise<CanvasProject> {
+  const res = await apiFetch(`/projects/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update project");
+  return data.project;
+}
+
+export async function apiDeleteProject(id: string) {
+  const res = await apiFetch(`/projects/${id}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to delete project");
   return data;
 }
 

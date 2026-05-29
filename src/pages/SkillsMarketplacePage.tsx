@@ -348,7 +348,7 @@ function SkillCard({
           </div>
           <div className="flex items-center gap-1 ml-3 shrink-0">
             <span className="material-symbols-outlined text-sm text-amber-500" style={{ fontVariationSettings: "'FILL' 1" }}>bolt</span>
-            <span className="text-xs font-bold text-on-surface-variant">{skill.active_usage_count ?? skill.stars ?? 0}</span>
+            <span className="text-xs font-bold text-on-surface-variant">{skill.active_usage_count ?? 0}</span>
           </div>
         </div>
 
@@ -507,7 +507,6 @@ export default function SkillsMarketplacePage() {
         category: installation.installed_version?.category || installation.skill_note?.category || "general",
         owner_id: installation.skill_note?.owner_id || "",
         is_published: true,
-        stars: installation.skill_note?.stars || 0,
         active_usage_count: installation.skill_note?.active_usage_count,
         version: installation.installed_version?.version_number || 1,
         source_skill_id: null,

@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
-import { recalculateGlobalSkillStarsForUser } from "../lib/skill-stars.js";
+import { assertProjectOwned, normalizeProjectId, touchProjectAncestors } from "../lib/canvas-projects.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -16,7 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const { data, error } = await supabase
         .from("canvases")
-        .select("id, title, mermaid_code, is_public, created_at, updated_at")
+        .select("id, title, is_public, project_id, manually_archived, created_at, updated_at")
         .eq("user_id", userId)
         .order("updated_at", { ascending: false });
 
@@ -34,9 +34,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // POST /api/canvases — Create a new canvas
   if (req.method === "POST") {
-    const { title, mermaidCode } = req.body || {};
+    const { title, mermaidCode, projectId } = req.body || {};
+    const parentProjectId = normalizeProjectId(projectId);
 
     try {
+      if (parentProjectId && !(await assertProjectOwned(parentProjectId, userId))) {
+        return res.status(400).json({ error: "Project not found" });
+      }
+
+      const now = new Date().toISOString();
       const { data, error } = await supabase
         .from("canvases")
         .insert({
@@ -44,8 +50,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           title: (title ? String(title).slice(0, 80) : "Untitled Canvas"),
           mermaid_code: mermaidCode || "flowchart TD\n    A[Start] --> B[Next Step]",
           chat_history: [],
+          project_id: parentProjectId ?? null,
+          manually_archived: false,
+          updated_at: now,
         })
-        .select("id, title, mermaid_code, chat_history, created_at, updated_at")
+        .select("id, title, mermaid_code, chat_history, is_public, project_id, manually_archived, created_at, updated_at")
         .single();
 
       if (error) {
@@ -53,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: "Failed to create canvas" });
       }
 
-      await recalculateGlobalSkillStarsForUser(userId);
+      if (parentProjectId) await touchProjectAncestors(parentProjectId, userId, now);
 
       return res.status(201).json({ canvas: data });
     } catch (err) {

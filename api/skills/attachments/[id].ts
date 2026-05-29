@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
-import { recalculateSkillStars, recalculateSkillStarsForAttachments } from "../../lib/skill-stars.js";
 
 const VALID_SCOPES = new Set(["local", "global"]);
 const VALID_TRIGGER_MODES = new Set(["automatic", "manual", "contextual"]);
@@ -31,7 +30,6 @@ async function enrichAttachment(a: Record<string, unknown>) {
         instruction_text: version.instruction_text,
         category: version.category,
         is_published: true,
-        stars: 0,
         version: version.version_number,
         source_skill_id: null,
         source_version: null,
@@ -83,18 +81,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).json({ error: "Attachment not found" });
     }
     if (!data) return res.status(404).json({ error: "Attachment not found" });
-    if (data.skill_note_id) await recalculateSkillStars(data.skill_note_id as string);
     return res.json({ attachment: await enrichAttachment(data as Record<string, unknown>) });
   }
 
   // DELETE = detach
   if (req.method === "DELETE") {
-    const { data: att } = await supabase.from("skill_note_attachments").select("skill_note_id")
-      .eq("id", id).eq("user_id", auth.userId).single();
     const { error } = await supabase.from("skill_note_attachments").delete()
       .eq("id", id).eq("user_id", auth.userId);
     if (error) return res.status(500).json({ error: error.message || "Failed to detach" });
-    await recalculateSkillStarsForAttachments([att as { skill_note_id: string } | null]);
     return res.json({ success: true });
   }
 

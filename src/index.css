@@ -809,6 +809,8 @@
 .card-menu-item:nth-child(2) { animation-delay: 80ms; }
 .card-menu-item:nth-child(3) { animation-delay: 120ms; }
 .card-menu-item:nth-child(4) { animation-delay: 160ms; }
+.card-menu-item:nth-child(5) { animation-delay: 200ms; }
+.card-menu-item:nth-child(6) { animation-delay: 240ms; }
 
 /* Exit animations */
 @keyframes cardMenuOut {
@@ -837,6 +839,189 @@
 .card-menu-closing .card-menu-item {
   animation: cardMenuItemOut 120ms ease forwards;
   animation-delay: 0ms !important;
+}
+
+/* ======================================
+   Dashboard Project Folders + Archive
+   ====================================== */
+.project-card-production::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 0.75rem;
+  background: #fff;
+  z-index: 0;
+}
+
+.project-card-production::after {
+  content: "";
+  position: absolute;
+  right: -38px;
+  bottom: -52px;
+  width: 150px;
+  height: 150px;
+  border-radius: 9999px;
+  opacity: 0.72;
+  z-index: 0;
+  clip-path: inset(0 38px 52px 0 round 0 0 0.75rem 0);
+}
+
+.project-card-production > * {
+  position: relative;
+  z-index: 1;
+}
+
+.project-folder-art-production {
+  position: absolute;
+  left: 20px;
+  top: 24px;
+  width: 84px;
+  height: 72px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-folder-art-production::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 12px;
+  width: 38px;
+  height: 16px;
+  border-radius: 9px 9px 0 0;
+  background: inherit;
+}
+
+.project-folder-art-production .material-symbols-outlined {
+  font-size: 38px;
+}
+
+.project-card-production.project-blue::after,
+.project-preview-card.project-blue,
+.project-color-swatch.project-blue,
+.project-folder-art-production.project-blue {
+  background: #dfe8ff;
+  color: #0058bc;
+}
+
+.project-card-production.project-cyan::after,
+.project-preview-card.project-cyan,
+.project-color-swatch.project-cyan,
+.project-folder-art-production.project-cyan {
+  background: #d7f7ff;
+  color: #007d97;
+}
+
+.project-card-production.project-green::after,
+.project-preview-card.project-green,
+.project-color-swatch.project-green,
+.project-folder-art-production.project-green {
+  background: #dff8e8;
+  color: #0f6b3a;
+}
+
+.project-card-production.project-violet::after,
+.project-preview-card.project-violet,
+.project-color-swatch.project-violet,
+.project-folder-art-production.project-violet {
+  background: #eee6ff;
+  color: #6730c8;
+}
+
+.project-card-production.project-amber::after,
+.project-preview-card.project-amber,
+.project-color-swatch.project-amber,
+.project-folder-art-production.project-amber {
+  background: #fff0cc;
+  color: #8a5a00;
+}
+
+.project-color-swatch {
+  height: 48px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.project-color-swatch.selected {
+  border-color: #041627;
+  transform: translateY(-1px);
+}
+
+.project-preview-card {
+  min-height: 220px;
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.project-preview-card .material-symbols-outlined {
+  font-size: 46px;
+  margin-bottom: auto;
+}
+
+.project-preview-card strong,
+.project-preview-card small {
+  color: #041627;
+}
+
+.archive-memory-card {
+  position: relative;
+}
+
+.archive-memory-tooltip {
+  display: none;
+}
+
+@keyframes archiveWiggle {
+  0%, 92%, 100% { transform: rotate(0deg); }
+  94% { transform: rotate(-4deg); }
+  96% { transform: rotate(4deg); }
+  98% { transform: rotate(-2deg); }
+}
+
+@keyframes archiveTooltipPulse {
+  0%, 72%, 100% { opacity: 0; transform: translateY(4px) scale(0.96); }
+  76%, 96% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 768px) {
+  .archive-memory-card {
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    justify-content: center;
+    animation: archiveWiggle 7s ease-in-out infinite;
+  }
+
+  .archive-memory-card .archive-memory-content {
+    display: none;
+  }
+
+  .archive-memory-card .archive-memory-tooltip {
+    display: block;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    white-space: nowrap;
+    background: #041627;
+    color: white;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    pointer-events: none;
+    opacity: 0;
+    animation: archiveTooltipPulse 7s ease-in-out infinite;
+  }
 }
 
 /* ======================================
