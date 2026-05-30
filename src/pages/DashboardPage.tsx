@@ -409,9 +409,22 @@ export default function DashboardPage() {
 
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
           <div>
-            <h1 className="text-5xl font-extrabold tracking-tight text-primary mb-2 font-headline">
-              {activeProject?.title ?? "My Canvases"}
-            </h1>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-5xl font-extrabold tracking-tight text-primary font-headline">
+                {activeProject?.title ?? "My Canvases"}
+              </h1>
+              {activeProject && (
+                <button
+                  type="button"
+                  aria-label="Edit project details"
+                  title="Edit project details"
+                  onClick={() => setProjectWizard({ mode: "edit", projectId: activeProject.id })}
+                  className="w-10 h-10 rounded-full bg-surface-container-lowest border border-outline-variant/30 shadow-sm hover:bg-surface-container-low flex items-center justify-center text-primary transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[22px]">edit</span>
+                </button>
+              )}
+            </div>
             <p className="text-on-surface-variant max-w-md">
               {activeProject?.description || "Precision diagrams curated by your master drafter AI. Organize, edit, and export your architectural flows."}
             </p>
