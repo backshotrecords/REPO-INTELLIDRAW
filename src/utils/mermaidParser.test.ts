@@ -180,6 +180,35 @@ const PLUGIN_SCOPE_BOUNDARY_FIXTURE = `flowchart TD
     N --> T
     T --> A`;
 
+const COLLAB_SCOPE_CHILD_ENTRY_FIXTURE = `flowchart TD
+    B[Run Two Workstreams in Parallel]
+    B --> CS_Start[Canvas Sharing Workstream]
+
+    subgraph CS[Group 2: Canvas Sharing and Real-Time Collaboration]
+        CS_Start --> CSV_Start[Viewing Flow]
+        CS_Start --> CSE_Start[Editing Flow]
+        CS_Start --> CSU_Start[Adding, Removing, and Seeing Users Flow]
+
+        subgraph CSV[Viewing]
+            CSV_Start --> CS1[Phase 1: Shared Canvas Visibility]
+            CS1 --> CS6[UI Visually Confirms Users Are Sharing the Same Canvas]
+        end
+
+        subgraph CSE[Editing]
+            CSE_Start --> CS7[Phase 2: Real-Time Canvas Updates]
+            CS7 --> CS11[All Viewers and Editors See the Update in Real Time]
+        end
+
+        subgraph CSU[Adding, Removing, and Seeing Users on the Canvas]
+            CSU_Start --> CSU1[Open Canvas Sharing and Users Panel]
+            CSU1 --> CSU10[UI Updates the Canvas User and Presence List]
+        end
+
+        CS6 --> CS7
+        CSU10 -.-> CS6
+        CSU10 -.-> CS11
+    end`;
+
 const SACRED_ROUTER_FIXTURE = `flowchart TD
     A["User Question Received"]
 
@@ -514,6 +543,32 @@ describe('student support collapse regression', () => {
     expect(openedCanvas.code).not.toContain('_ext_N[Updated Mermaid Output]');
     expect(openedCanvas.code).not.toContain('K -.->');
     expect(openedCanvas.code).not.toContain('K[Context Injector]');
+  });
+
+  it('rewrites visible entry-node edges to collapsed child groups in opened scopes', () => {
+    const ast = parseMermaidAST(COLLAB_SCOPE_CHILD_ENTRY_FIXTURE);
+    const openedWithViewingExpanded = getScopeViewCode(ast, 'CS', new Set(['CSE', 'CSU']));
+    const openedWithViewingCollapsed = getScopeViewCode(ast, 'CS', new Set(['CSV', 'CSE', 'CSU']));
+
+    expect(openedWithViewingExpanded.code).toContain('CSV_Start --> CS1[Phase 1: Shared Canvas Visibility]');
+    expect(openedWithViewingCollapsed.code).toContain('CSV["📂 Viewing"]');
+    expect(openedWithViewingCollapsed.code).toContain('CSV_Start[Viewing Flow]');
+    expect(openedWithViewingCollapsed.code).toContain('CSV_Start --> CSV');
+    expect(openedWithViewingCollapsed.code).not.toContain('CSV_Start --> CS1');
+  });
+
+  it('rewrites visible entry-node edges to nested collapsed groups in expanded root views', () => {
+    const ast = parseMermaidAST(COLLAB_SCOPE_CHILD_ENTRY_FIXTURE);
+    const expandedParentWithCollapsedChildren = getRootViewWithCollapseState(
+      ast,
+      new Set(['CSV', 'CSE', 'CSU'])
+    );
+
+    expect(expandedParentWithCollapsedChildren.code).toContain('subgraph CS');
+    expect(expandedParentWithCollapsedChildren.code).toContain('CSV["📂 Viewing"]');
+    expect(expandedParentWithCollapsedChildren.code).toContain('CSV_Start[Viewing Flow]');
+    expect(expandedParentWithCollapsedChildren.code).toContain('CSV_Start --> CSV');
+    expect(expandedParentWithCollapsedChildren.code).not.toContain('CSV_Start --> CS1');
   });
 
   it('uses quoted external node labels in opened scopes and strips HTML from breadcrumbs', () => {
