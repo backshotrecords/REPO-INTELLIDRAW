@@ -16,9 +16,31 @@ import { fetchChatSettings } from "../lib/chatSettings";
 import { parseMermaidAST, getScopeViewCode, getRootViewWithCollapseState, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope } from "../utils/mermaidParser";
 import { getRenderedClusterSubgraphId } from "../utils/mermaidDom";
 import type { MermaidAST } from "../utils/mermaidParser";
-import type { ChatMessage, CanvasCommit } from "../types";
+import type { ChatMessage, CanvasCommit, DashboardCanvas } from "../types";
+import { isLongTermMemoryItem } from "../types";
 
 const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
+
+type DashboardReturnCanvas = Pick<DashboardCanvas, "project_id" | "updated_at" | "manually_archived">;
+
+function getCanvasReturnContext(canvas: DashboardCanvas): DashboardReturnCanvas {
+  return {
+    project_id: canvas.project_id ?? null,
+    updated_at: canvas.updated_at,
+    manually_archived: Boolean(canvas.manually_archived),
+  };
+}
+
+function getDashboardReturnPath(canvas: DashboardReturnCanvas | null) {
+  if (!canvas) return "/dashboard";
+
+  const params = new URLSearchParams();
+  if (canvas.project_id) params.set("project", canvas.project_id);
+  if (isLongTermMemoryItem(canvas)) params.set("archive", "1");
+
+  const query = params.toString();
+  return query ? `/dashboard?${query}` : "/dashboard";
+}
 
 /** Selected node info stored as a pill */
 interface SelectedNode {
@@ -67,6 +89,7 @@ export default function WorkspacePage() {
   const navigate = useNavigate();
 
   const [canvasId, setCanvasId] = useState<string | null>(id === "new" ? null : id || null);
+  const [dashboardReturnCanvas, setDashboardReturnCanvas] = useState<DashboardReturnCanvas | null>(null);
   const [title, setTitle] = useState("Untitled Canvas");
   const [mermaidCode, setMermaidCode] = useState(DEFAULT_MERMAID_CODE);
   const [isNaming, setIsNaming] = useState(false);
@@ -478,6 +501,7 @@ export default function WorkspacePage() {
     try {
       const canvas = await apiGetCanvas(canvasId);
       setCanvasId(canvas.id);
+      setDashboardReturnCanvas(getCanvasReturnContext(canvas));
       setTitle(canvas.title);
       setMermaidCode(canvas.mermaid_code);
       latestMermaidCodeRef.current = canvas.mermaid_code;
@@ -515,6 +539,7 @@ export default function WorkspacePage() {
     try {
       const canvas = await apiCreateCanvas();
       setCanvasId(canvas.id);
+      setDashboardReturnCanvas(getCanvasReturnContext(canvas));
       setTitle(canvas.title);
       setMermaidCode(canvas.mermaid_code);
       latestMermaidCodeRef.current = canvas.mermaid_code;
@@ -575,7 +600,8 @@ export default function WorkspacePage() {
         try {
           const updates: Record<string, unknown> = { mermaidCode: code };
           if (history) updates.chatHistory = history;
-          await apiUpdateCanvas(canvasId, updates);
+          const updated = await apiUpdateCanvas(canvasId, updates);
+          setDashboardReturnCanvas(getCanvasReturnContext(updated));
         } catch (err) {
           console.error("Auto-save failed:", err);
         } finally {
@@ -738,7 +764,8 @@ export default function WorkspacePage() {
     if (!trimmed) {
       setTitle("Untitled Canvas");
       try {
-        await apiUpdateCanvas(canvasId, { title: "Untitled Canvas" });
+        const updated = await apiUpdateCanvas(canvasId, { title: "Untitled Canvas" });
+        setDashboardReturnCanvas(getCanvasReturnContext(updated));
       } catch (err) {
         console.error("Failed to save title:", err);
       }
@@ -746,7 +773,8 @@ export default function WorkspacePage() {
     }
 
     try {
-      await apiUpdateCanvas(canvasId, { title });
+      const updated = await apiUpdateCanvas(canvasId, { title });
+      setDashboardReturnCanvas(getCanvasReturnContext(updated));
     } catch (err) {
       console.error("Failed to save title:", err);
     }
@@ -825,7 +853,7 @@ export default function WorkspacePage() {
     }
 
     if (!canvasId) {
-      navigate("/dashboard");
+      navigate(getDashboardReturnPath(dashboardReturnCanvas));
       return;
     }
 
@@ -846,7 +874,7 @@ export default function WorkspacePage() {
       } catch (err) {
         console.error("Failed to delete blank canvas:", err);
       }
-      navigate("/dashboard");
+      navigate(getDashboardReturnPath(dashboardReturnCanvas));
       return;
     }
 
@@ -856,7 +884,8 @@ export default function WorkspacePage() {
       try {
         const suggestedName = await apiSuggestCanvasName(latestMermaidCodeRef.current);
         if (suggestedName && suggestedName !== "Untitled Canvas") {
-          await apiUpdateCanvas(canvasId, { title: suggestedName });
+          const updated = await apiUpdateCanvas(canvasId, { title: suggestedName });
+          setDashboardReturnCanvas(getCanvasReturnContext(updated));
         }
       } catch (err) {
         console.error("Auto-naming failed:", err);
@@ -866,8 +895,8 @@ export default function WorkspacePage() {
       }
     }
 
-    navigate("/dashboard", { state: { closedCanvasId: canvasId } });
-  }, [canvasId, title, navigate, activeView, mermaidCode, autoSave, createCommit, flushPreviewMode]);
+    navigate(getDashboardReturnPath(dashboardReturnCanvas), { state: { closedCanvasId: canvasId } });
+  }, [canvasId, title, navigate, activeView, mermaidCode, autoSave, createCommit, flushPreviewMode, dashboardReturnCanvas]);
 
   // History guard — intercept Android/browser back button
   const handleCanvasExitRef = useRef(handleCanvasExit);
