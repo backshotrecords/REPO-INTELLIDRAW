@@ -325,8 +325,6 @@ export default function DashboardPage() {
       setCanvases((current) => [updated, ...current.filter((canvas) => canvas.id !== updated.id)]);
       setMovingCanvasId(null);
       setMenuOpen(null);
-      setArchiveOnly(false);
-      navigateToProject(targetProjectId);
     } catch (err) {
       console.error("Failed to move canvas:", err);
       setError(err instanceof Error ? err.message : "Failed to move canvas");
