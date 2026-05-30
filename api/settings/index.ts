@@ -64,7 +64,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     try {
       const updateData: Record<string, unknown> = {};
-      if (displayName !== undefined) updateData.display_name = displayName;
+      if (displayName !== undefined) {
+        if (typeof displayName !== "string" || !displayName.trim()) {
+          return res.status(400).json({ error: "Please enter your full name before saving account settings." });
+        }
+        updateData.display_name = displayName.trim();
+      }
       if (email !== undefined) updateData.email = email.toLowerCase();
 
       const { data, error } = await supabase
