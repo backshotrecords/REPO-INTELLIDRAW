@@ -981,6 +981,15 @@ export function getRootViewWithCollapseState(
         // Nested subgraph is collapsed — emit compound node and skip to end
         const safeLabel = nestedSg.label.replace(/"/g, "'");
         output.push(`    ${nestedSg.id}["\uD83D\uDCC2 ${safeLabel}"]`);
+        emitRedirectedEdgesInRange(
+          ast,
+          nestedSg.sourceStart + 1,
+          nestedSg.sourceEnd,
+          visibleNodes,
+          emittedRedirectedEdges,
+          output,
+          (nodeId) => findCollapsedVisibleOwner(nodeId, ast, collapsedSubgraphIds) || nodeId
+        );
         i = nestedSg.sourceEnd;
         continue;
       }

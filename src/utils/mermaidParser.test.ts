@@ -557,6 +557,20 @@ describe('student support collapse regression', () => {
     expect(openedWithViewingCollapsed.code).not.toContain('CSV_Start --> CS1');
   });
 
+  it('rewrites visible entry-node edges to nested collapsed groups in expanded root views', () => {
+    const ast = parseMermaidAST(COLLAB_SCOPE_CHILD_ENTRY_FIXTURE);
+    const expandedParentWithCollapsedChildren = getRootViewWithCollapseState(
+      ast,
+      new Set(['CSV', 'CSE', 'CSU'])
+    );
+
+    expect(expandedParentWithCollapsedChildren.code).toContain('subgraph CS');
+    expect(expandedParentWithCollapsedChildren.code).toContain('CSV["📂 Viewing"]');
+    expect(expandedParentWithCollapsedChildren.code).toContain('CSV_Start[Viewing Flow]');
+    expect(expandedParentWithCollapsedChildren.code).toContain('CSV_Start --> CSV');
+    expect(expandedParentWithCollapsedChildren.code).not.toContain('CSV_Start --> CS1');
+  });
+
   it('uses quoted external node labels in opened scopes and strips HTML from breadcrumbs', () => {
     const ast = parseMermaidAST(SACRED_ROUTER_FIXTURE);
     const openedListener = getScopeViewCode(ast, 'L1', new Set());
