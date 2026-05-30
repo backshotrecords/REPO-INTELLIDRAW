@@ -1204,6 +1204,15 @@ export function getScopeViewCode(
         if (i === childRange.start) {
           const safeLabel = childRange.label.replace(/"/g, "'");
           output.push(`    ${childRange.id}["\uD83D\uDCC2 ${safeLabel}"]`);
+          emitRedirectedEdgesInRange(
+            ast,
+            childRange.start + 1,
+            childRange.end,
+            visibleNodes,
+            scopeRedirectedEdges,
+            output,
+            (nodeId) => findChildContaining(nodeId, sg, ast.allSubgraphsFlat) || nodeId
+          );
         }
       } else {
         // Expanded child: pass through original subgraph block
