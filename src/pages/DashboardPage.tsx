@@ -58,7 +58,9 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const activeProjectId = useMemo(() => new URLSearchParams(location.search).get("project"), [location.search]);
+  const dashboardSearchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const activeProjectId = dashboardSearchParams.get("project");
+  const requestedArchiveOnly = dashboardSearchParams.get("archive") === "1";
   const activeProject = activeProjectId ? projects.find((project) => project.id === activeProjectId) ?? null : null;
   const { level, name: levelName, svg: levelSvg } = getAvatarStage(canvases.length);
 
@@ -130,6 +132,10 @@ export default function DashboardPage() {
   useEffect(() => {
     void loadDashboard();
   }, []);
+
+  useEffect(() => {
+    setArchiveOnly(requestedArchiveOnly);
+  }, [requestedArchiveOnly]);
 
   useEffect(() => {
     setThumbnailLimit(THUMBNAIL_BATCH_SIZE);
@@ -1079,16 +1085,16 @@ function ProjectDetailsWizard({
   const fallbackDescription = description.trim() || "A project folder for related canvases.";
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-16 px-4">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 md:pt-16">
       <button type="button" className="absolute inset-0 bg-primary/30 backdrop-blur-sm" aria-label="Close project details" onClick={onClose} />
       <form
-        className="relative w-full max-w-2xl rounded-2xl bg-white shadow-ambient-lg p-6"
+        className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-ambient-lg"
         onSubmit={(event) => {
           event.preventDefault();
           onSave({ title: fallbackTitle, description: fallbackDescription, accent });
         }}
       >
-        <div className="flex items-start justify-between gap-4 mb-5">
+        <div className="flex shrink-0 items-start justify-between gap-4 p-6 pb-4">
           <div>
             <p className="text-xs uppercase tracking-widest font-bold text-on-surface-variant">{mode === "create" ? "New Project" : "Project Details"}</p>
             <h3 className="text-2xl font-extrabold text-primary">{mode === "create" ? "Set up this folder" : "Edit folder details"}</h3>
@@ -1097,7 +1103,7 @@ function ProjectDetailsWizard({
             <span className="material-symbols-outlined">close</span>
           </button>
         </div>
-        <div className="grid gap-5 md:grid-cols-[1fr_240px]">
+        <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto px-6 pb-4 pr-5 md:grid-cols-[1fr_240px]">
           <div className="space-y-4">
             <label className="block">
               <span className="text-sm font-bold text-on-surface">Name</span>
@@ -1124,7 +1130,7 @@ function ProjectDetailsWizard({
             <small>{fallbackDescription}</small>
           </div>
         </div>
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="flex shrink-0 justify-end gap-3 border-t border-outline-variant/20 bg-white p-4">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl font-bold text-on-surface-variant hover:bg-surface-container-low">Cancel</button>
           <button type="submit" className="px-4 py-2 rounded-xl font-bold text-white editorial-gradient">{mode === "create" ? "Create Project" : "Save Changes"}</button>
         </div>
