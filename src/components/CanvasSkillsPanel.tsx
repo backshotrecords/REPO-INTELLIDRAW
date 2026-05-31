@@ -15,14 +15,14 @@ interface CanvasSkillsPanelProps {
   onAddSkillToContext: (skill: { title: string; instructionText: string }) => void;
 }
 
-const scopeLabel: Record<SkillScope, string> = { local: "Project", global: "Global" };
+const scopeLabel: Record<SkillScope, string> = { local: "Canvas", global: "Global" };
 const modeLabel: Record<SkillTriggerMode, string> = { automatic: "Auto", manual: "Manual", contextual: "Context" };
 const modeDisplayLabel: Record<SkillTriggerMode, string> = {
   automatic: "Automatic execution",
   manual: "Manual trigger",
   contextual: "Context provider",
 };
-const scopeIcon: Record<SkillScope, string> = { local: "folder", global: "public" };
+const scopeIcon: Record<SkillScope, string> = { local: "draw", global: "public" };
 const modeDotClass: Record<SkillTriggerMode, string> = {
   automatic: "bg-emerald-500",
   manual: "bg-amber-500",
@@ -216,7 +216,7 @@ export default function CanvasSkillsPanel({
     }
   };
 
-  const localAtts = attachments.filter(a => a.scope === "local");
+  const canvasAtts = attachments.filter(a => a.scope === "local");
   const globalAtts = attachments.filter(a => a.scope === "global");
 
   if (!isOpen) return null;
@@ -273,9 +273,9 @@ export default function CanvasSkillsPanel({
         ) : (
           <>
             <AttachmentSection
-              title="Project Skills"
-              icon="folder"
-              attachments={localAtts}
+              title="Canvas Skills"
+              icon={scopeIcon.local}
+              attachments={canvasAtts}
               isEditing={isEditing}
               expandedAttachmentId={expandedAttachmentId}
               setExpandedAttachmentId={setExpandedAttachmentId}
