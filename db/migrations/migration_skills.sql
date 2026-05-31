@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS group_members (
   UNIQUE(group_id, user_id)
 );
 
--- 4. Skill Note Attachments (to projects/canvases or global)
+-- 4. Skill Note Attachments (to canvases or global)
 CREATE TABLE IF NOT EXISTS skill_note_attachments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   skill_note_id UUID NOT NULL REFERENCES skill_notes(id) ON DELETE CASCADE,

@@ -55,6 +55,7 @@ export function isLongTermMemoryItem(item: { updated_at: string; manually_archiv
 
 // ===== Skill Notes =====
 
+// "local" is the existing API/database value for canvas-level skill attachments.
 export type SkillScope = "local" | "global";
 export type SkillTriggerMode = "automatic" | "manual" | "contextual";
 
