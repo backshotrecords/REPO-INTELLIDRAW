@@ -8,13 +8,16 @@ interface TopBarProps {
   showSearch?: boolean;
   onSearchChange?: (value: string) => void;
   searchPlaceholder?: string;
+  searchVisibility?: "all" | "desktop" | "mobile";
 }
 
-export default function TopBar({ showSearch, onSearchChange, searchPlaceholder = "Search canvases..." }: TopBarProps) {
+export default function TopBar({ showSearch, onSearchChange, searchPlaceholder = "Search canvases...", searchVisibility = "all" }: TopBarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [creatingCanvas, setCreatingCanvas] = useState(false);
+  const searchVisibilityClass =
+    searchVisibility === "desktop" ? "hidden md:flex" : searchVisibility === "mobile" ? "flex md:hidden" : "flex";
 
   const handleLogout = () => {
     logout();
@@ -56,7 +59,7 @@ export default function TopBar({ showSearch, onSearchChange, searchPlaceholder =
           </div>
 
           {showSearch && (
-            <div className="order-3 flex w-full md:order-2 md:flex-1 md:max-w-md md:mx-8">
+            <div className={`order-3 ${searchVisibilityClass} w-full md:order-2 md:flex-1 md:max-w-md md:mx-8`}>
               <div className="relative w-full">
                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">
                   search
