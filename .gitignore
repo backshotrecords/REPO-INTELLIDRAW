@@ -38,3 +38,6 @@ voice-type-ref/
 
 # Local-only component sandbox
 simulator/
+
+# Codex remote attachment cache
+.codex-remote-attachments/
