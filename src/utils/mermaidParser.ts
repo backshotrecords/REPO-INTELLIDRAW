@@ -1369,6 +1369,7 @@ export function getScopeViewCode(
     const externalVisibleId = resolveVisibleBoundaryExternalId(
       ref.externalNodeId,
       ast,
+      scopeId,
       collapsedSubgraphIds
     );
     const extId = `_ext_${externalVisibleId}`;
@@ -1545,11 +1546,24 @@ function findCollapsedVisibleOwner(
 function resolveVisibleBoundaryExternalId(
   nodeId: string,
   ast: MermaidAST,
+  scopeId: string,
   collapsedSubgraphIds?: Set<string>
 ): string {
   if (!collapsedSubgraphIds) return nodeId;
   if (ast.allSubgraphsFlat.has(nodeId) && collapsedSubgraphIds.has(nodeId)) return nodeId;
-  return findCollapsedVisibleOwner(nodeId, ast, collapsedSubgraphIds) || nodeId;
+
+  const collapsedOwner = findCollapsedVisibleOwner(nodeId, ast, collapsedSubgraphIds);
+  if (!collapsedOwner || isAncestorSubgraph(collapsedOwner, scopeId, ast)) return nodeId;
+  return collapsedOwner;
+}
+
+function isAncestorSubgraph(candidateId: string, scopeId: string, ast: MermaidAST): boolean {
+  let current = ast.allSubgraphsFlat.get(scopeId)?.parentId ?? null;
+  while (current) {
+    if (current === candidateId) return true;
+    current = ast.allSubgraphsFlat.get(current)?.parentId ?? null;
+  }
+  return false;
 }
 
 /** Walk up to the top-level subgraph parent of a given subgraph. */

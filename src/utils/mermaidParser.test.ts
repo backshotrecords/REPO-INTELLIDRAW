@@ -209,6 +209,31 @@ const COLLAB_SCOPE_CHILD_ENTRY_FIXTURE = `flowchart TD
         CSU10 -.-> CS11
     end`;
 
+const ACTION_SCOPE_ANCESTOR_BOUNDARY_FIXTURE = `flowchart TD
+    A[Skill Attachment Modes]
+    A --> E[Action-Triggered Mode / Smooth Wave]
+
+    subgraph ACTION[Action-Triggered Attachment Mode / Smooth Wave]
+        E --> E1[Attach a scale to a selected canvas action]
+        E1 --> F0[Choose supported action]
+
+        subgraph F[Supported Actions]
+            F0 --> F1[Exit Canvas]
+            F0 --> F2[Copy Canvas]
+            F0 --> F3[Export Code]
+            F0 --> F4[Save Canvas]
+            F0 --> F5[Additional actions can be added over time]
+        end
+
+        F1 --> E2[Selected action occurs]
+        F2 --> E2
+        F3 --> E2
+        F4 --> E2
+        F5 --> E2
+
+        E2 --> E3[Run associated skill prompt]
+    end`;
+
 const SACRED_ROUTER_FIXTURE = `flowchart TD
     A["User Question Received"]
 
@@ -569,6 +594,19 @@ describe('student support collapse regression', () => {
     expect(expandedParentWithCollapsedChildren.code).toContain('CSV_Start[Viewing Flow]');
     expect(expandedParentWithCollapsedChildren.code).toContain('CSV_Start --> CSV');
     expect(expandedParentWithCollapsedChildren.code).not.toContain('CSV_Start --> CS1');
+  });
+
+  it('keeps parent-scope boundary nodes when an opened nested scope has a collapsed ancestor', () => {
+    const ast = parseMermaidAST(ACTION_SCOPE_ANCESTOR_BOUNDARY_FIXTURE);
+    const openedSupportedActions = getScopeViewCode(ast, 'F', new Set(['ACTION']));
+
+    expect(openedSupportedActions.code).toContain('_ext_F0[Choose supported action]');
+    expect(openedSupportedActions.code).toContain('_ext_E2[Selected action occurs]');
+    expect(openedSupportedActions.code).toContain('_ext_F0 -.-> F1');
+    expect(openedSupportedActions.code).toContain('_ext_F0 -.-> F5');
+    expect(openedSupportedActions.code).toContain('F1 -.-> _ext_E2');
+    expect(openedSupportedActions.code).toContain('F5 -.-> _ext_E2');
+    expect(openedSupportedActions.code).not.toContain('_ext_ACTION');
   });
 
   it('uses quoted external node labels in opened scopes and strips HTML from breadcrumbs', () => {
