@@ -14,6 +14,10 @@ interface AgentGitLogProps {
   onPublishToggle: () => void;
   previewMode: boolean;
   previewVersionNumber: number | null;
+  switchToTreeCommand: number;
+  onViewChange: (view: "chat" | "tree") => void;
+  unreadChatCount: number;
+  unreadBadgePop: boolean;
 }
 
 function relativeTime(timestamp: string): string {
@@ -59,10 +63,25 @@ export default function AgentGitLog({
   onPublishToggle,
   previewMode,
   previewVersionNumber,
+  switchToTreeCommand,
+  onViewChange,
+  unreadChatCount,
+  unreadBadgePop,
 }: AgentGitLogProps) {
   const [sidebarView, setSidebarView] = useState<"chat" | "tree">("chat");
   const [expandedPills, setExpandedPills] = useState<Record<number, boolean>>({});
   const [menuOpen, setMenuOpen] = useState(false);
+  const showUnreadChatCue = unreadChatCount > 0 && sidebarView !== "chat";
+
+  useEffect(() => {
+    if (switchToTreeCommand > 0) {
+      setSidebarView("tree");
+    }
+  }, [switchToTreeCommand]);
+
+  useEffect(() => {
+    onViewChange(sidebarView);
+  }, [onViewChange, sidebarView]);
 
   // Share toast
   const [shareCopied, setShareCopied] = useState(false);
@@ -301,11 +320,19 @@ export default function AgentGitLog({
           <div className="relative">
             <button
               onClick={() => setMenuOpen(!menuOpen)}
-              className={`p-2 transition-colors rounded-full ${
+              className={`relative p-2 transition-colors rounded-full ${
                 menuOpen ? "text-on-surface bg-surface-container-high" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/60"
               }`}
+              title={showUnreadChatCue ? `${unreadChatCount} unread chat update${unreadChatCount === 1 ? "" : "s"}` : "More"}
             >
               <span className="material-symbols-outlined text-lg">more_horiz</span>
+              {showUnreadChatCue && (
+                <span
+                  className={`absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-white shadow-[0_2px_8px_rgba(239,68,68,0.45)] ${
+                    unreadBadgePop ? "unread-badge-pop" : ""
+                  }`}
+                />
+              )}
             </button>
             {menuOpen && (
               <div className="dropdown-enter absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.12)] border border-outline-variant/15 py-2 z-40">
@@ -325,7 +352,10 @@ export default function AgentGitLog({
                   }`}
                 >
                   <span className="material-symbols-outlined text-base text-on-surface-variant">chat</span>
-                  Chat
+                  <span className="flex-1 text-left">Chat</span>
+                  {showUnreadChatCue && (
+                    <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_2px_8px_rgba(239,68,68,0.45)]" />
+                  )}
                 </button>
               </div>
             )}

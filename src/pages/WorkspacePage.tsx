@@ -22,6 +22,7 @@ import { isLongTermMemoryItem } from "../types";
 const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
 
 type DashboardReturnCanvas = Pick<DashboardCanvas, "project_id" | "updated_at" | "manually_archived">;
+type AgentLogView = "chat" | "tree";
 
 function getCanvasReturnContext(canvas: DashboardCanvas): DashboardReturnCanvas {
   return {
@@ -40,6 +41,18 @@ function getDashboardReturnPath(canvas: DashboardReturnCanvas | null) {
 
   const query = params.toString();
   return query ? `/dashboard?${query}` : "/dashboard";
+}
+
+function shouldKeepNativeUndoRedo(target: EventTarget | null, chatTextarea: HTMLTextAreaElement | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const isTextControl =
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target.isContentEditable;
+
+  if (!isTextControl) return false;
+  return !(target === chatTextarea && target instanceof HTMLTextAreaElement && target.value.trim() === "");
 }
 
 /** Selected node info stored as a pill */
@@ -239,19 +252,33 @@ export default function WorkspacePage() {
   }, []);
 
   const [showChat, setShowChat] = useState(false);
+  const [agentLogView, setAgentLogView] = useState<AgentLogView>("chat");
+  const [switchAgentLogToTreeCommand, setSwitchAgentLogToTreeCommand] = useState(0);
+  const [isDesktopPanel, setIsDesktopPanel] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : false
+  );
   const [unreadCount, setUnreadCount] = useState(0);
   const [badgePop, setBadgePop] = useState(false);
   const prevChatLengthRef = useRef(0);
+  const isChatLogVisible = agentLogView === "chat" && (isDesktopPanel || showChat);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 768px)");
+    const syncDesktopPanel = () => setIsDesktopPanel(mediaQuery.matches);
+
+    syncDesktopPanel();
+    mediaQuery.addEventListener("change", syncDesktopPanel);
+    return () => mediaQuery.removeEventListener("change", syncDesktopPanel);
+  }, []);
 
   // ── Unread badge tracking ──
-  // Increment unread count when new messages arrive while chat is minimized
+  // Increment unread count when new messages arrive while the chat log is hidden.
   useEffect(() => {
     const prevLen = prevChatLengthRef.current;
     const newLen = chatHistory.length;
 
     if (newLen > prevLen && prevLen > 0) {
-      // New messages arrived after initial load
-      if (!showChat) {
+      if (!isChatLogVisible) {
         setUnreadCount(prev => prev + (newLen - prevLen));
         // Trigger pop animation (toggle to force re-animation)
         setBadgePop(false);
@@ -260,15 +287,15 @@ export default function WorkspacePage() {
     }
 
     prevChatLengthRef.current = newLen;
-  }, [chatHistory.length, showChat]);
+  }, [chatHistory.length, isChatLogVisible]);
 
-  // Clear unread when chat is opened
+  // Clear unread when the chat log is visible.
   useEffect(() => {
-    if (showChat) {
+    if (isChatLogVisible) {
       setUnreadCount(0);
       setBadgePop(false);
     }
-  }, [showChat]);
+  }, [isChatLogVisible]);
   const [showSkillsPanel, setShowSkillsPanel] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -781,7 +808,7 @@ export default function WorkspacePage() {
   };
 
   // Restore a version from the git log — enters Preview Mode (no commit until user makes a change)
-  const handleRestoreVersion = (snapshot: string, versionNumber: number) => {
+  const handleRestoreVersion = useCallback((snapshot: string, versionNumber: number) => {
     setMermaidCode(snapshot);
 
     // If restoring to the latest version, exit preview mode
@@ -794,7 +821,52 @@ export default function WorkspacePage() {
     // Enter preview mode — no commit, no autosave, no chat message
     setPreviewMode(true);
     setPreviewVersionNumber(versionNumber);
-  };
+  }, []);
+
+  const navigateCommitSnapshot = useCallback((direction: "back" | "forward") => {
+    if (commits.length === 0) return false;
+
+    const currentVersionNumber =
+      previewModeRef.current && previewVersionNumberRef.current !== null
+        ? previewVersionNumberRef.current
+        : commits.length;
+    const targetVersionNumber = direction === "back"
+      ? currentVersionNumber - 1
+      : currentVersionNumber + 1;
+
+    if (targetVersionNumber < 1 || targetVersionNumber > commits.length) {
+      return false;
+    }
+
+    const targetCommit = commits[targetVersionNumber - 1];
+    if (!targetCommit) return false;
+
+    setSwitchAgentLogToTreeCommand(command => command + 1);
+    handleRestoreVersion(targetCommit.mermaid_code, targetVersionNumber);
+    return true;
+  }, [commits, handleRestoreVersion]);
+
+  useEffect(() => {
+    const handleSnapshotShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+
+      const key = event.key.toLowerCase();
+      const isUndo = key === "z" && !event.shiftKey;
+      const isRedo = key === "y" || (key === "z" && event.shiftKey);
+      if (!isUndo && !isRedo) return;
+
+      if (shouldKeepNativeUndoRedo(event.target, textareaRef.current)) return;
+
+      const navigated = navigateCommitSnapshot(isUndo ? "back" : "forward");
+      if (navigated) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    document.addEventListener("keydown", handleSnapshotShortcut);
+    return () => document.removeEventListener("keydown", handleSnapshotShortcut);
+  }, [navigateCommitSnapshot]);
 
   // Manual edit tracking on view switch
   const handleViewSwitch = (view: "flowchart" | "code") => {
@@ -2138,6 +2210,10 @@ export default function WorkspacePage() {
             onPublishToggle={handlePublishToggle}
             previewMode={previewMode}
             previewVersionNumber={previewVersionNumber}
+            switchToTreeCommand={switchAgentLogToTreeCommand}
+            onViewChange={setAgentLogView}
+            unreadChatCount={unreadCount}
+            unreadBadgePop={badgePop}
           />
 
 
