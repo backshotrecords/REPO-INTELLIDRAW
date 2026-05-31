@@ -7,9 +7,10 @@ import ProfileMenu from "./ProfileMenu";
 interface TopBarProps {
   showSearch?: boolean;
   onSearchChange?: (value: string) => void;
+  searchPlaceholder?: string;
 }
 
-export default function TopBar({ showSearch, onSearchChange }: TopBarProps) {
+export default function TopBar({ showSearch, onSearchChange, searchPlaceholder = "Search canvases..." }: TopBarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [showMobileMenu, setShowMobileMenu] = useState(false);
@@ -37,8 +38,8 @@ export default function TopBar({ showSearch, onSearchChange }: TopBarProps) {
   return (
     <>
       <header className="bg-slate-50/70 backdrop-blur-xl sticky top-0 z-40">
-        <div className="flex justify-between items-center w-full px-6 py-4">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-y-3 w-full px-4 sm:px-6 py-4">
+          <div className="order-1 flex items-center gap-4 min-w-0">
             {/* Hamburger */}
             <button
               onClick={() => setShowMobileMenu(true)}
@@ -55,22 +56,25 @@ export default function TopBar({ showSearch, onSearchChange }: TopBarProps) {
           </div>
 
           {showSearch && (
-            <div className="hidden md:flex flex-1 max-w-md mx-8">
+            <div className="order-3 flex w-full md:order-2 md:flex-1 md:max-w-md md:mx-8">
               <div className="relative w-full">
                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">
                   search
                 </span>
                 <input
                   className="w-full bg-surface-container-high border-none rounded-xl py-2 pl-10 pr-4 focus:ring-2 focus:ring-secondary text-sm outline-none"
-                  placeholder="Search canvases..."
+                  placeholder={searchPlaceholder}
                   type="text"
+                  aria-label={searchPlaceholder.replace(/\.\.\.$/, "")}
                   onChange={(e) => onSearchChange?.(e.target.value)}
                 />
               </div>
             </div>
           )}
 
-          <ProfileMenu />
+          <div className="order-2 md:order-3 ml-auto md:ml-0">
+            <ProfileMenu />
+          </div>
         </div>
       </header>
 

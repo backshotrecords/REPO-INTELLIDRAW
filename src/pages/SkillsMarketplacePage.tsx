@@ -700,7 +700,7 @@ export default function SkillsMarketplacePage() {
 
   return (
     <div className="bg-surface text-on-surface min-h-screen pb-32">
-      <TopBar showSearch onSearchChange={setSearch} />
+      <TopBar showSearch searchPlaceholder="Search skills..." onSearchChange={setSearch} />
 
       <main className="max-w-7xl mx-auto px-6 pt-8">
         {/* Hero */}

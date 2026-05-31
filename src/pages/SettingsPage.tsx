@@ -24,6 +24,7 @@ export default function SettingsPage() {
 
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
+  const [profileError, setProfileError] = useState("");
 
   // API Key state
   const [apiKeyInput, setApiKeyInput] = useState("");
@@ -137,7 +138,8 @@ export default function SettingsPage() {
   const loadSettings = async () => {
     try {
       const data = await apiGetSettings();
-      setDisplayName(data.user.displayName);
+      setDisplayName(data.user.displayName ?? "");
+      setProfileError("");
 
       setHasKey(data.user.hasApiKey);
       setApiKeyManagedByAdmin(data.user.apiKeyManagedByAdmin ?? false);
@@ -151,15 +153,24 @@ export default function SettingsPage() {
 
 
   const handleSaveProfile = async () => {
+    const trimmedDisplayName = displayName.trim();
+    if (!trimmedDisplayName) {
+      setProfileMessage("");
+      setProfileError("Please enter your full name before saving account settings.");
+      return;
+    }
+
     setProfileSaving(true);
     setProfileMessage("");
+    setProfileError("");
     try {
-      await apiUpdateProfile(displayName);
+      await apiUpdateProfile(trimmedDisplayName);
       await refreshUser();
+      setDisplayName(trimmedDisplayName);
       setProfileMessage("Profile updated successfully");
       setTimeout(() => setProfileMessage(""), 3000);
     } catch (err) {
-      setProfileMessage(err instanceof Error ? err.message : "Failed to update");
+      setProfileError(err instanceof Error ? err.message : "Failed to update");
     } finally {
       setProfileSaving(false);
     }
@@ -324,11 +335,24 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-on-surface-variant">Full Name</label>
                 <input
-                  className="w-full bg-surface-container-high border-none rounded-lg px-4 py-3 focus:ring-2 focus:ring-secondary/20 transition-all outline-none"
+                  className={`w-full bg-surface-container-high border-none rounded-lg px-4 py-3 focus:ring-2 transition-all outline-none ${
+                    profileError ? "ring-2 ring-error/30 focus:ring-error/30" : "focus:ring-secondary/20"
+                  }`}
                   value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
+                  onChange={(e) => {
+                    setDisplayName(e.target.value);
+                    if (profileError) setProfileError("");
+                  }}
+                  aria-invalid={profileError ? "true" : "false"}
                 />
               </div>
+
+              {profileError && (
+                <p className="text-sm text-error font-medium flex items-center gap-2">
+                  <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>error</span>
+                  {profileError}
+                </p>
+              )}
 
               {profileMessage && (
                 <p className="text-sm text-secondary font-medium">{profileMessage}</p>
@@ -336,7 +360,11 @@ export default function SettingsPage() {
 
               <div className="pt-4 flex justify-end gap-4">
                 <button
-                  onClick={loadSettings}
+                  onClick={() => {
+                    setProfileError("");
+                    setProfileMessage("");
+                    loadSettings();
+                  }}
                   className="px-6 py-2.5 text-sm font-bold text-on-surface-variant hover:bg-surface-container-high rounded-xl transition-colors"
                 >
                   Discard Changes
