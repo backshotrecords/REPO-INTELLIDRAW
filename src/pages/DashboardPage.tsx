@@ -1,7 +1,9 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
+import DashboardCanvasTreeView from "../components/DashboardCanvasTreeView";
+import DashboardFileViewToggle, { type DashboardFileViewMode } from "../components/DashboardFileViewToggle";
 import {
   apiCreateCanvas,
   apiCreateProject,
@@ -52,6 +54,11 @@ export default function DashboardPage() {
   const [movingProjectId, setMovingProjectId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [thumbnailLimit, setThumbnailLimit] = useState(THUMBNAIL_BATCH_SIZE);
+  const [fileViewMode, setFileViewMode] = useState<DashboardFileViewMode>(() => {
+    if (typeof window === "undefined") return "grid";
+    const storedMode = window.localStorage.getItem("intellidraw.dashboard.fileViewMode");
+    return storedMode === "tree" || storedMode === "grid" ? storedMode : "grid";
+  });
   const menuRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadMoreThumbsRef = useRef<HTMLSpanElement>(null);
@@ -109,11 +116,20 @@ export default function DashboardPage() {
     }
     return counts;
   }, [canvases, projects]);
+  const projectFolderCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const project of projects) counts.set(project.id, 0);
+    for (const project of projects) {
+      if (project.parent_project_id) counts.set(project.parent_project_id, (counts.get(project.parent_project_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [projects]);
   const archiveCount = useMemo(() => (
     childProjects.filter(isLongTermMemoryItem).length + scopedCanvases.filter(isLongTermMemoryItem).length
   ), [childProjects, scopedCanvases]);
   const shortTermFolderCanvasCount = scopedCanvases.filter((canvas) => !isLongTermMemoryItem(canvas)).length;
   const hasProjectSection = visibleProjects.length > 0;
+  const showCanvasTreeView = Boolean(activeProject && fileViewMode === "tree");
   const movingCanvas = movingCanvasId ? canvases.find((canvas) => canvas.id === movingCanvasId) ?? null : null;
   const movingProject = movingProjectId ? projects.find((project) => project.id === movingProjectId) ?? null : null;
   const editingProject = projectWizard?.mode === "edit"
@@ -140,6 +156,10 @@ export default function DashboardPage() {
   useEffect(() => {
     setThumbnailLimit(THUMBNAIL_BATCH_SIZE);
   }, [activeProjectId, archiveOnly, search]);
+
+  useEffect(() => {
+    window.localStorage.setItem("intellidraw.dashboard.fileViewMode", fileViewMode);
+  }, [fileViewMode]);
 
   useEffect(() => {
     const sentinel = loadMoreThumbsRef.current;
@@ -499,7 +519,7 @@ export default function DashboardPage() {
           </div>
         ) : (
           <>
-            {hasProjectSection && (
+            {hasProjectSection && !showCanvasTreeView && (
               <>
                 <SectionHeader
                   title={activeProject ? archiveOnly ? "Older Project Folders" : "Project Folders" : archiveOnly ? "Archived Projects" : "Projects"}
@@ -541,16 +561,27 @@ export default function DashboardPage() {
             )}
 
             <SectionHeader
-              title={activeProject ? archiveOnly ? "Project Long-Term Memory" : "Project Canvases" : archiveOnly ? "Archived Canvases" : "Canvases"}
-              count={visibleCanvases.length}
-              icon={activeProject ? "folder_open" : archiveOnly ? "archive" : "dashboard"}
+              title={activeProject ? showCanvasTreeView ? "Folder Tree" : archiveOnly ? "Project Long-Term Memory" : "Project Canvases" : archiveOnly ? "Archived Canvases" : "Canvases"}
+              count={showCanvasTreeView ? visibleProjects.length + visibleCanvases.length : visibleCanvases.length}
+              icon={activeProject ? showCanvasTreeView ? "account_tree" : "folder_open" : archiveOnly ? "archive" : "dashboard"}
               collapsed={!activeProject && canvasesCollapsed}
-              detail={archiveOnly ? "Older than 30 days or manually archived" : activeProject ? "Last updated within 30 days in this folder" : "Last updated within 30 days"}
+              detail={activeProject ? showCanvasTreeView ? "Folders and canvases on one canvas" : archiveOnly ? "Older than 30 days or manually archived" : "Last updated within 30 days in this folder" : archiveOnly ? "Older than 30 days or manually archived" : "Last updated within 30 days"}
               hideToggle={Boolean(activeProject)}
               onToggle={toggleCanvasesCollapsed}
+              action={activeProject ? <DashboardFileViewToggle mode={fileViewMode} onChange={setFileViewMode} /> : null}
             />
 
-            {!activeProject && canvasesCollapsed ? null : visibleCanvases.length === 0 ? (
+            {!activeProject && canvasesCollapsed ? null : showCanvasTreeView && activeProject ? (
+              <DashboardCanvasTreeView
+                rootProject={activeProject}
+                folders={visibleProjects}
+                canvases={visibleCanvases}
+                projectCanvasCounts={projectCanvasCounts}
+                projectFolderCounts={projectFolderCounts}
+                onOpenFolder={navigateToProject}
+                onOpenCanvas={(canvasId) => navigate(`/canvas/${canvasId}`)}
+              />
+            ) : visibleCanvases.length === 0 ? (
               <EmptyState
                 search={search}
                 archiveOnly={archiveOnly}
@@ -750,6 +781,7 @@ function SectionHeader({
   collapsed,
   detail,
   hideToggle,
+  action,
   onToggle,
 }: {
   title: string;
@@ -758,6 +790,7 @@ function SectionHeader({
   collapsed: boolean;
   detail: string;
   hideToggle: boolean;
+  action?: ReactNode;
   onToggle: () => void;
 }) {
   return (
@@ -767,6 +800,7 @@ function SectionHeader({
       <span className="rounded-full bg-surface-container-high px-2.5 py-1 text-xs font-bold text-on-surface-variant">{count}</span>
       <span className="text-xs font-bold text-on-surface-variant hidden sm:inline">{detail}</span>
       <div className="h-px bg-outline-variant/60 flex-1" />
+      {action}
       {!hideToggle && (
         <button type="button" onClick={onToggle} className="w-10 h-10 rounded-full bg-white border border-outline-variant/30 hover:bg-surface-container-low transition-colors" aria-label={collapsed ? `Expand ${title}` : `Collapse ${title}`}>
           <span className="material-symbols-outlined">{collapsed ? "keyboard_arrow_down" : "keyboard_arrow_up"}</span>
