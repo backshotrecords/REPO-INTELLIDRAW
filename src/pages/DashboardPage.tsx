@@ -429,7 +429,13 @@ export default function DashboardPage() {
       <TopBar showSearch searchVisibility="desktop" onSearchChange={setSearch} />
 
       <main className="max-w-7xl mx-auto px-6 pt-8">
-        {projectPath.length > 0 && <ProjectBreadcrumb path={projectPath} onNavigate={navigateToProject} />}
+        {projectPath.length > 0 && (
+          <ProjectBreadcrumb
+            path={projectPath}
+            onNavigate={navigateToProject}
+            action={<DashboardFileViewToggle mode={fileViewMode} onChange={setFileViewMode} />}
+          />
+        )}
 
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
           <div>
@@ -568,7 +574,6 @@ export default function DashboardPage() {
               detail={activeProject ? showCanvasTreeView ? "Folders and canvases on one canvas" : archiveOnly ? "Older than 30 days or manually archived" : "Last updated within 30 days in this folder" : archiveOnly ? "Older than 30 days or manually archived" : "Last updated within 30 days"}
               hideToggle={Boolean(activeProject)}
               onToggle={toggleCanvasesCollapsed}
-              action={activeProject ? <DashboardFileViewToggle mode={fileViewMode} onChange={setFileViewMode} /> : null}
             />
 
             {!activeProject && canvasesCollapsed ? null : showCanvasTreeView && activeProject ? (
@@ -781,7 +786,6 @@ function SectionHeader({
   collapsed,
   detail,
   hideToggle,
-  action,
   onToggle,
 }: {
   title: string;
@@ -790,7 +794,6 @@ function SectionHeader({
   collapsed: boolean;
   detail: string;
   hideToggle: boolean;
-  action?: ReactNode;
   onToggle: () => void;
 }) {
   return (
@@ -800,7 +803,6 @@ function SectionHeader({
       <span className="rounded-full bg-surface-container-high px-2.5 py-1 text-xs font-bold text-on-surface-variant">{count}</span>
       <span className="text-xs font-bold text-on-surface-variant hidden sm:inline">{detail}</span>
       <div className="h-px bg-outline-variant/60 flex-1" />
-      {action}
       {!hideToggle && (
         <button type="button" onClick={onToggle} className="w-10 h-10 rounded-full bg-white border border-outline-variant/30 hover:bg-surface-container-low transition-colors" aria-label={collapsed ? `Expand ${title}` : `Collapse ${title}`}>
           <span className="material-symbols-outlined">{collapsed ? "keyboard_arrow_down" : "keyboard_arrow_up"}</span>
@@ -1223,23 +1225,34 @@ function MoveToProjectDialog({
   );
 }
 
-function ProjectBreadcrumb({ path, onNavigate }: { path: CanvasProject[]; onNavigate: (projectId: string | null) => void }) {
+function ProjectBreadcrumb({
+  path,
+  action,
+  onNavigate,
+}: {
+  path: CanvasProject[];
+  action?: ReactNode;
+  onNavigate: (projectId: string | null) => void;
+}) {
   return (
-    <nav className="flex items-center gap-2 mb-6 text-sm font-bold text-on-surface-variant overflow-x-auto no-scrollbar" aria-label="Project breadcrumbs">
-      <button type="button" className="flex items-center gap-1 hover:text-primary" onClick={() => onNavigate(null)}>
-        <span className="material-symbols-outlined text-base">dashboard</span>
-        Dashboard
-      </button>
-      {path.map((project, index) => (
-        <span key={project.id} className="flex items-center gap-2 shrink-0">
-          <span className="material-symbols-outlined text-base">chevron_right</span>
-          <button type="button" className={`flex items-center gap-1 ${index === path.length - 1 ? "text-primary" : "hover:text-primary"}`} onClick={() => onNavigate(project.id)}>
-            <span className="material-symbols-outlined fill text-base">folder</span>
-            {project.title}
-          </button>
-        </span>
-      ))}
-    </nav>
+    <div className="dashboard-folder-nav-row sticky top-[76px] z-30 -mx-2 mb-6 flex items-center gap-3 rounded-2xl bg-surface/95 px-2 py-2 backdrop-blur-xl">
+      <nav className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto text-sm font-bold text-on-surface-variant no-scrollbar" aria-label="Project breadcrumbs">
+        <button type="button" className="flex shrink-0 items-center gap-1 hover:text-primary" onClick={() => onNavigate(null)}>
+          <span className="material-symbols-outlined text-base">dashboard</span>
+          Dashboard
+        </button>
+        {path.map((project, index) => (
+          <span key={project.id} className="flex items-center gap-2 shrink-0">
+            <span className="material-symbols-outlined text-base">chevron_right</span>
+            <button type="button" className={`flex items-center gap-1 ${index === path.length - 1 ? "text-primary" : "hover:text-primary"}`} onClick={() => onNavigate(project.id)}>
+              <span className="material-symbols-outlined fill text-base">folder</span>
+              {project.title}
+            </button>
+          </span>
+        ))}
+      </nav>
+      {action && <div className="shrink-0">{action}</div>}
+    </div>
   );
 }
 
