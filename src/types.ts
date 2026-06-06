@@ -4,7 +4,7 @@ export interface ChatMessage {
   timestamp: string;
   causedCrash?: boolean;
   mermaidSnapshot?: string;
-  versionSource?: "ai_chat" | "manual" | "auto_fix" | "upload" | "restore";
+  versionSource?: "ai_chat" | "manual" | "auto_fix" | "upload" | "restore" | "project_context";
 }
 
 export interface CanvasCommit {
@@ -44,6 +44,13 @@ export interface CanvasProject {
   description: string;
   accent: ProjectAccent;
   manually_archived: boolean;
+  local_context: string;
+  effective_context: string;
+  context_source_hash: string;
+  context_parent_hash: string;
+  context_status: "stale" | "refreshing" | "fresh" | "error";
+  context_updated_at: string | null;
+  context_error: string;
   created_at: string;
   updated_at: string;
 }

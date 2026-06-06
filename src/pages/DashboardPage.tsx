@@ -12,6 +12,7 @@ import {
   apiGetCanvasPreviewCodes,
   apiListCanvases,
   apiListProjects,
+  apiRefreshProjectContext,
   apiUpdateCanvas,
   apiUpdateProject,
 } from "../lib/api";
@@ -62,6 +63,8 @@ export default function DashboardPage() {
   const menuRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadMoreThumbsRef = useRef<HTMLSpanElement>(null);
+  const projectContextRefreshesRef = useRef<Set<string>>(new Set());
+  const activeProjectContextRequestRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -183,6 +186,17 @@ export default function DashboardPage() {
   }, [activeProjectId, loading, navigate, projects]);
 
   useEffect(() => {
+    if (!activeProjectId) {
+      activeProjectContextRequestRef.current = null;
+      return;
+    }
+    if (loading || !projects.some((project) => project.id === activeProjectId)) return;
+    if (activeProjectContextRequestRef.current === activeProjectId) return;
+    activeProjectContextRequestRef.current = activeProjectId;
+    refreshProjectContextInBackground(activeProjectId);
+  }, [activeProjectId, loading, projects]);
+
+  useEffect(() => {
     return () => {
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     };
@@ -244,6 +258,23 @@ export default function DashboardPage() {
     setSelectedForExport(new Set());
     setExportMode(false);
     navigate(projectId ? `/dashboard?project=${projectId}` : "/dashboard");
+  }
+
+  function refreshProjectContextInBackground(projectId: string) {
+    if (projectContextRefreshesRef.current.has(projectId)) return;
+    projectContextRefreshesRef.current.add(projectId);
+    apiRefreshProjectContext(projectId)
+      .then((result) => {
+        setProjects((current) => current.map((project) => (
+          project.id === result.project.id ? result.project : project
+        )));
+      })
+      .catch((err) => {
+        console.error("Project context refresh failed:", err);
+      })
+      .finally(() => {
+        projectContextRefreshesRef.current.delete(projectId);
+      });
   }
 
   async function handleCreateCanvas() {

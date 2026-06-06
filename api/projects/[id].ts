@@ -6,6 +6,7 @@ import {
   getProjectAndDescendantIds,
   normalizeProjectAccent,
   normalizeProjectId,
+  PROJECT_SELECT,
   touchProjectAncestors,
 } from "../lib/canvas-projects.js";
 import { deleteCanvasesInProjectsForUser } from "../lib/canvas-lifecycle.js";
@@ -32,7 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const { data, error } = await supabase
         .from("canvas_projects")
-        .select("id, user_id, parent_project_id, title, description, accent, manually_archived, created_at, updated_at")
+        .select(PROJECT_SELECT)
         .eq("id", projectId)
         .eq("user_id", userId)
         .single();
@@ -93,7 +94,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .update(updateData)
         .eq("id", projectId)
         .eq("user_id", userId)
-        .select("id, user_id, parent_project_id, title, description, accent, manually_archived, created_at, updated_at")
+        .select(PROJECT_SELECT)
         .single();
 
       if (error || !data) {

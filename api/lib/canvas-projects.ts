@@ -1,6 +1,8 @@
 import { supabase } from "./db.js";
 
 export const PROJECT_ACCENTS = new Set(["blue", "cyan", "green", "violet", "amber"]);
+export const PROJECT_SELECT =
+  "id, user_id, parent_project_id, title, description, accent, manually_archived, local_context, effective_context, context_source_hash, context_parent_hash, context_status, context_updated_at, context_error, created_at, updated_at";
 
 export function normalizeProjectId(value: unknown): string | null | undefined {
   if (value === undefined) return undefined;
@@ -77,7 +79,7 @@ export async function touchProjectAncestors(projectId: string | null | undefined
 
   const { error: updateError } = await supabase
     .from("canvas_projects")
-    .update({ updated_at: timestamp, manually_archived: false })
+    .update({ updated_at: timestamp, manually_archived: false, context_status: "stale", context_error: "" })
     .eq("user_id", userId)
     .in("id", ids);
 
