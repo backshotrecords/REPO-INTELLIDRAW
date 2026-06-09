@@ -1287,6 +1287,37 @@
   flex-shrink: 0;
 }
 
+.dashboard-tree-expand-button {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border: 1px solid rgba(4, 22, 39, 0.12);
+  border-radius: 10px;
+  background: #eef3f8;
+  color: #041627;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.dashboard-tree-expand-button:hover {
+  border-color: rgba(4, 22, 39, 0.28);
+  background: #e4ebf2;
+}
+
+.dashboard-tree-expand-button:active {
+  transform: scale(0.94);
+}
+
+.dashboard-tree-expand-button.is-expanded {
+  background: #041627;
+  color: #fff;
+}
+
+.dashboard-tree-expand-button .material-symbols-outlined {
+  font-size: 22px;
+  font-weight: 700;
+}
+
 .dashboard-tree-node-port {
   position: absolute;
   top: 50%;

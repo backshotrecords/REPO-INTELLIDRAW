@@ -1,24 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import type { CanvasProject, DashboardCanvas } from "../types";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { isLongTermMemoryItem, type CanvasProject, type DashboardCanvas } from "../types";
 
 const TREE_WORLD_WIDTH = 1800;
 const TREE_WORLD_HEIGHT = 1100;
+const TREE_START_X = 250;
+const TREE_DEPTH_GAP = 360;
+const TREE_ROW_GAP = 116;
 const FOLDER_NODE = { width: 250, height: 82 };
 const CANVAS_NODE = { width: 238, height: 76 };
 
 type TreeItem =
   | {
+      key: string;
       id: string;
       kind: "folder";
       title: string;
       accent: CanvasProject["accent"];
       canvasCount: number;
       folderCount: number;
+      childCount: number;
+      expanded: boolean;
       updatedLabel: string;
       x: number;
       y: number;
     }
   | {
+      key: string;
       id: string;
       kind: "canvas";
       title: string;
@@ -29,21 +36,22 @@ type TreeItem =
     };
 
 type PointerPoint = { x: number; y: number };
+type TreeEdge = { id: string; from: PointerPoint; to: PointerPoint };
 
 export default function DashboardCanvasTreeView({
   rootProject,
   folders,
   canvases,
-  projectCanvasCounts,
-  projectFolderCounts,
+  archiveOnly,
+  search,
   onOpenFolder,
   onOpenCanvas,
 }: {
   rootProject: CanvasProject;
   folders: CanvasProject[];
   canvases: DashboardCanvas[];
-  projectCanvasCounts: Map<string, number>;
-  projectFolderCounts: Map<string, number>;
+  archiveOnly: boolean;
+  search: string;
   onOpenFolder: (projectId: string) => void;
   onOpenCanvas: (canvasId: string) => void;
 }) {
@@ -55,63 +63,108 @@ export default function DashboardCanvasTreeView({
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isInteracting, setIsInteracting] = useState(false);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
   const layout = useMemo(() => {
-    const root: TreeItem = {
-      id: rootProject.id,
-      kind: "folder",
-      title: rootProject.title,
-      accent: rootProject.accent,
-      canvasCount: projectCanvasCounts.get(rootProject.id) ?? 0,
-      folderCount: projectFolderCounts.get(rootProject.id) ?? 0,
-      updatedLabel: formatTreeDate(rootProject.updated_at),
-      x: 250,
-      y: 500,
-    };
+    const depthColumns = new Map<number, TreeItem[]>();
+    const edgePairs: Array<{ id: string; parentKey: string; childKey: string }> = [];
+    const normalizedSearch = search.trim().toLowerCase();
 
-    const children: TreeItem[] = [
-      ...folders.map((folder) => ({
+    const childFoldersFor = (projectId: string) => folders.filter((folder) => (
+      folder.parent_project_id === projectId
+      && matchesTreeFilter(folder, archiveOnly, normalizedSearch)
+    ));
+    const childCanvasesFor = (projectId: string) => canvases.filter((canvas) => (
+      canvas.project_id === projectId
+      && matchesTreeFilter(canvas, archiveOnly, normalizedSearch)
+    ));
+
+    function addToColumn(depth: number, item: TreeItem) {
+      const column = depthColumns.get(depth) ?? [];
+      column.push(item);
+      depthColumns.set(depth, column);
+    }
+
+    function makeFolderNode(folder: CanvasProject, isRoot = false): Extract<TreeItem, { kind: "folder" }> {
+      const childFolders = childFoldersFor(folder.id);
+      const childCanvases = childCanvasesFor(folder.id);
+      const childCount = childFolders.length + childCanvases.length;
+      return {
+        key: `folder:${folder.id}`,
         id: folder.id,
-        kind: "folder" as const,
+        kind: "folder",
         title: folder.title,
         accent: folder.accent,
-        canvasCount: projectCanvasCounts.get(folder.id) ?? 0,
-        folderCount: projectFolderCounts.get(folder.id) ?? 0,
+        canvasCount: childCanvases.length,
+        folderCount: childFolders.length,
+        childCount,
+        expanded: isRoot || expandedFolders.has(folder.id),
         updatedLabel: formatTreeDate(folder.updated_at),
         x: 0,
         y: 0,
-      })),
-      ...canvases.map((canvas) => ({
+      };
+    }
+
+    function addFolder(folder: CanvasProject, depth: number, parentKey?: string, isRoot = false) {
+      const node = makeFolderNode(folder, isRoot);
+      addToColumn(depth, node);
+      if (parentKey) edgePairs.push({ id: `${parentKey}-${node.key}`, parentKey, childKey: node.key });
+      if (!node.expanded) return;
+
+      for (const childFolder of childFoldersFor(folder.id)) addFolder(childFolder, depth + 1, node.key);
+      for (const canvas of childCanvasesFor(folder.id)) addCanvas(canvas, depth + 1, node.key);
+    }
+
+    function addCanvas(canvas: DashboardCanvas, depth: number, parentKey: string) {
+      const node: Extract<TreeItem, { kind: "canvas" }> = {
+        key: `canvas:${canvas.id}`,
         id: canvas.id,
-        kind: "canvas" as const,
+        kind: "canvas",
         title: canvas.title,
         isPublic: canvas.is_public,
         updatedLabel: formatTreeDate(canvas.updated_at),
         x: 0,
         y: 0,
-      })),
-    ];
+      };
+      addToColumn(depth, node);
+      edgePairs.push({ id: `${parentKey}-${node.key}`, parentKey, childKey: node.key });
+    }
 
-    const columns = chunkItems(children, 5);
-    const placedChildren = columns.flatMap((column, columnIndex) => {
-      const x = 650 + columnIndex * 340;
-      const rowGap = 112;
-      const yStart = 500 - ((column.length - 1) * rowGap) / 2;
-      return column.map((item, rowIndex) => ({
-        ...item,
-        x,
-        y: yStart + rowIndex * rowGap,
-      }));
+    addFolder(rootProject, 0, undefined, true);
+
+    const maxDepth = Math.max(0, ...depthColumns.keys());
+    const maxColumnCount = Math.max(1, ...Array.from(depthColumns.values()).map((column) => column.length));
+    const worldWidth = Math.max(TREE_WORLD_WIDTH, TREE_START_X + maxDepth * TREE_DEPTH_GAP + 620);
+    const worldHeight = Math.max(TREE_WORLD_HEIGHT, maxColumnCount * TREE_ROW_GAP + 240);
+    const centerY = worldHeight / 2;
+    const placedItems: TreeItem[] = [];
+
+    for (const [depth, column] of depthColumns.entries()) {
+      const x = TREE_START_X + depth * TREE_DEPTH_GAP;
+      const yStart = centerY - ((column.length - 1) * TREE_ROW_GAP) / 2;
+      column.forEach((item, index) => {
+        item.x = x;
+        item.y = yStart + index * TREE_ROW_GAP;
+        placedItems.push(item);
+      });
+    }
+
+    const byKey = new Map(placedItems.map((item) => [item.key, item]));
+    const root = byKey.get(`folder:${rootProject.id}`) as Extract<TreeItem, { kind: "folder" }>;
+    const edges: TreeEdge[] = edgePairs.flatMap((edge) => {
+      const parent = byKey.get(edge.parentKey);
+      const child = byKey.get(edge.childKey);
+      return parent && child ? [{ id: edge.id, from: getOutputPoint(parent), to: getInputPoint(child) }] : [];
     });
 
-    return { root, children: placedChildren };
-  }, [canvases, folders, projectCanvasCounts, projectFolderCounts, rootProject]);
-
-  const edges = useMemo(() => layout.children.map((child) => ({
-    id: `${layout.root.id}-${child.id}`,
-    from: getOutputPoint(layout.root),
-    to: getInputPoint(child),
-  })), [layout]);
+    return {
+      root,
+      children: placedItems.filter((item) => item.key !== root.key),
+      edges,
+      worldWidth,
+      worldHeight,
+    };
+  }, [archiveOnly, canvases, expandedFolders, folders, rootProject, search]);
 
   const clampZoom = useCallback((value: number) => {
     return Math.min(1.9, Math.max(0.42, value));
@@ -234,6 +287,15 @@ export default function DashboardCanvasTreeView({
     setPan({ x: 0, y: 0 });
   }
 
+  function toggleExpandedFolder(folderId: string) {
+    setExpandedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  }
+
   return (
     <section ref={treeRef} className="dashboard-tree-view" aria-label={`${rootProject.title} canvas tree`}>
       <div className="dashboard-tree-controls" aria-label="Canvas tree zoom controls">
@@ -260,26 +322,26 @@ export default function DashboardCanvasTreeView({
         <div
           className="dashboard-tree-world"
           style={{
-            width: TREE_WORLD_WIDTH,
-            height: TREE_WORLD_HEIGHT,
+            width: layout.worldWidth,
+            height: layout.worldHeight,
             transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           }}
         >
-          <svg className="dashboard-tree-connectors" viewBox={`0 0 ${TREE_WORLD_WIDTH} ${TREE_WORLD_HEIGHT}`} aria-hidden="true">
-            {edges.map((edge) => (
+          <svg className="dashboard-tree-connectors" viewBox={`0 0 ${layout.worldWidth} ${layout.worldHeight}`} aria-hidden="true">
+            {layout.edges.map((edge) => (
               <path key={edge.id} d={connectorPath(edge.from, edge.to)} />
             ))}
           </svg>
 
           <FolderTreeNode node={layout.root} isRoot onOpen={() => onOpenFolder(layout.root.id)} />
           {layout.children.map((node) => node.kind === "folder" ? (
-            <FolderTreeNode key={node.id} node={node} onOpen={() => onOpenFolder(node.id)} />
+            <FolderTreeNode key={node.key} node={node} onOpen={() => onOpenFolder(node.id)} onToggleExpand={() => toggleExpandedFolder(node.id)} />
           ) : (
-            <CanvasTreeNode key={node.id} node={node} onOpen={() => onOpenCanvas(node.id)} />
+            <CanvasTreeNode key={node.key} node={node} onOpen={() => onOpenCanvas(node.id)} />
           ))}
 
           {layout.children.length === 0 && (
-            <div className="dashboard-tree-empty-node" style={{ left: 650, top: 480 }}>
+            <div className="dashboard-tree-empty-node" style={{ left: TREE_START_X + TREE_DEPTH_GAP, top: layout.worldHeight / 2 - 41 }}>
               <span className="material-symbols-outlined">inbox</span>
               <strong>No items in this view</strong>
               <small>Switch memory state or create a canvas here.</small>
@@ -291,16 +353,34 @@ export default function DashboardCanvasTreeView({
   );
 }
 
-function FolderTreeNode({ node, isRoot, onOpen }: { node: Extract<TreeItem, { kind: "folder" }>; isRoot?: boolean; onOpen: () => void }) {
+function FolderTreeNode({
+  node,
+  isRoot,
+  onOpen,
+  onToggleExpand,
+}: {
+  node: Extract<TreeItem, { kind: "folder" }>;
+  isRoot?: boolean;
+  onOpen: () => void;
+  onToggleExpand?: () => void;
+}) {
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onOpen();
+  }
+
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className={`dashboard-tree-node dashboard-tree-folder project-${node.accent}${isRoot ? " is-root" : ""}`}
       style={{ left: node.x, top: node.y, width: FOLDER_NODE.width, height: FOLDER_NODE.height }}
       onClick={onOpen}
+      onKeyDown={handleKeyDown}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <span className="dashboard-tree-node-port output" aria-hidden="true" />
+      {node.childCount > 0 && <span className="dashboard-tree-node-port output" aria-hidden="true" />}
       {!isRoot && <span className="dashboard-tree-node-port input" aria-hidden="true" />}
       <span className="dashboard-tree-folder-icon">
         <span className="material-symbols-outlined fill">folder</span>
@@ -310,8 +390,23 @@ function FolderTreeNode({ node, isRoot, onOpen }: { node: Extract<TreeItem, { ki
         <small>{node.canvasCount} canvases · {node.folderCount} folders</small>
         <small>Modified {node.updatedLabel}</small>
       </span>
-      <span className="material-symbols-outlined dashboard-tree-node-open" aria-hidden="true">chevron_right</span>
-    </button>
+      {!isRoot && node.childCount > 0 ? (
+        <button
+          type="button"
+          className={`dashboard-tree-expand-button${node.expanded ? " is-expanded" : ""}`}
+          aria-label={`${node.expanded ? "Collapse" : "Expand"} ${node.title}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleExpand?.();
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true">{node.expanded ? "remove" : "add"}</span>
+        </button>
+      ) : (
+        <span className="material-symbols-outlined dashboard-tree-node-open" aria-hidden="true">chevron_right</span>
+      )}
+    </div>
   );
 }
 
@@ -336,14 +431,6 @@ function CanvasTreeNode({ node, onOpen }: { node: Extract<TreeItem, { kind: "can
       <span className="material-symbols-outlined dashboard-tree-node-open" aria-hidden="true">open_in_new</span>
     </button>
   );
-}
-
-function chunkItems<T>(items: T[], maxItems: number) {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += maxItems) {
-    chunks.push(items.slice(index, index + maxItems));
-  }
-  return chunks;
 }
 
 function getInputPoint(node: TreeItem) {
@@ -378,4 +465,10 @@ function formatTreeDate(dateStr: string) {
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
   return new Date(dateStr).toLocaleDateString();
+}
+
+function matchesTreeFilter(item: CanvasProject | DashboardCanvas, archiveOnly: boolean, normalizedSearch: string) {
+  if (archiveOnly ? !isLongTermMemoryItem(item) : isLongTermMemoryItem(item)) return false;
+  if (!normalizedSearch) return true;
+  return item.title.toLowerCase().includes(normalizedSearch);
 }

@@ -119,14 +119,6 @@ export default function DashboardPage() {
     }
     return counts;
   }, [canvases, projects]);
-  const projectFolderCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const project of projects) counts.set(project.id, 0);
-    for (const project of projects) {
-      if (project.parent_project_id) counts.set(project.parent_project_id, (counts.get(project.parent_project_id) ?? 0) + 1);
-    }
-    return counts;
-  }, [projects]);
   const archiveCount = useMemo(() => (
     childProjects.filter(isLongTermMemoryItem).length + scopedCanvases.filter(isLongTermMemoryItem).length
   ), [childProjects, scopedCanvases]);
@@ -164,6 +156,12 @@ export default function DashboardPage() {
   useEffect(() => {
     window.localStorage.setItem("intellidraw.dashboard.fileViewMode", fileViewMode);
   }, [fileViewMode]);
+
+  useEffect(() => {
+    if (!isTreeWorkspace) return;
+    setExportMode(false);
+    setSelectedForExport(new Set());
+  }, [isTreeWorkspace]);
 
   useEffect(() => {
     if (!isTreeWorkspace) return;
@@ -561,7 +559,7 @@ export default function DashboardPage() {
           </div>
         </div>}
 
-        {exportMode && (
+        {!isTreeWorkspace && exportMode && (
           <ExportBar
             selectedCount={selectedForExport.size}
             exportOptions={exportOptions}
@@ -635,11 +633,12 @@ export default function DashboardPage() {
 
             {!activeProject && canvasesCollapsed ? null : showCanvasTreeView && activeProject ? (
               <DashboardCanvasTreeView
+                key={activeProject.id}
                 rootProject={activeProject}
-                folders={visibleProjects}
-                canvases={visibleCanvases}
-                projectCanvasCounts={projectCanvasCounts}
-                projectFolderCounts={projectFolderCounts}
+                folders={projects}
+                canvases={canvases}
+                archiveOnly={archiveOnly}
+                search={search}
                 onOpenFolder={navigateToProject}
                 onOpenCanvas={(canvasId) => navigate(`/canvas/${canvasId}`)}
               />
@@ -710,7 +709,7 @@ export default function DashboardPage() {
         )}
       </main>
 
-      {!exportMode && canvases.length > 0 && (
+      {!isTreeWorkspace && !exportMode && canvases.length > 0 && (
         <button
           type="button"
           onClick={() => setExportMode(true)}
