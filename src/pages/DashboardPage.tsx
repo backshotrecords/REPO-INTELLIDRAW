@@ -1,7 +1,9 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
+import DashboardCanvasTreeView from "../components/DashboardCanvasTreeView";
+import DashboardFileViewToggle, { type DashboardFileViewMode } from "../components/DashboardFileViewToggle";
 import {
   apiCreateCanvas,
   apiCreateProject,
@@ -10,6 +12,7 @@ import {
   apiGetCanvasPreviewCodes,
   apiListCanvases,
   apiListProjects,
+  apiRefreshProjectContext,
   apiUpdateCanvas,
   apiUpdateProject,
 } from "../lib/api";
@@ -52,9 +55,16 @@ export default function DashboardPage() {
   const [movingProjectId, setMovingProjectId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [thumbnailLimit, setThumbnailLimit] = useState(THUMBNAIL_BATCH_SIZE);
+  const [fileViewMode, setFileViewMode] = useState<DashboardFileViewMode>(() => {
+    if (typeof window === "undefined") return "grid";
+    const storedMode = window.localStorage.getItem("intellidraw.dashboard.fileViewMode");
+    return storedMode === "tree" || storedMode === "grid" ? storedMode : "grid";
+  });
   const menuRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadMoreThumbsRef = useRef<HTMLSpanElement>(null);
+  const projectContextRefreshesRef = useRef<Set<string>>(new Set());
+  const activeProjectContextRequestRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -114,11 +124,13 @@ export default function DashboardPage() {
   ), [childProjects, scopedCanvases]);
   const shortTermFolderCanvasCount = scopedCanvases.filter((canvas) => !isLongTermMemoryItem(canvas)).length;
   const hasProjectSection = visibleProjects.length > 0;
+  const showCanvasTreeView = Boolean(activeProject && fileViewMode === "tree");
   const movingCanvas = movingCanvasId ? canvases.find((canvas) => canvas.id === movingCanvasId) ?? null : null;
   const movingProject = movingProjectId ? projects.find((project) => project.id === movingProjectId) ?? null : null;
   const editingProject = projectWizard?.mode === "edit"
     ? projects.find((project) => project.id === projectWizard.projectId) ?? null
     : null;
+  const isTreeWorkspace = Boolean(showCanvasTreeView && activeProject);
 
   useEffect(() => {
     const cid = (location.state as Record<string, unknown> | null)?.closedCanvasId as string | undefined;
@@ -142,6 +154,39 @@ export default function DashboardPage() {
   }, [activeProjectId, archiveOnly, search]);
 
   useEffect(() => {
+    window.localStorage.setItem("intellidraw.dashboard.fileViewMode", fileViewMode);
+  }, [fileViewMode]);
+
+  useEffect(() => {
+    if (!isTreeWorkspace) return;
+    setExportMode(false);
+    setSelectedForExport(new Set());
+  }, [isTreeWorkspace]);
+
+  useEffect(() => {
+    if (!isTreeWorkspace) return;
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousDocumentOverflow = document.documentElement.style.overflow;
+    const previousOverscrollBehavior = document.documentElement.style.overscrollBehavior;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+    const preventTreeWheelDefault = (event: WheelEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".dashboard-tree-view")) event.preventDefault();
+    };
+    document.addEventListener("wheel", preventTreeWheelDefault, { capture: true, passive: false });
+
+    return () => {
+      document.removeEventListener("wheel", preventTreeWheelDefault, { capture: true });
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousDocumentOverflow;
+      document.documentElement.style.overscrollBehavior = previousOverscrollBehavior;
+    };
+  }, [isTreeWorkspace]);
+
+  useEffect(() => {
     const sentinel = loadMoreThumbsRef.current;
     if (!sentinel || thumbnailLimit >= visibleCanvases.length) return;
 
@@ -161,6 +206,17 @@ export default function DashboardPage() {
     if (!activeProjectId || loading) return;
     if (!projects.some((project) => project.id === activeProjectId)) navigate("/dashboard", { replace: true });
   }, [activeProjectId, loading, navigate, projects]);
+
+  useEffect(() => {
+    if (!activeProjectId) {
+      activeProjectContextRequestRef.current = null;
+      return;
+    }
+    if (loading || !projects.some((project) => project.id === activeProjectId)) return;
+    if (activeProjectContextRequestRef.current === activeProjectId) return;
+    activeProjectContextRequestRef.current = activeProjectId;
+    refreshProjectContextInBackground(activeProjectId);
+  }, [activeProjectId, loading, projects]);
 
   useEffect(() => {
     return () => {
@@ -224,6 +280,23 @@ export default function DashboardPage() {
     setSelectedForExport(new Set());
     setExportMode(false);
     navigate(projectId ? `/dashboard?project=${projectId}` : "/dashboard");
+  }
+
+  function refreshProjectContextInBackground(projectId: string) {
+    if (projectContextRefreshesRef.current.has(projectId)) return;
+    projectContextRefreshesRef.current.add(projectId);
+    apiRefreshProjectContext(projectId)
+      .then((result) => {
+        setProjects((current) => current.map((project) => (
+          project.id === result.project.id ? result.project : project
+        )));
+      })
+      .catch((err) => {
+        console.error("Project context refresh failed:", err);
+      })
+      .finally(() => {
+        projectContextRefreshesRef.current.delete(projectId);
+      });
   }
 
   async function handleCreateCanvas() {
@@ -405,13 +478,19 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="bg-surface text-on-surface min-h-screen pb-32">
+    <div className={`dashboard-page bg-surface text-on-surface min-h-screen${isTreeWorkspace ? " dashboard-page-tree-mode" : " pb-32"}`}>
       <TopBar showSearch searchVisibility="desktop" onSearchChange={setSearch} />
 
-      <main className="max-w-7xl mx-auto px-6 pt-8">
-        {projectPath.length > 0 && <ProjectBreadcrumb path={projectPath} onNavigate={navigateToProject} />}
+      <main className={`dashboard-main mx-auto px-6 pt-8${isTreeWorkspace ? " dashboard-main-tree-mode max-w-none" : " max-w-7xl"}`}>
+        {projectPath.length > 0 && (
+          <ProjectBreadcrumb
+            path={projectPath}
+            onNavigate={navigateToProject}
+            action={<DashboardFileViewToggle mode={fileViewMode} onChange={setFileViewMode} />}
+          />
+        )}
 
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+        <div className={`dashboard-project-summary flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10${isTreeWorkspace ? " is-hidden" : ""}`} aria-hidden={isTreeWorkspace}>
           <div>
             <div className="flex items-center gap-3 mb-2">
               <h1 className="text-5xl font-extrabold tracking-tight text-primary font-headline">
@@ -468,7 +547,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <div className="md:hidden mb-8">
+        {!isTreeWorkspace && <div className="md:hidden mb-8">
           <div className="relative w-full">
             <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
             <input
@@ -478,9 +557,9 @@ export default function DashboardPage() {
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-        </div>
+        </div>}
 
-        {exportMode && (
+        {!isTreeWorkspace && exportMode && (
           <ExportBar
             selectedCount={selectedForExport.size}
             exportOptions={exportOptions}
@@ -494,12 +573,12 @@ export default function DashboardPage() {
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
+          <div className={isTreeWorkspace ? "dashboard-tree-loading" : "flex items-center justify-center py-20"}>
             <div className="spinner w-8 h-8" />
           </div>
         ) : (
-          <>
-            {hasProjectSection && (
+          <div className={isTreeWorkspace ? "dashboard-tree-content" : ""}>
+            {hasProjectSection && !showCanvasTreeView && (
               <>
                 <SectionHeader
                   title={activeProject ? archiveOnly ? "Older Project Folders" : "Project Folders" : archiveOnly ? "Archived Projects" : "Projects"}
@@ -540,17 +619,30 @@ export default function DashboardPage() {
               </>
             )}
 
-            <SectionHeader
-              title={activeProject ? archiveOnly ? "Project Long-Term Memory" : "Project Canvases" : archiveOnly ? "Archived Canvases" : "Canvases"}
-              count={visibleCanvases.length}
-              icon={activeProject ? "folder_open" : archiveOnly ? "archive" : "dashboard"}
-              collapsed={!activeProject && canvasesCollapsed}
-              detail={archiveOnly ? "Older than 30 days or manually archived" : activeProject ? "Last updated within 30 days in this folder" : "Last updated within 30 days"}
-              hideToggle={Boolean(activeProject)}
-              onToggle={toggleCanvasesCollapsed}
-            />
+            {!showCanvasTreeView && (
+              <SectionHeader
+                title={activeProject ? archiveOnly ? "Project Long-Term Memory" : "Project Canvases" : archiveOnly ? "Archived Canvases" : "Canvases"}
+                count={visibleCanvases.length}
+                icon={activeProject ? "folder_open" : archiveOnly ? "archive" : "dashboard"}
+                collapsed={!activeProject && canvasesCollapsed}
+                detail={activeProject ? archiveOnly ? "Older than 30 days or manually archived" : "Last updated within 30 days in this folder" : archiveOnly ? "Older than 30 days or manually archived" : "Last updated within 30 days"}
+                hideToggle={Boolean(activeProject)}
+                onToggle={toggleCanvasesCollapsed}
+              />
+            )}
 
-            {!activeProject && canvasesCollapsed ? null : visibleCanvases.length === 0 ? (
+            {!activeProject && canvasesCollapsed ? null : showCanvasTreeView && activeProject ? (
+              <DashboardCanvasTreeView
+                key={activeProject.id}
+                rootProject={activeProject}
+                folders={projects}
+                canvases={canvases}
+                archiveOnly={archiveOnly}
+                search={search}
+                onOpenFolder={navigateToProject}
+                onOpenCanvas={(canvasId) => navigate(`/canvas/${canvasId}`)}
+              />
+            ) : visibleCanvases.length === 0 ? (
               <EmptyState
                 search={search}
                 archiveOnly={archiveOnly}
@@ -613,11 +705,11 @@ export default function DashboardPage() {
                 ))}
               </div>
             )}
-          </>
+          </div>
         )}
       </main>
 
-      {!exportMode && canvases.length > 0 && (
+      {!isTreeWorkspace && !exportMode && canvases.length > 0 && (
         <button
           type="button"
           onClick={() => setExportMode(true)}
@@ -1189,23 +1281,34 @@ function MoveToProjectDialog({
   );
 }
 
-function ProjectBreadcrumb({ path, onNavigate }: { path: CanvasProject[]; onNavigate: (projectId: string | null) => void }) {
+function ProjectBreadcrumb({
+  path,
+  action,
+  onNavigate,
+}: {
+  path: CanvasProject[];
+  action?: ReactNode;
+  onNavigate: (projectId: string | null) => void;
+}) {
   return (
-    <nav className="flex items-center gap-2 mb-6 text-sm font-bold text-on-surface-variant overflow-x-auto no-scrollbar" aria-label="Project breadcrumbs">
-      <button type="button" className="flex items-center gap-1 hover:text-primary" onClick={() => onNavigate(null)}>
-        <span className="material-symbols-outlined text-base">dashboard</span>
-        Dashboard
-      </button>
-      {path.map((project, index) => (
-        <span key={project.id} className="flex items-center gap-2 shrink-0">
-          <span className="material-symbols-outlined text-base">chevron_right</span>
-          <button type="button" className={`flex items-center gap-1 ${index === path.length - 1 ? "text-primary" : "hover:text-primary"}`} onClick={() => onNavigate(project.id)}>
-            <span className="material-symbols-outlined fill text-base">folder</span>
-            {project.title}
-          </button>
-        </span>
-      ))}
-    </nav>
+    <div className="dashboard-folder-nav-row sticky top-[76px] z-30 -mx-2 mb-6 flex items-center gap-3 rounded-2xl bg-surface/95 px-2 py-2 backdrop-blur-xl">
+      <nav className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto text-sm font-bold text-on-surface-variant no-scrollbar" aria-label="Project breadcrumbs">
+        <button type="button" className="flex shrink-0 items-center gap-1 hover:text-primary" onClick={() => onNavigate(null)}>
+          <span className="material-symbols-outlined text-base">dashboard</span>
+          Dashboard
+        </button>
+        {path.map((project, index) => (
+          <span key={project.id} className="flex items-center gap-2 shrink-0">
+            <span className="material-symbols-outlined text-base">chevron_right</span>
+            <button type="button" className={`flex items-center gap-1 ${index === path.length - 1 ? "text-primary" : "hover:text-primary"}`} onClick={() => onNavigate(project.id)}>
+              <span className="material-symbols-outlined fill text-base">folder</span>
+              {project.title}
+            </button>
+          </span>
+        ))}
+      </nav>
+      {action && <div className="shrink-0">{action}</div>}
+    </div>
   );
 }
 

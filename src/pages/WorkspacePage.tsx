@@ -9,7 +9,7 @@ import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
 import CanvasSkillsPanel from "../components/CanvasSkillsPanel";
-import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit } from "../lib/api";
+import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext } from "../lib/api";
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { fetchChatSettings } from "../lib/chatSettings";
@@ -130,13 +130,17 @@ export default function WorkspacePage() {
   // Ref mirrors — sendMessage reads these instead of closures (closure-proof)
   const chatHistoryRef = useRef<ChatMessage[]>([]);
   const mermaidCodeRef = useRef(DEFAULT_MERMAID_CODE);
+  const canvasIdRef = useRef<string | null>(canvasId);
+  const mountedRef = useRef(true);
   const chatLoadingRef = useRef(false);
 
   useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
   useEffect(() => { mermaidCodeRef.current = mermaidCode; }, [mermaidCode]);
+  useEffect(() => { canvasIdRef.current = canvasId; }, [canvasId]);
   useEffect(() => { chatLoadingRef.current = chatLoading; }, [chatLoading]);
   useEffect(() => { activeScopeIdRef.current = activeScopeId; }, [activeScopeId]);
   useEffect(() => { scopePathRef.current = scopePath; }, [scopePath]);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   // ── Re-parse AST when mermaidCode changes ──
   useEffect(() => {
@@ -520,6 +524,33 @@ export default function WorkspacePage() {
   }, []);
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
 
+  const applyCachedProjectContextToOpenCanvas = useCallback(async (targetCanvasId: string, projectId: string | null | undefined) => {
+    if (!projectId) return;
+
+    try {
+      const project = await apiGetProject(projectId);
+      const externalContext = project.effective_context?.trim();
+      if (!externalContext || !mountedRef.current || canvasIdRef.current !== targetCanvasId) return;
+
+      const canvasResult = await apiUpdateCanvasExternalContext(targetCanvasId, externalContext);
+      if (!canvasResult.changed || !mountedRef.current || canvasIdRef.current !== targetCanvasId) return;
+
+      setMermaidCode(canvasResult.mermaidCode);
+      latestMermaidCodeRef.current = canvasResult.mermaidCode;
+      if (canvasResult.canvas) setDashboardReturnCanvas(getCanvasReturnContext(canvasResult.canvas));
+      if (canvasResult.commit) setCommits((current) => [...current, canvasResult.commit as CanvasCommit]);
+    } catch (err) {
+      console.error("Canvas project context update failed:", err);
+    }
+  }, []);
+
+  const refreshProjectContextInBackground = useCallback((projectId: string | null | undefined) => {
+    if (!projectId) return;
+    apiRefreshProjectContext(projectId).catch((err) => {
+      console.error("Project context refresh failed:", err);
+    });
+  }, []);
+
   // Load canvas
   const loadCanvas = useCallback(async (canvasId: string) => {
     setIsInitialCanvasDataReady(false);
@@ -551,13 +582,16 @@ export default function WorkspacePage() {
       } finally {
         setIsInitialCanvasDataReady(true);
       }
+
+      void applyCachedProjectContextToOpenCanvas(canvas.id, canvas.project_id);
+      refreshProjectContextInBackground(canvas.project_id);
     } catch (err) {
       console.error("Failed to load canvas:", err);
       const message = err instanceof Error ? err.message : "Unknown error";
       alert(`Failed to load canvas: ${message}`);
       navigate("/dashboard");
     }
-  }, [navigate]);
+  }, [applyCachedProjectContextToOpenCanvas, navigate, refreshProjectContextInBackground]);
 
   const createNewCanvas = useCallback(async () => {
     setIsInitialCanvasDataReady(false);

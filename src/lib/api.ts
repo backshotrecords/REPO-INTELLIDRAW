@@ -1,7 +1,15 @@
-import type { CanvasPreviewCode, CanvasProject, DashboardCanvas, ProjectAccent, SkillScope, SkillTriggerMode } from "../types";
+import type { CanvasCommit, CanvasPreviewCode, CanvasProject, DashboardCanvas, ProjectAccent, SkillScope, SkillTriggerMode } from "../types";
 
 const API_BASE = "/api";
 const PREVIEW_CODE_BATCH_SIZE = 100;
+
+export interface CanvasExternalContextResult {
+  changed?: boolean;
+  externalContext: string | null;
+  mermaidCode: string;
+  canvas?: DashboardCanvas;
+  commit?: CanvasCommit | null;
+}
 
 /**
  * Get the stored JWT token from localStorage.
@@ -174,6 +182,26 @@ export async function apiUpdateCanvas(
   return data.canvas;
 }
 
+export async function apiGetCanvasExternalContext(id: string): Promise<CanvasExternalContextResult> {
+  const res = await apiFetch(`/canvases/${id}/external-context`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch canvas external context");
+  return data;
+}
+
+export async function apiUpdateCanvasExternalContext(
+  id: string,
+  externalContext: string
+): Promise<CanvasExternalContextResult> {
+  const res = await apiFetch(`/canvases/${id}/external-context`, {
+    method: "PUT",
+    body: JSON.stringify({ externalContext }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update canvas external context");
+  return data;
+}
+
 export async function apiDeleteCanvas(id: string) {
   const res = await apiFetch(`/canvases/${id}`, { method: "DELETE" });
   const data = await res.json();
@@ -186,6 +214,13 @@ export async function apiListProjects(): Promise<CanvasProject[]> {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to fetch projects");
   return data.projects;
+}
+
+export async function apiGetProject(id: string): Promise<CanvasProject> {
+  const res = await apiFetch(`/projects/${id}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch project");
+  return data.project;
 }
 
 export async function apiCreateProject(project: {
@@ -220,6 +255,19 @@ export async function apiUpdateProject(
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to update project");
   return data.project;
+}
+
+export async function apiRefreshProjectContext(
+  id: string,
+  opts: { force?: boolean } = {}
+): Promise<{ project: CanvasProject; refreshed: boolean; sourceHash: string }> {
+  const res = await apiFetch(`/projects/${id}/context`, {
+    method: "POST",
+    body: JSON.stringify({ force: Boolean(opts.force) }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to refresh project context");
+  return data;
 }
 
 export async function apiDeleteProject(id: string) {

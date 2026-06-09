@@ -42,7 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const completion = await openai.chat.completions.create({
     model: modelId,
     messages: [
-      { role: "system", content: `You are an AI that applies skill instructions to Mermaid flowcharts.\n\nCURRENT MERMAID CODE:\n\`\`\`mermaid\n${canvas.mermaid_code}\n\`\`\`\n\nSKILL INSTRUCTIONS:\n${skill.instruction_text}\n\nApply these instructions to the current flowchart. Return the updated Mermaid code in a \`\`\`mermaid code block and a brief explanation of what you changed.` },
+      { role: "system", content: `You are an AI that applies skill instructions to Mermaid flowcharts.\n\nCURRENT MERMAID CODE:\n\`\`\`mermaid\n${canvas.mermaid_code}\n\`\`\`\n\nSKILL INSTRUCTIONS:\n${skill.instruction_text}\n\nApply these instructions to the current flowchart. Return the updated Mermaid code in a \`\`\`mermaid code block and a brief explanation of what you changed.\n\nIMPORTANT: If the current Mermaid code contains a %% EXTERNAL CONTEXT block, preserve that entire block exactly and keep it above %% OBJECTIVES.` },
       { role: "user", content: `Apply the skill "${skill.title}" to this flowchart now.` },
     ],
     temperature: modelId === "gpt-5.5" ? 1 : 0.7,

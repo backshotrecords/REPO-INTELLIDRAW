@@ -37,6 +37,7 @@ function sourceIcon(source?: string): string {
     case "auto_fix": return "build";
     case "upload": return "attach_file";
     case "restore": return "restore";
+    case "project_context": return "folder_open";
     default: return "history";
   }
 }
