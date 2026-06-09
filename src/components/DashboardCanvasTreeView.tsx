@@ -8,6 +8,7 @@ const TREE_DEPTH_GAP = 360;
 const TREE_ROW_GAP = 116;
 const FOLDER_NODE = { width: 250, height: 82 };
 const CANVAS_NODE = { width: 238, height: 76 };
+const TREE_EXPANSION_STORAGE_KEY = "intellidraw.dashboard.folderTree.expandedFolders";
 
 type TreeItem =
   | {
@@ -63,7 +64,7 @@ export default function DashboardCanvasTreeView({
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isInteracting, setIsInteracting] = useState(false);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => loadExpandedFolders(rootProject.id));
 
   const layout = useMemo(() => {
     const depthColumns = new Map<number, TreeItem[]>();
@@ -165,6 +166,10 @@ export default function DashboardCanvasTreeView({
       worldHeight,
     };
   }, [archiveOnly, canvases, expandedFolders, folders, rootProject, search]);
+
+  useEffect(() => {
+    saveExpandedFolders(rootProject.id, expandedFolders);
+  }, [expandedFolders, rootProject.id]);
 
   const clampZoom = useCallback((value: number) => {
     return Math.min(1.9, Math.max(0.42, value));
@@ -471,4 +476,43 @@ function matchesTreeFilter(item: CanvasProject | DashboardCanvas, archiveOnly: b
   if (archiveOnly ? !isLongTermMemoryItem(item) : isLongTermMemoryItem(item)) return false;
   if (!normalizedSearch) return true;
   return item.title.toLowerCase().includes(normalizedSearch);
+}
+
+function loadExpandedFolders(rootProjectId: string) {
+  if (typeof window === "undefined") return new Set<string>();
+
+  try {
+    const stored = window.localStorage.getItem(TREE_EXPANSION_STORAGE_KEY);
+    if (!stored) return new Set<string>();
+    const parsed = JSON.parse(stored);
+    if (!isExpansionStorage(parsed)) return new Set<string>();
+    return new Set(parsed[rootProjectId] ?? []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function saveExpandedFolders(rootProjectId: string, expandedFolders: Set<string>) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const stored = window.localStorage.getItem(TREE_EXPANSION_STORAGE_KEY);
+    const parsed = stored ? JSON.parse(stored) : {};
+    const next = isExpansionStorage(parsed) ? parsed : {};
+    const folderIds = Array.from(expandedFolders);
+
+    if (folderIds.length === 0) delete next[rootProjectId];
+    else next[rootProjectId] = folderIds;
+
+    window.localStorage.setItem(TREE_EXPANSION_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // Storage is best-effort; the tree still works normally without it.
+  }
+}
+
+function isExpansionStorage(value: unknown): value is Record<string, string[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.values(value).every((entry) => (
+    Array.isArray(entry) && entry.every((item) => typeof item === "string")
+  ));
 }
