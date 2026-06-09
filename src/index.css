@@ -1010,16 +1010,28 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - var(--dashboard-topbar-height));
-  height: calc(100dvh - var(--dashboard-topbar-height));
+  position: fixed;
+  top: var(--dashboard-topbar-height);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  height: auto;
   min-height: 0;
   overflow: hidden;
-  padding-bottom: 16px;
+  padding: 0 !important;
+  z-index: 20;
 }
 
 .dashboard-main-tree-mode .dashboard-folder-nav-row {
   flex: 0 0 auto;
-  margin-bottom: 12px;
+  position: relative;
+  top: auto;
+  z-index: 12;
+  margin: 0;
+  border-radius: 0;
+  padding: 12px 24px;
+  box-shadow: 0 8px 22px rgba(247, 250, 252, 0.9);
 }
 
 .dashboard-tree-content,
@@ -1076,6 +1088,10 @@
   height: auto;
   min-height: 0;
   margin-bottom: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
 }
 
 .dashboard-tree-viewport {

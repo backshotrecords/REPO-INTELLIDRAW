@@ -169,12 +169,21 @@ export default function DashboardPage() {
     if (!isTreeWorkspace) return;
 
     const previousBodyOverflow = document.body.style.overflow;
+    const previousDocumentOverflow = document.documentElement.style.overflow;
     const previousOverscrollBehavior = document.documentElement.style.overscrollBehavior;
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
     document.documentElement.style.overscrollBehavior = "none";
+    const preventTreeWheelDefault = (event: WheelEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".dashboard-tree-view")) event.preventDefault();
+    };
+    document.addEventListener("wheel", preventTreeWheelDefault, { capture: true, passive: false });
 
     return () => {
+      document.removeEventListener("wheel", preventTreeWheelDefault, { capture: true });
       document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousDocumentOverflow;
       document.documentElement.style.overscrollBehavior = previousOverscrollBehavior;
     };
   }, [isTreeWorkspace]);

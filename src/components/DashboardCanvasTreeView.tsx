@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { CanvasProject, DashboardCanvas } from "../types";
 
 const TREE_WORLD_WIDTH = 1800;
@@ -47,6 +47,7 @@ export default function DashboardCanvasTreeView({
   onOpenFolder: (projectId: string) => void;
   onOpenCanvas: (canvasId: string) => void;
 }) {
+  const treeRef = useRef<HTMLElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const activePointers = useRef(new Map<number, PointerPoint>());
   const panStart = useRef<{ pointerId: number; x: number; y: number; pan: PointerPoint } | null>(null);
@@ -112,11 +113,11 @@ export default function DashboardCanvasTreeView({
     to: getInputPoint(child),
   })), [layout]);
 
-  function clampZoom(value: number) {
+  const clampZoom = useCallback((value: number) => {
     return Math.min(1.9, Math.max(0.42, value));
-  }
+  }, []);
 
-  function zoomAt(clientX: number, clientY: number, nextZoom: number) {
+  const zoomAt = useCallback((clientX: number, clientY: number, nextZoom: number) => {
     const viewport = viewportRef.current;
     if (!viewport) {
       setZoom(nextZoom);
@@ -138,9 +139,9 @@ export default function DashboardCanvasTreeView({
       };
     });
     setZoom(nextZoom);
-  }
+  }, [zoom]);
 
-  function handleWheel(event: WheelEvent<HTMLElement>) {
+  const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
     event.stopPropagation();
     if (event.ctrlKey || event.metaKey) {
@@ -152,7 +153,15 @@ export default function DashboardCanvasTreeView({
       x: current.x - event.deltaX,
       y: current.y - event.deltaY,
     }));
-  }
+  }, [clampZoom, zoom, zoomAt]);
+
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (!tree) return;
+
+    tree.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+    return () => tree.removeEventListener("wheel", handleWheel, { capture: true });
+  }, [handleWheel]);
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -226,7 +235,7 @@ export default function DashboardCanvasTreeView({
   }
 
   return (
-    <section className="dashboard-tree-view" aria-label={`${rootProject.title} canvas tree`} onWheel={handleWheel}>
+    <section ref={treeRef} className="dashboard-tree-view" aria-label={`${rootProject.title} canvas tree`}>
       <div className="dashboard-tree-controls" aria-label="Canvas tree zoom controls">
         <button type="button" onClick={() => setZoom((current) => clampZoom(current + 0.14))} aria-label="Zoom in">
           <span className="material-symbols-outlined">zoom_in</span>
