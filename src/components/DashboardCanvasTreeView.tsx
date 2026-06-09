@@ -140,8 +140,9 @@ export default function DashboardCanvasTreeView({
     setZoom(nextZoom);
   }
 
-  function handleWheel(event: WheelEvent<HTMLDivElement>) {
+  function handleWheel(event: WheelEvent<HTMLElement>) {
     event.preventDefault();
+    event.stopPropagation();
     if (event.ctrlKey || event.metaKey) {
       const nextZoom = clampZoom(zoom * (1 - Math.max(-60, Math.min(60, event.deltaY)) * 0.006));
       zoomAt(event.clientX, event.clientY, nextZoom);
@@ -225,7 +226,7 @@ export default function DashboardCanvasTreeView({
   }
 
   return (
-    <section className="dashboard-tree-view" aria-label={`${rootProject.title} canvas tree`}>
+    <section className="dashboard-tree-view" aria-label={`${rootProject.title} canvas tree`} onWheel={handleWheel}>
       <div className="dashboard-tree-controls" aria-label="Canvas tree zoom controls">
         <button type="button" onClick={() => setZoom((current) => clampZoom(current + 0.14))} aria-label="Zoom in">
           <span className="material-symbols-outlined">zoom_in</span>
@@ -242,7 +243,6 @@ export default function DashboardCanvasTreeView({
       <div
         ref={viewportRef}
         className={`dashboard-tree-viewport${isInteracting ? " is-interacting" : ""}`}
-        onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

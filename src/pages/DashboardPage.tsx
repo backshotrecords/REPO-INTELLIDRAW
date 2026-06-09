@@ -138,6 +138,7 @@ export default function DashboardPage() {
   const editingProject = projectWizard?.mode === "edit"
     ? projects.find((project) => project.id === projectWizard.projectId) ?? null
     : null;
+  const isTreeWorkspace = Boolean(showCanvasTreeView && activeProject);
 
   useEffect(() => {
     const cid = (location.state as Record<string, unknown> | null)?.closedCanvasId as string | undefined;
@@ -163,6 +164,20 @@ export default function DashboardPage() {
   useEffect(() => {
     window.localStorage.setItem("intellidraw.dashboard.fileViewMode", fileViewMode);
   }, [fileViewMode]);
+
+  useEffect(() => {
+    if (!isTreeWorkspace) return;
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousOverscrollBehavior = document.documentElement.style.overscrollBehavior;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overscrollBehavior = previousOverscrollBehavior;
+    };
+  }, [isTreeWorkspace]);
 
   useEffect(() => {
     const sentinel = loadMoreThumbsRef.current;
@@ -456,10 +471,10 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="bg-surface text-on-surface min-h-screen pb-32">
+    <div className={`dashboard-page bg-surface text-on-surface min-h-screen${isTreeWorkspace ? " dashboard-page-tree-mode" : " pb-32"}`}>
       <TopBar showSearch searchVisibility="desktop" onSearchChange={setSearch} />
 
-      <main className="max-w-7xl mx-auto px-6 pt-8">
+      <main className={`dashboard-main mx-auto px-6 pt-8${isTreeWorkspace ? " dashboard-main-tree-mode max-w-none" : " max-w-7xl"}`}>
         {projectPath.length > 0 && (
           <ProjectBreadcrumb
             path={projectPath}
@@ -468,7 +483,7 @@ export default function DashboardPage() {
           />
         )}
 
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+        <div className={`dashboard-project-summary flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10${isTreeWorkspace ? " is-hidden" : ""}`} aria-hidden={isTreeWorkspace}>
           <div>
             <div className="flex items-center gap-3 mb-2">
               <h1 className="text-5xl font-extrabold tracking-tight text-primary font-headline">
@@ -525,7 +540,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <div className="md:hidden mb-8">
+        {!isTreeWorkspace && <div className="md:hidden mb-8">
           <div className="relative w-full">
             <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
             <input
@@ -535,7 +550,7 @@ export default function DashboardPage() {
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-        </div>
+        </div>}
 
         {exportMode && (
           <ExportBar
@@ -551,11 +566,11 @@ export default function DashboardPage() {
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
+          <div className={isTreeWorkspace ? "dashboard-tree-loading" : "flex items-center justify-center py-20"}>
             <div className="spinner w-8 h-8" />
           </div>
         ) : (
-          <>
+          <div className={isTreeWorkspace ? "dashboard-tree-content" : ""}>
             {hasProjectSection && !showCanvasTreeView && (
               <>
                 <SectionHeader
@@ -597,15 +612,17 @@ export default function DashboardPage() {
               </>
             )}
 
-            <SectionHeader
-              title={activeProject ? showCanvasTreeView ? "Folder Tree" : archiveOnly ? "Project Long-Term Memory" : "Project Canvases" : archiveOnly ? "Archived Canvases" : "Canvases"}
-              count={showCanvasTreeView ? visibleProjects.length + visibleCanvases.length : visibleCanvases.length}
-              icon={activeProject ? showCanvasTreeView ? "account_tree" : "folder_open" : archiveOnly ? "archive" : "dashboard"}
-              collapsed={!activeProject && canvasesCollapsed}
-              detail={activeProject ? showCanvasTreeView ? "Folders and canvases on one canvas" : archiveOnly ? "Older than 30 days or manually archived" : "Last updated within 30 days in this folder" : archiveOnly ? "Older than 30 days or manually archived" : "Last updated within 30 days"}
-              hideToggle={Boolean(activeProject)}
-              onToggle={toggleCanvasesCollapsed}
-            />
+            {!showCanvasTreeView && (
+              <SectionHeader
+                title={activeProject ? archiveOnly ? "Project Long-Term Memory" : "Project Canvases" : archiveOnly ? "Archived Canvases" : "Canvases"}
+                count={visibleCanvases.length}
+                icon={activeProject ? "folder_open" : archiveOnly ? "archive" : "dashboard"}
+                collapsed={!activeProject && canvasesCollapsed}
+                detail={activeProject ? archiveOnly ? "Older than 30 days or manually archived" : "Last updated within 30 days in this folder" : archiveOnly ? "Older than 30 days or manually archived" : "Last updated within 30 days"}
+                hideToggle={Boolean(activeProject)}
+                onToggle={toggleCanvasesCollapsed}
+              />
+            )}
 
             {!activeProject && canvasesCollapsed ? null : showCanvasTreeView && activeProject ? (
               <DashboardCanvasTreeView
@@ -680,7 +697,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             )}
-          </>
+          </div>
         )}
       </main>
 

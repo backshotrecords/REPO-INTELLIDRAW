@@ -978,7 +978,67 @@
   box-shadow: 0 10px 24px rgba(247, 250, 252, 0.9);
 }
 
+.dashboard-project-summary {
+  max-height: 520px;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    max-height 220ms ease,
+    margin-bottom 220ms ease,
+    opacity 160ms ease,
+    transform 220ms ease;
+}
+
+.dashboard-project-summary.is-hidden {
+  max-height: 0;
+  margin-bottom: 0 !important;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateY(-28px);
+}
+
+.dashboard-page-tree-mode {
+  --dashboard-topbar-height: 76px;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.dashboard-main-tree-mode {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--dashboard-topbar-height));
+  height: calc(100dvh - var(--dashboard-topbar-height));
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 16px;
+}
+
+.dashboard-main-tree-mode .dashboard-folder-nav-row {
+  flex: 0 0 auto;
+  margin-bottom: 12px;
+}
+
+.dashboard-tree-content,
+.dashboard-tree-loading {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.dashboard-tree-loading {
+  align-items: center;
+  justify-content: center;
+}
+
 @media (max-width: 640px) {
+  .dashboard-page-tree-mode {
+    --dashboard-topbar-height: 88px;
+  }
+
   .dashboard-folder-nav-row {
     top: 88px;
   }
@@ -1006,6 +1066,16 @@
     radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.38) 1px, transparent 0),
     #f7fafc;
   background-size: 22px 22px;
+  overscroll-behavior: contain;
+  touch-action: none;
+  user-select: none;
+}
+
+.dashboard-page-tree-mode .dashboard-tree-view {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  margin-bottom: 0;
 }
 
 .dashboard-tree-viewport {
@@ -1013,6 +1083,7 @@
   inset: 0;
   overflow: hidden;
   cursor: grab;
+  overscroll-behavior: contain;
   touch-action: none;
 }
 
@@ -1099,6 +1170,7 @@
   background: rgba(255, 255, 255, 0.96);
   color: #041627;
   box-shadow: 0 2px 0 rgba(4, 22, 39, 0.03);
+  touch-action: none;
 }
 
 .dashboard-tree-node {
