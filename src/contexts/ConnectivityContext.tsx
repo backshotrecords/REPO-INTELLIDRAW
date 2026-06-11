@@ -1,8 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { getOfflineOperations } from "../lib/offlineQueue";
 
-type ConnectivityStatus = "online" | "offline" | "reconnecting";
+// "reconnecting" = verifying the connection (neutral UI); "syncing" = verified online, restoring queued work (success UI).
+type ConnectivityStatus = "online" | "offline" | "reconnecting" | "syncing";
 type ReconnectHandler = () => Promise<void> | void;
+
+// Client-side polling of navigator.onLine only — never pings the server on a timer.
+const ONLINE_POLL_INTERVAL_MS = 2000;
+// Minimum spacing between automatic reconnect attempts while the browser claims to be online.
+const AUTO_RECONNECT_INTERVAL_MS = 10000;
 
 interface ConnectivityContextValue {
   status: ConnectivityStatus;
@@ -41,15 +47,33 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
   const [queueCount, setQueueCount] = useState(() => getOfflineOperations().length);
   const handlersRef = useRef(new Set<ReconnectHandler>());
   const reconnectingRef = useRef(false);
+  const onlineTimerRef = useRef<number | null>(null);
+  const lastAutoReconnectRef = useRef(0);
+  const statusRef = useRef(status);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   const refreshQueueCount = useCallback(() => {
     setQueueCount(getOfflineOperations().length);
   }, []);
 
+  // A pending timer means runReconnect's async work already finished, so the
+  // timer owns the in-flight flag — cancelling it must release the flag too.
+  const clearOnlineTimer = useCallback(() => {
+    if (onlineTimerRef.current !== null) {
+      window.clearTimeout(onlineTimerRef.current);
+      onlineTimerRef.current = null;
+      reconnectingRef.current = false;
+    }
+  }, []);
+
   const reportNetworkFailure = useCallback(() => {
+    clearOnlineTimer();
     setStatus("offline");
     setMessage("You're currently offline");
-  }, []);
+  }, [clearOnlineTimer]);
 
   const setReconnectMessage = useCallback((nextMessage: string) => {
     setMessage(nextMessage);
@@ -58,8 +82,9 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
   const runReconnect = useCallback(async () => {
     if (reconnectingRef.current) return;
     reconnectingRef.current = true;
+    lastAutoReconnectRef.current = Date.now();
     setStatus("reconnecting");
-    setMessage("Back online");
+    setMessage("Checking connection...");
 
     const reachable = await canReachProduction();
     if (!reachable) {
@@ -69,7 +94,8 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
       return;
     }
 
-    setMessage("Checking saved work...");
+    setStatus("syncing");
+    setMessage("Back online - checking saved work...");
     try {
       for (const handler of Array.from(handlersRef.current)) {
         await handler();
@@ -84,11 +110,18 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
     }
 
     setMessage("All changes restored");
-    window.setTimeout(() => {
-      setStatus("online");
-      setMessage("");
+    onlineTimerRef.current = window.setTimeout(() => {
+      onlineTimerRef.current = null;
       reconnectingRef.current = false;
       refreshQueueCount();
+      // The connection may have dropped again while the success message was showing.
+      if (!navigator.onLine || statusRef.current === "offline") {
+        setStatus("offline");
+        setMessage("You're currently offline");
+        return;
+      }
+      setStatus("online");
+      setMessage("");
     }, 900);
   }, [refreshQueueCount]);
 
@@ -104,10 +137,7 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
   }, []);
 
   useEffect(() => {
-    const handleOffline = () => {
-      setStatus("offline");
-      setMessage("You're currently offline");
-    };
+    const handleOffline = () => reportNetworkFailure();
     const handleOnline = () => {
       void runReconnect();
     };
@@ -127,6 +157,27 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
     };
   }, [refreshQueueCount, reportNetworkFailure, runReconnect]);
 
+  // Active detection: poll the browser's connectivity state so the offline UI
+  // appears even when the offline event never fires, and keep attempting to
+  // reconnect for as long as the app is open. Stays entirely client-side —
+  // the server is only probed via runReconnect, spaced by AUTO_RECONNECT_INTERVAL_MS.
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (!navigator.onLine) {
+        if (statusRef.current === "online") {
+          reportNetworkFailure();
+        }
+        return;
+      }
+      if (statusRef.current === "offline") {
+        if (Date.now() - lastAutoReconnectRef.current >= AUTO_RECONNECT_INTERVAL_MS) {
+          void runReconnect();
+        }
+      }
+    }, ONLINE_POLL_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [reportNetworkFailure, runReconnect]);
+
   useEffect(() => {
     if (navigator.onLine && getOfflineOperations().length > 0) {
       void runReconnect();
@@ -137,7 +188,7 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
     () => ({
       status,
       isOffline: status === "offline",
-      isBlocked: status === "offline" || status === "reconnecting",
+      isBlocked: status !== "online",
       message,
       queueCount,
       reportNetworkFailure,

@@ -4,6 +4,19 @@ const API_BASE = "/api";
 const PREVIEW_CODE_BATCH_SIZE = 100;
 const NETWORK_FAILURE_EVENT = "intellidraw-network-failure";
 
+/**
+ * Thrown when a request never reached the server (connection dropped,
+ * DNS failure, etc.) as opposed to the server returning an error response.
+ * Callers can catch this to defer work until the connection returns.
+ */
+export class NetworkError extends Error {
+  constructor(cause?: unknown) {
+    super("Network connection failed");
+    this.name = "NetworkError";
+    this.cause = cause;
+  }
+}
+
 export interface CanvasExternalContextResult {
   changed?: boolean;
   externalContext: string | null;
@@ -58,7 +71,7 @@ async function apiFetch(
     });
   } catch (err) {
     window.dispatchEvent(new CustomEvent(NETWORK_FAILURE_EVENT));
-    throw err;
+    throw new NetworkError(err);
   }
 
   return response;
@@ -551,7 +564,7 @@ export async function apiTranscribeAudio(audioBlob: Blob): Promise<string> {
     });
   } catch (err) {
     window.dispatchEvent(new CustomEvent(NETWORK_FAILURE_EVENT));
-    throw err;
+    throw new NetworkError(err);
   }
 
   const data = await res.json();

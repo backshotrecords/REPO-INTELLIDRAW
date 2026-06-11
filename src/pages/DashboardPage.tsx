@@ -17,6 +17,7 @@ import {
   apiUpdateProject,
 } from "../lib/api";
 import { exportAsImage, exportAsMarkdown, exportAsZip } from "../utils/export";
+import { useConnectivity } from "../contexts/ConnectivityContext";
 import { useMermaidThumbnails } from "../hooks/useMermaidThumbnails";
 import type { CanvasProject, DashboardCanvas, ProjectAccent } from "../types";
 import { isLongTermMemoryItem } from "../types";
@@ -67,6 +68,7 @@ export default function DashboardPage() {
   const activeProjectContextRequestRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const { registerReconnectHandler, setReconnectMessage } = useConnectivity();
 
   const dashboardSearchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const activeProjectId = dashboardSearchParams.get("project");
@@ -144,6 +146,19 @@ export default function DashboardPage() {
   useEffect(() => {
     void loadDashboard();
   }, []);
+
+  // Re-fetch dashboard data when the connection returns, so a load that
+  // failed while offline doesn't leave a stale error behind the overlay.
+  const loadDashboardRef = useRef(loadDashboard);
+  useEffect(() => {
+    loadDashboardRef.current = loadDashboard;
+  });
+  useEffect(() => {
+    return registerReconnectHandler(async () => {
+      setReconnectMessage("Refreshing dashboard...");
+      await loadDashboardRef.current();
+    });
+  }, [registerReconnectHandler, setReconnectMessage]);
 
   useEffect(() => {
     setArchiveOnly(requestedArchiveOnly);

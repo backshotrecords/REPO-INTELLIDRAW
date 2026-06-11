@@ -2,18 +2,22 @@ import { useConnectivity } from "../contexts/ConnectivityContext";
 
 export default function ConnectivityOverlay({ children }: { children: React.ReactNode }) {
   const { status, isBlocked, message, queueCount, retryConnection } = useConnectivity();
-  const isReconnecting = status === "reconnecting";
-  const showBanner = status === "offline" || isReconnecting;
+  const isChecking = status === "reconnecting";
+  const isSyncing = status === "syncing";
 
   return (
     <div className="relative min-h-screen">
-      {showBanner && (
+      {isBlocked && (
         <div
           className={`fixed inset-x-0 top-0 z-[220] flex h-7 items-center justify-center px-4 text-xs font-bold tracking-wide text-white shadow-sm ${
-            isReconnecting ? "bg-emerald-600" : "bg-red-600"
+            isSyncing ? "bg-emerald-600" : isChecking ? "bg-slate-600" : "bg-red-600"
           }`}
         >
-          {isReconnecting ? "Back online - syncing changes" : "Offline - changes cannot be saved"}
+          {isSyncing
+            ? "Back online - syncing changes"
+            : isChecking
+              ? "Checking connection..."
+              : "Offline - changes cannot be saved"}
         </div>
       )}
 
@@ -21,7 +25,7 @@ export default function ConnectivityOverlay({ children }: { children: React.Reac
         className={`min-h-screen transition-[filter,opacity] duration-200 ${
           isBlocked ? "pointer-events-none select-none blur-[3px] brightness-50" : ""
         }`}
-        aria-hidden={isBlocked}
+        inert={isBlocked}
       >
         {children}
       </div>
@@ -33,11 +37,11 @@ export default function ConnectivityOverlay({ children }: { children: React.Reac
               <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
                 <span
                   className={`material-symbols-outlined text-lg ${
-                    isReconnecting ? "text-emerald-600" : "text-red-600"
+                    isSyncing ? "text-emerald-600" : isChecking ? "animate-spin text-slate-600" : "text-red-600"
                   }`}
                   style={{ fontVariationSettings: "'FILL' 1" }}
                 >
-                  {isReconnecting ? "sync" : "wifi_off"}
+                  {isSyncing || isChecking ? "sync" : "wifi_off"}
                 </span>
                 <span>{message || "You're currently offline"}</span>
                 {queueCount > 0 && (
@@ -46,7 +50,7 @@ export default function ConnectivityOverlay({ children }: { children: React.Reac
                   </span>
                 )}
               </div>
-              {!isReconnecting && (
+              {status === "offline" && (
                 <button
                   type="button"
                   onClick={() => void retryConnection()}

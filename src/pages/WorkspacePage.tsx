@@ -9,7 +9,7 @@ import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
 import CanvasSkillsPanel from "../components/CanvasSkillsPanel";
-import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext, apiTranscribeAudio } from "../lib/api";
+import { NetworkError, apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext, apiTranscribeAudio } from "../lib/api";
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { fetchChatSettings } from "../lib/chatSettings";
@@ -576,7 +576,9 @@ export default function WorkspacePage() {
   }, []);
 
   // Load canvas
+  const pendingCanvasLoadRef = useRef<string | null>(null);
   const loadCanvas = useCallback(async (canvasId: string) => {
+    pendingCanvasLoadRef.current = null;
     setIsInitialCanvasDataReady(false);
     setIsInitialDiagramReady(false);
     setLastRenderedDiagramCode(null);
@@ -611,6 +613,11 @@ export default function WorkspacePage() {
       refreshProjectContextInBackground(canvas.project_id);
     } catch (err) {
       console.error("Failed to load canvas:", err);
+      if (err instanceof NetworkError) {
+        // The connectivity overlay is already up; retry this load on reconnect.
+        pendingCanvasLoadRef.current = canvasId;
+        return;
+      }
       const message = err instanceof Error ? err.message : "Unknown error";
       alert(`Failed to load canvas: ${message}`);
       navigate("/dashboard");
@@ -648,6 +655,16 @@ export default function WorkspacePage() {
       createNewCanvas();
     }
   }, [id, loadCanvas, createNewCanvas]);
+
+  // Retry a canvas load that failed while offline once the connection returns.
+  useEffect(() => {
+    return registerReconnectHandler(async () => {
+      const target = pendingCanvasLoadRef.current;
+      if (!target) return;
+      setReconnectMessage("Reloading canvas...");
+      await loadCanvas(target);
+    });
+  }, [loadCanvas, registerReconnectHandler, setReconnectMessage]);
 
 
 
