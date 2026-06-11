@@ -112,17 +112,20 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
       void runReconnect();
     };
     const handleQueueChange = () => refreshQueueCount();
+    const handleNetworkFailure = () => reportNetworkFailure();
 
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
     window.addEventListener("intellidraw-offline-queue-change", handleQueueChange);
+    window.addEventListener("intellidraw-network-failure", handleNetworkFailure);
 
     return () => {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("intellidraw-offline-queue-change", handleQueueChange);
+      window.removeEventListener("intellidraw-network-failure", handleNetworkFailure);
     };
-  }, [refreshQueueCount, runReconnect]);
+  }, [refreshQueueCount, reportNetworkFailure, runReconnect]);
 
   useEffect(() => {
     if (navigator.onLine && getOfflineOperations().length > 0) {
