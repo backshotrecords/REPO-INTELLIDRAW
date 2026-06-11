@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { getOfflineOperations } from "../lib/offlineQueue";
+import { OPERATION_STORAGE_KEY, getOfflineOperations } from "../lib/offlineQueue";
 
 // "reconnecting" = verifying the connection (neutral UI); "syncing" = verified online, restoring queued work (success UI).
 type ConnectivityStatus = "online" | "offline" | "reconnecting" | "syncing";
@@ -9,6 +9,9 @@ type ReconnectHandler = () => Promise<void> | void;
 const ONLINE_POLL_INTERVAL_MS = 2000;
 // Minimum spacing between automatic reconnect attempts while the browser claims to be online.
 const AUTO_RECONNECT_INTERVAL_MS = 10000;
+// Cross-tab lock: the offline queue lives in shared localStorage, so only one
+// tab may drain it at a time or operations get double-sent or resurrected.
+const QUEUE_LOCK_NAME = "intellidraw-offline-queue";
 
 interface ConnectivityContextValue {
   status: ConnectivityStatus;
@@ -97,9 +100,16 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
     setStatus("syncing");
     setMessage("Back online - checking saved work...");
     try {
-      for (const handler of Array.from(handlersRef.current)) {
-        await handler();
-        refreshQueueCount();
+      const runHandlers = async () => {
+        for (const handler of Array.from(handlersRef.current)) {
+          await handler();
+          refreshQueueCount();
+        }
+      };
+      if (navigator.locks) {
+        await navigator.locks.request(QUEUE_LOCK_NAME, runHandlers);
+      } else {
+        await runHandlers();
       }
     } catch (err) {
       console.error("Reconnect queue processing failed:", err);
@@ -143,17 +153,26 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
     };
     const handleQueueChange = () => refreshQueueCount();
     const handleNetworkFailure = () => reportNetworkFailure();
+    // Queue changes made by other tabs arrive via the storage event (the
+    // custom queue-change event only fires in the tab that wrote the change).
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === OPERATION_STORAGE_KEY) {
+        refreshQueueCount();
+      }
+    };
 
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
     window.addEventListener("intellidraw-offline-queue-change", handleQueueChange);
     window.addEventListener("intellidraw-network-failure", handleNetworkFailure);
+    window.addEventListener("storage", handleStorage);
 
     return () => {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("intellidraw-offline-queue-change", handleQueueChange);
       window.removeEventListener("intellidraw-network-failure", handleNetworkFailure);
+      window.removeEventListener("storage", handleStorage);
     };
   }, [refreshQueueCount, reportNetworkFailure, runReconnect]);
 

@@ -310,7 +310,7 @@ Queue processing should be conservative:
 - clear each operation only after confirmed success or safe stale-resolution
 - keep the app frozen until queued work is synced, cleared, or safely discarded
 
-Known gap (multi-tab): the queue lives in localStorage and is shared across tabs, but processing is not serialized. Two tabs that reconnect at the same time can both drain the same queue, duplicating chat sends and transcriptions, and unsynchronized read-modify-write of the queue can resurrect already-completed operations. Agreed fix: serialize queue processing across tabs with the Web Locks API (`navigator.locks`), and listen to the `storage` event so every tab's pending count stays current. Not yet implemented.
+Multi-tab safety: the queue lives in localStorage and is shared across tabs, so processing must be serialized — otherwise two tabs reconnecting at the same time both drain the same queue (duplicate chat sends and transcriptions), and unsynchronized read-modify-write can resurrect already-completed operations. Resolution: reconnect queue processing runs inside a Web Locks API request (`navigator.locks`, lock name `intellidraw-offline-queue`), so only one tab on the origin drains the queue at a time; the lock auto-releases if the holding tab closes or crashes. The connectivity provider also listens to the cross-tab `storage` event so every tab's pending count stays current when another tab changes the queue. Tabs without Web Locks support fall back to unserialized processing.
 
 ## Server Acknowledgement / Receipt
 
@@ -407,6 +407,6 @@ After the final state, remove the overlay, remove the banner, and return the app
 - [x] Keep the app frozen until queued work resolves or safely fails closed.
 - [ ] Extend cache-first protection to file uploads.
 - [ ] Extend cache-first protection to publish/create/update/project actions outside the workspace send/save path.
-- [ ] Multi-tab safety: serialize queue processing across tabs with Web Locks and sync queue state via `storage` events.
+- [x] Multi-tab safety: serialize queue processing across tabs with Web Locks and sync queue state via `storage` events.
 - [ ] Add targeted automated tests for queue/version resolution.
 - [x] Run production build verification.

@@ -1,6 +1,6 @@
 import type { ChatMessage } from "../types";
 
-const OPERATION_STORAGE_KEY = "intellidraw_offline_operations";
+export const OPERATION_STORAGE_KEY = "intellidraw_offline_operations";
 const DB_NAME = "intellidraw_offline_queue";
 const DB_VERSION = 1;
 const BLOB_STORE = "blobs";
