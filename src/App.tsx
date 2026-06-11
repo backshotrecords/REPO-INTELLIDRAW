@@ -14,6 +14,8 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import GuildPage from "./pages/GuildPage";
 import GoodbyePage from "./pages/GoodbyePage";
 import OnboardingOverlay from "./components/OnboardingOverlay";
+import ConnectivityOverlay from "./components/ConnectivityOverlay";
+import { ConnectivityProvider } from "./contexts/ConnectivityContext";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -153,7 +155,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <ConnectivityProvider>
+          <ConnectivityOverlay>
+            <AppRoutes />
+          </ConnectivityOverlay>
+        </ConnectivityProvider>
       </AuthProvider>
     </BrowserRouter>
   );
