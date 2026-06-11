@@ -43,6 +43,8 @@ If the network fails at any point before acknowledgement, the local operation re
 
 ## Connectivity Detection
 
+Detection is active on the client and event-based toward the server.
+
 Use browser connection state as the main detector:
 
 ```ts
@@ -51,15 +53,20 @@ window.addEventListener("online", ...)
 navigator.onLine
 ```
 
+In addition, poll `navigator.onLine` on a short client-side timer (currently every 2 seconds) for as long as the app is open. This check never touches the network. It exists because the browser does not fire the `offline` event in every disconnect scenario (for example, upstream loss while the OS keeps its network interface up), and the offline UI must appear within seconds of a drop even when the user is idle.
+
+A failed application API request is also a disconnect signal: the API layer throws a typed `NetworkError` and dispatches a global network-failure event whenever a request never reached the server. This drives the UI offline without waiting for browser events.
+
 Do not continuously ping the production API on a timer.
 
-Production reachability checks are event-based only:
+Production reachability checks (one `GET /api/canvases` probe) run on these events:
 
 - when the user clicks Retry connection
 - when the browser fires the online event
 - when the app opens and there is pending local work to recover
+- automatically while the app is offline and the browser claims to be online, spaced at least 10 seconds apart — the app keeps trying to reconnect on its own for as long as it is open
 
-Reason: continuous health polling would create unnecessary serverless load across many active users.
+Reason: continuous health polling would create unnecessary serverless load across many active users. The automatic reconnect probe only runs in the offline state and stops as soon as the app is back online.
 
 Connectivity detection does not decide whether user input is worth caching. User input is cached first regardless. Connectivity detection decides when to freeze/unfreeze the UI and when to process pending operations.
 
@@ -76,20 +83,33 @@ When offline:
 - Include a pill-shaped `Retry connection` button.
 - Block interaction with the blurred app body.
 
-When connection returns:
+When a reconnect attempt starts (Retry click, browser online event, or automatic retry):
 
-- Hide the offline notice.
-- Turn the banner green briefly.
-- Green banner copy can be `Back online - syncing changes`
+- Do not show any success state yet.
+- Show a neutral checking state: grey banner, copy `Checking connection...`, spinner in the pill.
+- Keep the app body darkened, blurred, and blocked.
+- Hide the Retry button while checking.
+
+Only after the production reachability probe succeeds:
+
+- Turn the banner green.
+- Green banner copy: `Back online - syncing changes`
 - Keep the app body darkened, blurred, and blocked while queued work resolves.
 - Show reconnect progress messages in the overlay so the user can see each recovery state.
 - Sync or resolve pending local work.
 - Clear resolved local cache entries.
+- Before unfreezing, re-check the connection; if it dropped again while the success message was showing, return to the offline state instead of unfreezing.
 - Remove the banner and restore app interaction.
+
+If the probe fails, return from the checking state straight to the red offline state.
+
+Decision: never show the green/success state before reachability is verified. The earlier behavior — banner turned green and said `Back online` immediately on retry, then walked back to red on failure — is rejected as misleading.
 
 ## Action Blocking
 
 The main action block is the visual freeze layer: the darkened and blurred app body should not accept clicks, keyboard sends, uploads, canvas moves, publishes, renames, or creates.
+
+The freeze layer must block keyboard interaction, not just pointer input. Use the `inert` attribute on the blurred app body — `pointer-events: none` alone still allows Tab focus, typing, and Enter-to-submit inside the frozen UI.
 
 Add lightweight code guards as backup for risky functions:
 
@@ -290,6 +310,8 @@ Queue processing should be conservative:
 - clear each operation only after confirmed success or safe stale-resolution
 - keep the app frozen until queued work is synced, cleared, or safely discarded
 
+Known gap (multi-tab): the queue lives in localStorage and is shared across tabs, but processing is not serialized. Two tabs that reconnect at the same time can both drain the same queue, duplicating chat sends and transcriptions, and unsynchronized read-modify-write of the queue can resurrect already-completed operations. Agreed fix: serialize queue processing across tabs with the Web Locks API (`navigator.locks`), and listen to the `storage` event so every tab's pending count stays current. Not yet implemented.
+
 ## Server Acknowledgement / Receipt
 
 Every network-bound operation needs a clear receipt condition.
@@ -318,13 +340,22 @@ When the app returns online, do not immediately restore normal interaction.
 Reconnect flow:
 
 1. Keep the app darkened, blurred, and blocked.
-2. Change the banner to the green reconnect/syncing state.
-3. Show reconnect progress messages in the visible overlay.
-4. Process queued work.
-5. Clear acknowledged, already-handled, or stale operations.
-6. Only then unfreeze the app.
+2. Show the neutral `Checking connection...` state and verify production reachability.
+3. Only on probe success, change the banner to the green reconnect/syncing state.
+4. Show reconnect progress messages in the visible overlay.
+5. Process queued work, including registered page-load retries.
+6. Clear acknowledged, already-handled, or stale operations.
+7. Re-check the connection state, then unfreeze the app.
 
-This prevents old queued work from replaying after the user has resumed new activity.
+This prevents old queued work from replaying after the user has resumed new activity, and prevents the app from unfreezing into a connection that has already dropped again.
+
+## Failed Page Loads Recover on Reconnect
+
+Read-path fetches (dashboard list, canvas open) are not queued as durable operations — they carry no user work — but they must self-heal:
+
+- A page load that fails with `NetworkError` must not bounce the user to another page or show a modal alert. The connectivity overlay is the error surface for connection loss. Modal alerts and redirects remain correct for genuine server errors (for example, a deleted canvas).
+- Each page registers a reconnect handler with the connectivity provider: the dashboard re-fetches its data; the workspace retries the canvas load that was pending when the connection dropped.
+- After reconnect, the user must never be left looking at a stale `Failed to fetch` state once the overlay lifts.
 
 ## Reconnect UI Sequence
 
@@ -333,11 +364,13 @@ The reconnect process should have a visible sequence above the blurred app body.
 Example states:
 
 ```txt
-Back online
-Checking saved work...
+Checking connection...
+Back online - checking saved work...
 Syncing canvas changes...
 Retrying pending message...
 Restoring transcription...
+Refreshing dashboard...
+Reloading canvas...
 Clearing completed queue...
 All changes restored
 ```
@@ -345,8 +378,9 @@ All changes restored
 The exact message should match the operation being processed. If there are no queued operations, the sequence can be short:
 
 ```txt
-Back online
-Restoring workspace...
+Checking connection...
+Back online - checking saved work...
+All changes restored
 ```
 
 After the final state, remove the overlay, remove the banner, and return the app to normal.
@@ -356,8 +390,15 @@ After the final state, remove the overlay, remove the banner, and return the app
 - [x] Add shared durable offline operation storage.
 - [x] Use localStorage for JSON queue metadata.
 - [x] Use IndexedDB for blob payloads such as voice recordings.
-- [x] Add global connectivity provider with browser online/offline handling and no polling.
+- [x] Add global connectivity provider with browser online/offline handling and no server polling.
+- [x] Poll `navigator.onLine` client-side so the offline UI appears within seconds of a drop, even when the user is idle and the offline event never fires.
+- [x] Auto-attempt reconnection while the app is open, with server probes spaced at least 10 seconds apart.
+- [x] Verify production reachability before showing any green/success state on reconnect (neutral `Checking connection...` state first).
+- [x] Guard the go-online transition: re-check the connection before unfreezing in case it dropped during the success message.
 - [x] Add red offline banner, green reconnect banner, blurred blocked app body, and retry overlay.
+- [x] Block keyboard interaction with the frozen app body via the `inert` attribute.
+- [x] Add typed `NetworkError` in the API layer to distinguish connection drops from server errors.
+- [x] Re-fetch the dashboard and retry failed canvas loads on reconnect instead of leaving stale errors or alert/redirect bounces.
 - [x] Add reconnect progress messages while queued work resolves.
 - [x] Add cache-first canvas autosave handling.
 - [x] Add cache-first chat send handling with visible `Waiting to retry...` chat state.
@@ -366,5 +407,6 @@ After the final state, remove the overlay, remove the banner, and return the app
 - [x] Keep the app frozen until queued work resolves or safely fails closed.
 - [ ] Extend cache-first protection to file uploads.
 - [ ] Extend cache-first protection to publish/create/update/project actions outside the workspace send/save path.
+- [ ] Multi-tab safety: serialize queue processing across tabs with Web Locks and sync queue state via `storage` events.
 - [ ] Add targeted automated tests for queue/version resolution.
 - [x] Run production build verification.
