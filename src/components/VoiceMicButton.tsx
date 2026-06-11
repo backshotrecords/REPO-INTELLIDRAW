@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { apiTranscribeAudio } from "../lib/api";
 import { getSoundSettings } from "../lib/soundSettings";
+import { putOfflineBlob, removeOfflineBlob, upsertOfflineOperation, removeOfflineOperation } from "../lib/offlineQueue";
 
 /* ================================================================
    VoiceMicButton — Voice-to-text input for the chat bar
@@ -18,6 +19,7 @@ import { getSoundSettings } from "../lib/soundSettings";
 interface VoiceMicButtonProps {
   onTranscript: (text: string) => void;
   onAutoSendTranscript?: (text: string) => void;
+  canvasId?: string | null;
   disabled?: boolean;
 }
 
@@ -26,7 +28,7 @@ type VoiceState = "idle" | "recording" | "processing" | "success" | "cancelled";
 const HOLD_THRESHOLD_MS = 300;
 const SLIDE_CANCEL_PX = 100;
 
-export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, disabled }: VoiceMicButtonProps) {
+export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, canvasId, disabled }: VoiceMicButtonProps) {
   const [state, setState] = useState<VoiceState>("idle");
   const [seconds, setSeconds] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -280,6 +282,21 @@ export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, dis
 
   // ── Send for transcription ───────────────────────────────────
   const sendForTranscription = async (blob: Blob, autoSend = false) => {
+    const operationId = `transcription:${crypto.randomUUID()}`;
+    const blobKey = `${operationId}:audio`;
+    await putOfflineBlob(blobKey, blob);
+    upsertOfflineOperation({
+      id: operationId,
+      type: "transcription",
+      canvasId: canvasId || null,
+      payload: {
+        canvasId: canvasId || null,
+        blobKey,
+        autoSend,
+        mimeType: blob.type || "audio/webm",
+      },
+    });
+
     try {
       const text = await apiTranscribeAudio(blob);
 
@@ -298,6 +315,8 @@ export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, dis
       }
 
       setState("success");
+      removeOfflineOperation(operationId);
+      void removeOfflineBlob(blobKey);
       setTimeout(() => setState("idle"), 1800);
     } catch (err) {
       console.error("Transcription error:", err);

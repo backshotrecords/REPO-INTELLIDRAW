@@ -9,10 +9,24 @@ import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
 import CanvasSkillsPanel from "../components/CanvasSkillsPanel";
-import { apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext } from "../lib/api";
+import { NetworkError, apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext, apiTranscribeAudio } from "../lib/api";
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { fetchChatSettings } from "../lib/chatSettings";
+import { useConnectivity } from "../contexts/ConnectivityContext";
+import {
+  type CanvasSavePayload,
+  type ChatSendPayload,
+  type OfflineOperation,
+  type TranscriptionPayload,
+  getOfflineBlob,
+  getOfflineOperations,
+  markOfflineOperationRetrying,
+  removeOfflineBlob,
+  removeOfflineOperation,
+  upsertCanvasSaveOperation,
+  upsertOfflineOperation,
+} from "../lib/offlineQueue";
 import { parseMermaidAST, getScopeViewCode, getRootViewWithCollapseState, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope } from "../utils/mermaidParser";
 import { getRenderedClusterSubgraphId } from "../utils/mermaidDom";
 import type { MermaidAST } from "../utils/mermaidParser";
@@ -100,6 +114,12 @@ function getClusterSubgraphId(cluster: Element, parsedAST: MermaidAST | null): s
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const {
+    isOffline,
+    registerReconnectHandler,
+    reportNetworkFailure,
+    setReconnectMessage,
+  } = useConnectivity();
 
   const [canvasId, setCanvasId] = useState<string | null>(id === "new" ? null : id || null);
   const [dashboardReturnCanvas, setDashboardReturnCanvas] = useState<DashboardReturnCanvas | null>(null);
@@ -131,12 +151,16 @@ export default function WorkspacePage() {
   const chatHistoryRef = useRef<ChatMessage[]>([]);
   const mermaidCodeRef = useRef(DEFAULT_MERMAID_CODE);
   const canvasIdRef = useRef<string | null>(canvasId);
+  const titleRef = useRef("Untitled Canvas");
+  const commitsRef = useRef<CanvasCommit[]>([]);
   const mountedRef = useRef(true);
   const chatLoadingRef = useRef(false);
 
   useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
   useEffect(() => { mermaidCodeRef.current = mermaidCode; }, [mermaidCode]);
   useEffect(() => { canvasIdRef.current = canvasId; }, [canvasId]);
+  useEffect(() => { titleRef.current = title; }, [title]);
+  useEffect(() => { commitsRef.current = commits; }, [commits]);
   useEffect(() => { chatLoadingRef.current = chatLoading; }, [chatLoading]);
   useEffect(() => { activeScopeIdRef.current = activeScopeId; }, [activeScopeId]);
   useEffect(() => { scopePathRef.current = scopePath; }, [scopePath]);
@@ -552,7 +576,9 @@ export default function WorkspacePage() {
   }, []);
 
   // Load canvas
+  const pendingCanvasLoadRef = useRef<string | null>(null);
   const loadCanvas = useCallback(async (canvasId: string) => {
+    pendingCanvasLoadRef.current = null;
     setIsInitialCanvasDataReady(false);
     setIsInitialDiagramReady(false);
     setLastRenderedDiagramCode(null);
@@ -587,6 +613,11 @@ export default function WorkspacePage() {
       refreshProjectContextInBackground(canvas.project_id);
     } catch (err) {
       console.error("Failed to load canvas:", err);
+      if (err instanceof NetworkError) {
+        // The connectivity overlay is already up; retry this load on reconnect.
+        pendingCanvasLoadRef.current = canvasId;
+        return;
+      }
       const message = err instanceof Error ? err.message : "Unknown error";
       alert(`Failed to load canvas: ${message}`);
       navigate("/dashboard");
@@ -625,6 +656,16 @@ export default function WorkspacePage() {
     }
   }, [id, loadCanvas, createNewCanvas]);
 
+  // Retry a canvas load that failed while offline once the connection returns.
+  useEffect(() => {
+    return registerReconnectHandler(async () => {
+      const target = pendingCanvasLoadRef.current;
+      if (!target) return;
+      setReconnectMessage("Reloading canvas...");
+      await loadCanvas(target);
+    });
+  }, [loadCanvas, registerReconnectHandler, setReconnectMessage]);
+
 
 
   // Track input bar height for dynamic floating button positioning
@@ -650,11 +691,28 @@ export default function WorkspacePage() {
     ta.style.overflowY = ta.scrollHeight > maxH ? 'auto' : 'hidden';
   }, [chatInput]);
 
+  const cacheCanvasSave = useCallback((code: string, history?: ChatMessage[]) => {
+    if (!canvasIdRef.current) return null;
+    const baseVersion = commitsRef.current.length;
+    const payload: CanvasSavePayload = {
+      canvasId: canvasIdRef.current,
+      localVersionNumber: baseVersion + 1,
+      baseServerVersionNumber: baseVersion,
+      baseServerCommitId: commitsRef.current[baseVersion - 1]?.id || null,
+      mermaidCode: code,
+      chatHistory: history,
+      title: titleRef.current,
+      cachedAt: new Date().toISOString(),
+    };
+    return upsertCanvasSaveOperation(payload);
+  }, []);
+
   // Auto-save with 2-second debounce
   const autoSave = useCallback(
     (code: string, history?: ChatMessage[]) => {
       if (!canvasId) return;
       if (previewModeRef.current) return; // Don't persist previewed state
+      cacheCanvasSave(code, history);
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(async () => {
         setSaving(true);
@@ -663,14 +721,16 @@ export default function WorkspacePage() {
           if (history) updates.chatHistory = history;
           const updated = await apiUpdateCanvas(canvasId, updates);
           setDashboardReturnCanvas(getCanvasReturnContext(updated));
+          removeOfflineOperation(`canvas_save:${canvasId}`);
         } catch (err) {
           console.error("Auto-save failed:", err);
+          reportNetworkFailure();
         } finally {
           setSaving(false);
         }
       }, 2000);
     },
-    [canvasId]
+    [cacheCanvasSave, canvasId, reportNetworkFailure]
   );
 
   // ── Create a commit (fire-and-forget, appends locally + to DB) ──
@@ -1244,6 +1304,25 @@ export default function WorkspacePage() {
     setChatInput("");
     setChatLoading(true);
 
+    const chatOperationId = `chat_send:${crypto.randomUUID()}`;
+    const chatPayload: ChatSendPayload = {
+      canvasId: canvasId || null,
+      originalText: text.trim(),
+      augmentedMessage,
+      mermaidCode: mermaidCodeRef.current,
+      chatHistory: newHistory,
+      activeScopeId: activeScopeIdRef.current,
+      scopePath: scopePathRef.current.map(s => s.label),
+      localVersionNumber: commitsRef.current.length + 1,
+      userMessageInserted: true,
+    };
+    upsertOfflineOperation<ChatSendPayload>({
+      id: chatOperationId,
+      type: "chat_send",
+      canvasId: canvasId || null,
+      payload: chatPayload,
+    });
+
     try {
       const result = await apiChat(
         augmentedMessage, mermaidCodeRef.current, newHistory, canvasId || undefined,
@@ -1268,17 +1347,19 @@ export default function WorkspacePage() {
       }
 
       autoSave(result.updatedMermaidCode || mermaidCodeRef.current, updatedHistory);
+      removeOfflineOperation(chatOperationId);
     } catch (err) {
       const errorMessage: ChatMessage = {
         role: "assistant",
-        content: `Error: ${err instanceof Error ? err.message : "Something went wrong"}`,
+        content: `Waiting to retry... ${err instanceof Error ? err.message : "Connection interrupted"}`,
         timestamp: new Date().toISOString(),
       };
       setChatHistory([...newHistory, errorMessage]);
+      reportNetworkFailure();
     } finally {
       setChatLoading(false);
     }
-  }, [autoSave, playCanvasSound, createCommit, flushPreviewMode]);
+  }, [autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure]);
 
   const handleAddSkillToContext = useCallback((skill: { title: string; instructionText: string }) => {
     const block = `Use this skill as context:\n\nSkill: ${skill.title}\n${skill.instructionText}`;
@@ -1288,6 +1369,125 @@ export default function WorkspacePage() {
     });
   }, []);
 
+  const processCanvasSaveOperation = useCallback(async (operation: OfflineOperation<CanvasSavePayload>) => {
+    if (!operation.canvasId) return;
+    setReconnectMessage("Syncing canvas changes...");
+    markOfflineOperationRetrying(operation.id);
+
+    const payload = operation.payload;
+    const serverCommits = await apiGetCommits(operation.canvasId);
+    const serverVersion = Array.isArray(serverCommits) ? serverCommits.length : 0;
+
+    if (serverVersion === payload.baseServerVersionNumber) {
+      const updates: Record<string, unknown> = { mermaidCode: payload.mermaidCode };
+      if (payload.chatHistory) updates.chatHistory = payload.chatHistory;
+      if (payload.title) updates.title = payload.title;
+      const updated = await apiUpdateCanvas(operation.canvasId, updates);
+      if (operation.canvasId === canvasIdRef.current) {
+        setDashboardReturnCanvas(getCanvasReturnContext(updated));
+      }
+      removeOfflineOperation(operation.id);
+      return;
+    }
+
+    if (serverVersion >= payload.localVersionNumber) {
+      removeOfflineOperation(operation.id);
+      return;
+    }
+
+    removeOfflineOperation(operation.id);
+  }, [setReconnectMessage]);
+
+  const processChatOperation = useCallback(async (operation: OfflineOperation<ChatSendPayload>) => {
+    const payload = operation.payload;
+    if (payload.canvasId && payload.canvasId !== canvasIdRef.current) return;
+
+    setReconnectMessage("Retrying pending message...");
+    markOfflineOperationRetrying(operation.id);
+
+    const result = await apiChat(
+      payload.augmentedMessage,
+      payload.mermaidCode,
+      payload.chatHistory,
+      payload.canvasId || undefined,
+      payload.activeScopeId,
+      payload.scopePath
+    );
+
+    const assistantMessage: ChatMessage = {
+      role: "assistant",
+      content: result.response,
+      timestamp: new Date().toISOString(),
+    };
+    const cleanedHistory = payload.chatHistory.filter(
+      (message) => !(message.role === "assistant" && message.content.startsWith("Waiting to retry..."))
+    );
+    const updatedHistory = [...cleanedHistory, assistantMessage];
+    setChatHistory(updatedHistory);
+
+    if (result.updatedMermaidCode) {
+      setMermaidCode(result.updatedMermaidCode);
+      playCanvasSound();
+      createCommit(result.updatedMermaidCode, "ai_chat", payload.originalText);
+    }
+
+    const codeToSave = result.updatedMermaidCode || mermaidCodeRef.current;
+    cacheCanvasSave(codeToSave, updatedHistory);
+    if (payload.canvasId) {
+      const updated = await apiUpdateCanvas(payload.canvasId, {
+        mermaidCode: codeToSave,
+        chatHistory: updatedHistory,
+      });
+      if (payload.canvasId === canvasIdRef.current) {
+        setDashboardReturnCanvas(getCanvasReturnContext(updated));
+      }
+      removeOfflineOperation(`canvas_save:${payload.canvasId}`);
+    }
+    removeOfflineOperation(operation.id);
+  }, [cacheCanvasSave, createCommit, playCanvasSound, setReconnectMessage]);
+
+  const processTranscriptionOperation = useCallback(async (operation: OfflineOperation<TranscriptionPayload>) => {
+    const payload = operation.payload;
+    if (payload.canvasId && payload.canvasId !== canvasIdRef.current) return;
+
+    setReconnectMessage("Restoring transcription...");
+    markOfflineOperationRetrying(operation.id);
+
+    const blob = await getOfflineBlob(payload.blobKey);
+    if (!blob) {
+      removeOfflineOperation(operation.id);
+      return;
+    }
+
+    const text = await apiTranscribeAudio(blob);
+    if (payload.autoSend) {
+      await sendMessage(text);
+    } else {
+      setChatInput((prev) => prev ? `${prev} ${text}` : text);
+    }
+
+    removeOfflineOperation(operation.id);
+    await removeOfflineBlob(payload.blobKey);
+  }, [sendMessage, setReconnectMessage]);
+
+  const processOfflineQueue = useCallback(async () => {
+    const operations = getOfflineOperations();
+    for (const operation of operations) {
+      if (operation.canvasId && operation.canvasId !== canvasIdRef.current) continue;
+      if (operation.type === "canvas_save") {
+        await processCanvasSaveOperation(operation as OfflineOperation<CanvasSavePayload>);
+      } else if (operation.type === "chat_send") {
+        await processChatOperation(operation as OfflineOperation<ChatSendPayload>);
+      } else if (operation.type === "transcription") {
+        await processTranscriptionOperation(operation as OfflineOperation<TranscriptionPayload>);
+      }
+    }
+    setReconnectMessage("Clearing completed queue...");
+  }, [processCanvasSaveOperation, processChatOperation, processTranscriptionOperation, setReconnectMessage]);
+
+  useEffect(() => {
+    return registerReconnectHandler(processOfflineQueue);
+  }, [processOfflineQueue, registerReconnectHandler]);
 
   // File upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2181,6 +2381,7 @@ export default function WorkspacePage() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
+                        if (isOffline) return;
                         sendMessage(chatInput);
                       }
                     }}
@@ -2196,14 +2397,15 @@ export default function WorkspacePage() {
                     <VoiceMicButton
                       onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
                       onAutoSendTranscript={sendMessage}
-                      disabled={chatLoading}
+                      canvasId={canvasId}
+                      disabled={chatLoading || isOffline}
                     />
                   </div>
 
                   {/* Send button */}
                   <button
                     onClick={() => sendMessage(chatInput)}
-                    disabled={chatLoading || !chatInput.trim()}
+                    disabled={chatLoading || isOffline || !chatInput.trim()}
                     className="h-10 w-10 bg-primary text-white rounded-xl flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-30"
                   >
                     {chatLoading ? (
@@ -2271,7 +2473,8 @@ export default function WorkspacePage() {
             <VoiceMicButton
               onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
               onAutoSendTranscript={sendMessage}
-              disabled={chatLoading}
+              canvasId={canvasId}
+              disabled={chatLoading || isOffline}
             />
           </div>
         </div>
