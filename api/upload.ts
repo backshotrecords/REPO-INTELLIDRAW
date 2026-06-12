@@ -3,6 +3,118 @@ import { authenticateRequest } from "./lib/auth.js";
 import { supabase } from "./lib/db.js";
 import { decrypt } from "./lib/crypto.js";
 import OpenAI from "openai";
+import type { ResponseInputMessageContentList } from "openai/resources/responses/responses";
+
+const MAX_INPUT_FILE_BYTES = 50 * 1024 * 1024;
+
+const UPLOAD_ANALYSIS_INSTRUCTIONS = `You are IntelliDraw, an AI that analyzes images and documents to generate Mermaid flowcharts.
+
+When given an image or document, analyze its content and create a comprehensive Mermaid flowchart that represents the processes, workflows, relationships, or structure shown.
+
+ALWAYS output the complete Mermaid code in a fenced code block with the language identifier "mermaid".
+Use descriptive node labels and proper flow connections.`;
+
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+  ".avif": "image/avif",
+  ".bmp": "image/bmp",
+  ".gif": "image/gif",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+};
+
+const DOCUMENT_MIME_BY_EXTENSION: Record<string, string> = {
+  ".csv": "text/csv",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".htm": "text/html",
+  ".html": "text/html",
+  ".json": "application/json",
+  ".log": "text/plain",
+  ".markdown": "text/markdown",
+  ".md": "text/markdown",
+  ".odt": "application/vnd.oasis.opendocument.text",
+  ".pdf": "application/pdf",
+  ".rtf": "application/rtf",
+  ".tsv": "text/tab-separated-values",
+  ".txt": "text/plain",
+  ".xml": "application/xml",
+  ".yaml": "application/yaml",
+  ".yml": "application/yaml",
+};
+
+const DOCUMENT_MIME_TYPES = new Set(Object.values(DOCUMENT_MIME_BY_EXTENSION));
+
+function getExtension(fileName: string): string {
+  const dotIndex = fileName.lastIndexOf(".");
+  return dotIndex >= 0 ? fileName.slice(dotIndex).toLowerCase() : "";
+}
+
+function normalizeBase64(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const commaIndex = trimmed.indexOf(",");
+  return trimmed.startsWith("data:") && commaIndex >= 0
+    ? trimmed.slice(commaIndex + 1).replace(/\s/g, "")
+    : trimmed.replace(/\s/g, "");
+}
+
+function resolveMimeType(fileName: string, fileType: unknown): { kind: "image" | "document"; mimeType: string } | null {
+  const declaredType = typeof fileType === "string" ? fileType.trim().toLowerCase() : "";
+  const extension = getExtension(fileName);
+
+  if (declaredType.startsWith("image/")) {
+    return { kind: "image", mimeType: declaredType };
+  }
+
+  const imageMime = IMAGE_MIME_BY_EXTENSION[extension];
+  if (imageMime) {
+    return { kind: "image", mimeType: imageMime };
+  }
+
+  const documentMime = DOCUMENT_MIME_BY_EXTENSION[extension];
+  if (documentMime) {
+    return { kind: "document", mimeType: documentMime };
+  }
+
+  if (DOCUMENT_MIME_TYPES.has(declaredType)) {
+    return { kind: "document", mimeType: declaredType };
+  }
+
+  return null;
+}
+
+function buildInputContent(args: {
+  base64Data: string;
+  fileName: string;
+  kind: "image" | "document";
+  mimeType: string;
+}): ResponseInputMessageContentList {
+  const prompt = `Analyze this ${args.kind === "image" ? "image" : "document"} "${args.fileName}" and create a Mermaid flowchart that represents its content, structure, or workflow.`;
+
+  if (args.kind === "image") {
+    return [
+      { type: "input_text", text: prompt },
+      {
+        type: "input_image",
+        image_url: `data:${args.mimeType};base64,${args.base64Data}`,
+        detail: "auto",
+      },
+    ];
+  }
+
+  return [
+    {
+      type: "input_file",
+      filename: args.fileName,
+      file_data: `data:${args.mimeType};base64,${args.base64Data}`,
+    },
+    { type: "input_text", text: prompt },
+  ];
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
@@ -43,83 +155,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Parse the uploaded file from the request body (base64 encoded)
     const { fileData, fileName, fileType } = req.body;
+    const normalizedFileData = normalizeBase64(fileData);
+    const safeFileName = typeof fileName === "string" && fileName.trim()
+      ? fileName.trim()
+      : "uploaded-file";
 
-    if (!fileData) {
+    if (!normalizedFileData) {
       return res.status(400).json({ error: "No file data provided" });
     }
 
-    const openai = new OpenAI({ apiKey });
-
-    // Determine if it's an image or document
-    const isImage = fileType?.startsWith("image/");
-
-    let aiResponse: string;
-
-    if (isImage) {
-      // Use vision model for images
-      const completion = await openai.chat.completions.create({
-        model: modelId,
-        messages: [
-          {
-            role: "system",
-            content: `You are IntelliDraw, an AI that analyzes images and documents to generate Mermaid flowcharts.
-            
-When given an image or document, analyze its content and create a comprehensive Mermaid flowchart that represents the processes, workflows, relationships, or structure shown.
-
-ALWAYS output the complete Mermaid code in a fenced code block with the language identifier "mermaid".
-Use descriptive node labels and proper flow connections.`,
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `Analyze this ${fileName ? `file "${fileName}"` : "image"} and create a Mermaid flowchart that represents its content, structure, or workflow.`,
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:${fileType};base64,${fileData}`,
-                },
-              },
-            ],
-          },
-        ],
-        max_tokens: 4096,
-        temperature: modelId === "gpt-5.5" ? 1 : 0.7,
-      });
-
-      aiResponse = completion.choices[0]?.message?.content || "";
-    } else {
-      // For documents, decode the text content and send as text
-      const textContent = Buffer.from(fileData, "base64").toString("utf-8");
-
-      const completion = await openai.chat.completions.create({
-        model: modelId,
-        messages: [
-          {
-            role: "system",
-            content: `You are IntelliDraw, an AI that analyzes documents to generate Mermaid flowcharts.
-            
-When given document content, analyze it and create a comprehensive Mermaid flowchart that represents the processes, workflows, relationships, or structure described.
-
-ALWAYS output the complete Mermaid code in a fenced code block with the language identifier "mermaid".
-Use descriptive node labels and proper flow connections.`,
-          },
-          {
-            role: "user",
-            content: `Analyze this document "${fileName || "document"}" and create a Mermaid flowchart:\n\n${textContent.slice(0, 8000)}`,
-          },
-        ],
-        max_tokens: 4096,
-        temperature: modelId === "gpt-5.5" ? 1 : 0.7,
-      });
-
-      aiResponse = completion.choices[0]?.message?.content || "";
+    const inputBytes = Buffer.byteLength(normalizedFileData, "base64");
+    if (inputBytes > MAX_INPUT_FILE_BYTES) {
+      return res.status(413).json({ error: "Uploaded file must be under 50 MB." });
     }
 
+    const resolvedType = resolveMimeType(safeFileName, fileType);
+    if (!resolvedType) {
+      return res.status(415).json({
+        error: "Unsupported file type. Upload an image, PDF, Word document, Markdown, or text-based file.",
+      });
+    }
+
+    const openai = new OpenAI({ apiKey });
+    const response = await openai.responses.create({
+      model: modelId,
+      instructions: UPLOAD_ANALYSIS_INSTRUCTIONS,
+      input: [
+        {
+          role: "user",
+          content: buildInputContent({
+            base64Data: normalizedFileData,
+            fileName: safeFileName,
+            kind: resolvedType.kind,
+            mimeType: resolvedType.mimeType,
+          }),
+        },
+      ],
+      max_output_tokens: 4096,
+      temperature: modelId === "gpt-5.5" ? 1 : 0.7,
+    });
+
+    const aiResponse = response.output_text || "";
+
     // Extract mermaid code
-    const mermaidMatch = aiResponse.match(/```mermaid\n([\s\S]*?)```/);
+    const mermaidMatch = aiResponse.match(/```mermaid\s*([\s\S]*?)```/i);
     const mermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
 
     return res.status(200).json({
