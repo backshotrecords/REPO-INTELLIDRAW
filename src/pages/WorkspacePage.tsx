@@ -2365,7 +2365,7 @@ export default function WorkspacePage() {
                   <input
                     type="file"
                     className="hidden"
-                    accept="image/*,.pdf,.txt,.md,.doc,.docx"
+                    accept="image/*,.pdf,.txt,.md,.markdown,.json,.csv,.tsv,.html,.htm,.xml,.rtf,.odt,.doc,.docx,.log,.yaml,.yml"
                     onChange={handleFileUpload}
                   />
                 </label>
@@ -2465,7 +2465,7 @@ export default function WorkspacePage() {
             <input
               type="file"
               className="hidden"
-              accept="image/*,.pdf,.txt,.md,.doc,.docx"
+              accept="image/*,.pdf,.txt,.md,.markdown,.json,.csv,.tsv,.html,.htm,.xml,.rtf,.odt,.doc,.docx,.log,.yaml,.yml"
               onChange={handleFileUpload}
             />
           </label>
