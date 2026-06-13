@@ -41,3 +41,6 @@ simulator/
 
 # Codex remote attachment cache
 .codex-remote-attachments/
+
+# Claude local agent files
+.claude/

@@ -724,7 +724,9 @@ export default function WorkspacePage() {
           removeOfflineOperation(`canvas_save:${canvasId}`);
         } catch (err) {
           console.error("Auto-save failed:", err);
-          reportNetworkFailure();
+          if (err instanceof NetworkError) {
+            reportNetworkFailure();
+          }
         } finally {
           setSaving(false);
         }
@@ -1349,13 +1351,20 @@ export default function WorkspacePage() {
       autoSave(result.updatedMermaidCode || mermaidCodeRef.current, updatedHistory);
       removeOfflineOperation(chatOperationId);
     } catch (err) {
+      const isNetworkError = err instanceof NetworkError;
       const errorMessage: ChatMessage = {
         role: "assistant",
-        content: `Waiting to retry... ${err instanceof Error ? err.message : "Connection interrupted"}`,
+        content: isNetworkError
+          ? `Waiting to retry... ${err.message}`
+          : `Something went wrong: ${err instanceof Error ? err.message : "Chat failed"}`,
         timestamp: new Date().toISOString(),
       };
       setChatHistory([...newHistory, errorMessage]);
-      reportNetworkFailure();
+      if (isNetworkError) {
+        reportNetworkFailure();
+      } else {
+        removeOfflineOperation(chatOperationId);
+      }
     } finally {
       setChatLoading(false);
     }
@@ -1405,45 +1414,62 @@ export default function WorkspacePage() {
     setReconnectMessage("Retrying pending message...");
     markOfflineOperationRetrying(operation.id);
 
-    const result = await apiChat(
-      payload.augmentedMessage,
-      payload.mermaidCode,
-      payload.chatHistory,
-      payload.canvasId || undefined,
-      payload.activeScopeId,
-      payload.scopePath
-    );
+    try {
+      const result = await apiChat(
+        payload.augmentedMessage,
+        payload.mermaidCode,
+        payload.chatHistory,
+        payload.canvasId || undefined,
+        payload.activeScopeId,
+        payload.scopePath
+      );
 
-    const assistantMessage: ChatMessage = {
-      role: "assistant",
-      content: result.response,
-      timestamp: new Date().toISOString(),
-    };
-    const cleanedHistory = payload.chatHistory.filter(
-      (message) => !(message.role === "assistant" && message.content.startsWith("Waiting to retry..."))
-    );
-    const updatedHistory = [...cleanedHistory, assistantMessage];
-    setChatHistory(updatedHistory);
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: result.response,
+        timestamp: new Date().toISOString(),
+      };
+      const cleanedHistory = payload.chatHistory.filter(
+        (message) => !(message.role === "assistant" && message.content.startsWith("Waiting to retry..."))
+      );
+      const updatedHistory = [...cleanedHistory, assistantMessage];
+      setChatHistory(updatedHistory);
 
-    if (result.updatedMermaidCode) {
-      setMermaidCode(result.updatedMermaidCode);
-      playCanvasSound();
-      createCommit(result.updatedMermaidCode, "ai_chat", payload.originalText);
-    }
-
-    const codeToSave = result.updatedMermaidCode || mermaidCodeRef.current;
-    cacheCanvasSave(codeToSave, updatedHistory);
-    if (payload.canvasId) {
-      const updated = await apiUpdateCanvas(payload.canvasId, {
-        mermaidCode: codeToSave,
-        chatHistory: updatedHistory,
-      });
-      if (payload.canvasId === canvasIdRef.current) {
-        setDashboardReturnCanvas(getCanvasReturnContext(updated));
+      if (result.updatedMermaidCode) {
+        setMermaidCode(result.updatedMermaidCode);
+        playCanvasSound();
+        createCommit(result.updatedMermaidCode, "ai_chat", payload.originalText);
       }
-      removeOfflineOperation(`canvas_save:${payload.canvasId}`);
+
+      const codeToSave = result.updatedMermaidCode || mermaidCodeRef.current;
+      cacheCanvasSave(codeToSave, updatedHistory);
+      if (payload.canvasId) {
+        const updated = await apiUpdateCanvas(payload.canvasId, {
+          mermaidCode: codeToSave,
+          chatHistory: updatedHistory,
+        });
+        if (payload.canvasId === canvasIdRef.current) {
+          setDashboardReturnCanvas(getCanvasReturnContext(updated));
+        }
+        removeOfflineOperation(`canvas_save:${payload.canvasId}`);
+      }
+      removeOfflineOperation(operation.id);
+    } catch (err) {
+      if (err instanceof NetworkError) {
+        throw err;
+      }
+
+      const cleanedHistory = payload.chatHistory.filter(
+        (message) => !(message.role === "assistant" && message.content.startsWith("Waiting to retry..."))
+      );
+      const errorMessage: ChatMessage = {
+        role: "assistant",
+        content: `Something went wrong: ${err instanceof Error ? err.message : "Chat failed"}`,
+        timestamp: new Date().toISOString(),
+      };
+      setChatHistory([...cleanedHistory, errorMessage]);
+      removeOfflineOperation(operation.id);
     }
-    removeOfflineOperation(operation.id);
   }, [cacheCanvasSave, createCommit, playCanvasSound, setReconnectMessage]);
 
   const processTranscriptionOperation = useCallback(async (operation: OfflineOperation<TranscriptionPayload>) => {
