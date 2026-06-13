@@ -126,6 +126,14 @@ export function parseMermaidAST(code: string): MermaidAST {
     // Skip direction directives inside subgraphs
     if (/^direction\s+(TD|TB|BT|LR|RL)/i.test(trimmed)) continue;
 
+    // Mermaid supports declaring group membership after node/edge definitions:
+    // `subgraph Group` followed by bare `NodeId` lines.
+    const bareMembershipMatch = trimmed.match(/^([A-Za-z_]\w*)$/);
+    if (bareMembershipMatch && stack.length > 0) {
+      recordNodeMembership(bareMembershipMatch[1], stack[stack.length - 1]);
+      continue;
+    }
+
     // Detect edges — patterns like A --> B, A --> B --> C (chains), A -->|label| B
     const allEdges = parseAllEdges(trimmed);
     if (allEdges.length > 0) {
@@ -225,6 +233,34 @@ export function parseMermaidAST(code: string): MermaidAST {
     }
 
     if (!currentScope) return;
+    if (isInsideChildSubgraph(currentScope, nodeId, allSubgraphsFlat)) return;
+    if (!currentScope.directNodes.includes(nodeId)) {
+      currentScope.directNodes.push(nodeId);
+    }
+  }
+
+  function recordNodeMembership(nodeId: string, currentScope: SubgraphNode): void {
+    allDefinedNodes.add(nodeId);
+
+    const currentOwner = currentScope.id;
+    const existingOwner = nodeOwners.get(nodeId);
+    const existingExplicitOwner = explicitNodeOwners.get(nodeId);
+
+    if (
+      existingExplicitOwner !== undefined &&
+      existingExplicitOwner !== null &&
+      existingExplicitOwner !== currentOwner
+    ) {
+      return;
+    }
+
+    if (existingOwner !== undefined && existingOwner !== currentOwner) {
+      removeDirectNode(nodeId, existingOwner);
+    }
+
+    explicitNodeOwners.set(nodeId, currentOwner);
+    nodeOwners.set(nodeId, currentOwner);
+
     if (isInsideChildSubgraph(currentScope, nodeId, allSubgraphsFlat)) return;
     if (!currentScope.directNodes.includes(nodeId)) {
       currentScope.directNodes.push(nodeId);

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { OPERATION_STORAGE_KEY, getOfflineOperations } from "../lib/offlineQueue";
+import { OPERATION_STORAGE_KEY, clearOfflineQueue, getOfflineOperations } from "../lib/offlineQueue";
 
 // "reconnecting" = verifying the connection (neutral UI); "syncing" = verified online, restoring queued work (success UI).
 type ConnectivityStatus = "online" | "offline" | "reconnecting" | "syncing";
@@ -22,6 +22,7 @@ interface ConnectivityContextValue {
   reportNetworkFailure: () => void;
   setReconnectMessage: (message: string) => void;
   retryConnection: () => Promise<void>;
+  clearPendingQueue: () => Promise<void>;
   registerReconnectHandler: (handler: ReconnectHandler) => () => void;
 }
 
@@ -53,6 +54,7 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
   const onlineTimerRef = useRef<number | null>(null);
   const lastAutoReconnectRef = useRef(0);
   const statusRef = useRef(status);
+  const queueClearGenerationRef = useRef(0);
 
   useEffect(() => {
     statusRef.current = status;
@@ -85,6 +87,7 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
   const runReconnect = useCallback(async () => {
     if (reconnectingRef.current) return;
     reconnectingRef.current = true;
+    const clearGenerationAtStart = queueClearGenerationRef.current;
     lastAutoReconnectRef.current = Date.now();
     setStatus("reconnecting");
     setMessage("Checking connection...");
@@ -113,6 +116,15 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
       }
     } catch (err) {
       console.error("Reconnect queue processing failed:", err);
+      if (queueClearGenerationRef.current !== clearGenerationAtStart) {
+        reconnectingRef.current = false;
+        refreshQueueCount();
+        if (navigator.onLine) {
+          setStatus("online");
+          setMessage("");
+        }
+        return;
+      }
       setStatus("offline");
       setMessage("Connection restored, but sync needs retry");
       reconnectingRef.current = false;
@@ -138,6 +150,21 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
   const retryConnection = useCallback(async () => {
     await runReconnect();
   }, [runReconnect]);
+
+  const clearPendingQueue = useCallback(async () => {
+    queueClearGenerationRef.current += 1;
+    clearOnlineTimer();
+    reconnectingRef.current = false;
+    await clearOfflineQueue();
+    refreshQueueCount();
+    if (navigator.onLine) {
+      setStatus("online");
+      setMessage("");
+    } else {
+      setStatus("offline");
+      setMessage("Pending work cleared");
+    }
+  }, [clearOnlineTimer, refreshQueueCount]);
 
   const registerReconnectHandler = useCallback((handler: ReconnectHandler) => {
     handlersRef.current.add(handler);
@@ -213,9 +240,11 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
       reportNetworkFailure,
       setReconnectMessage,
       retryConnection,
+      clearPendingQueue,
       registerReconnectHandler,
     }),
     [
+      clearPendingQueue,
       message,
       queueCount,
       registerReconnectHandler,

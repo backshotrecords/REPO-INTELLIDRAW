@@ -1,9 +1,18 @@
 import { useConnectivity } from "../contexts/ConnectivityContext";
 
 export default function ConnectivityOverlay({ children }: { children: React.ReactNode }) {
-  const { status, isBlocked, message, queueCount, retryConnection } = useConnectivity();
+  const { status, isBlocked, message, queueCount, retryConnection, clearPendingQueue } = useConnectivity();
   const isChecking = status === "reconnecting";
   const isSyncing = status === "syncing";
+
+  const handleClearPending = () => {
+    const confirmed = window.confirm(
+      "Clear pending offline work? This discards unsynced messages, saves, uploads, and voice recordings stored on this device."
+    );
+    if (confirmed) {
+      void clearPendingQueue();
+    }
+  };
 
   return (
     <div className="relative min-h-screen">
@@ -50,14 +59,27 @@ export default function ConnectivityOverlay({ children }: { children: React.Reac
                   </span>
                 )}
               </div>
-              {status === "offline" && (
-                <button
-                  type="button"
-                  onClick={() => void retryConnection()}
-                  className="rounded-full bg-red-600 px-4 py-2 text-xs font-extrabold text-white shadow-lg shadow-red-600/20 transition active:scale-95"
-                >
-                  Retry connection
-                </button>
+              {(status === "offline" || queueCount > 0) && (
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  {status === "offline" && (
+                    <button
+                      type="button"
+                      onClick={() => void retryConnection()}
+                      className="rounded-full bg-red-600 px-4 py-2 text-xs font-extrabold text-white shadow-lg shadow-red-600/20 transition active:scale-95"
+                    >
+                      Retry connection
+                    </button>
+                  )}
+                  {queueCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearPending}
+                      className="rounded-full bg-slate-900 px-4 py-2 text-xs font-extrabold text-white shadow-lg shadow-slate-900/15 transition active:scale-95"
+                    >
+                      Clear pending
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
