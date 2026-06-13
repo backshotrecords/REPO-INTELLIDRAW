@@ -103,6 +103,11 @@ export function removeOfflineOperation(id: string) {
   writeOperations(readOperations().filter((operation) => operation.id !== id));
 }
 
+export function clearOfflineOperations() {
+  localStorage.removeItem(OPERATION_STORAGE_KEY);
+  window.dispatchEvent(new CustomEvent("intellidraw-offline-queue-change"));
+}
+
 export function markOfflineOperationRetrying(id: string) {
   const operations = readOperations();
   const next = operations.map((operation) =>
@@ -181,4 +186,24 @@ export async function removeOfflineBlob(key: string) {
     tx.onerror = () => reject(tx.error);
   });
   db.close();
+}
+
+export async function clearOfflineBlobs() {
+  const db = await openOfflineDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(BLOB_STORE, "readwrite");
+    tx.objectStore(BLOB_STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+export async function clearOfflineQueue() {
+  clearOfflineOperations();
+  try {
+    await clearOfflineBlobs();
+  } catch (err) {
+    console.error("Failed to clear offline blobs:", err);
+  }
 }
