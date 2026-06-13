@@ -264,6 +264,28 @@ const SACRED_ROUTER_FIXTURE = `flowchart TD
     C -->|"Emotional pain fear grief shame loneliness confusion longing"| I
     L --> M`;
 
+const DEFERRED_SUBGRAPH_MEMBERSHIP_FIXTURE = `flowchart TD
+    A[User opens canvas] --> B1[Mic button shows small chevron or expandable menu affordance]
+    B1 --> B2[User clicks chevron or menu area]
+    B2 --> B3[Expandable mic mode menu pops up]
+    B3 --> B4[User selects a mic mode]
+    B4 --> C{Selected mic mode?}
+
+    C -- Regular voice mode --> D[User taps mic]
+    C -- Meeting mode --> J[User taps mic to start live meeting recording]
+
+    subgraph MicModes["Mic Button Modes"]
+        subgraph MicButtonExpandableMenu["Mic Button Expandable Menu"]
+            B1
+            B2
+            B3
+            B4
+            C
+        end
+        D
+        J
+    end`;
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe('getRootViewWithCollapseState', () => {
@@ -623,6 +645,37 @@ describe('student support collapse regression', () => {
     expect(getScopePath(ast, 'L1')).toEqual([
       { id: 'L1', label: 'Layer 1 Listener Layer' },
     ]);
+  });
+});
+
+describe('deferred subgraph membership declarations', () => {
+  it('records bare membership nodes inside groups when labels and edges are defined earlier', () => {
+    const ast = parseMermaidAST(DEFERRED_SUBGRAPH_MEMBERSHIP_FIXTURE);
+    const micModes = ast.allSubgraphsFlat.get('MicModes')!;
+    const expandableMenu = ast.allSubgraphsFlat.get('MicButtonExpandableMenu')!;
+
+    expect(expandableMenu.directNodes).toEqual(['B1', 'B2', 'B3', 'B4', 'C']);
+    expect(micModes.directNodes).toEqual(['D', 'J']);
+  });
+
+  it('renders child and parent scopes when grouped nodes are declared after the edge graph', () => {
+    const ast = parseMermaidAST(DEFERRED_SUBGRAPH_MEMBERSHIP_FIXTURE);
+    const openedMenu = getScopeViewCode(ast, 'MicButtonExpandableMenu', new Set());
+    const openedMicModes = getScopeViewCode(ast, 'MicModes', new Set(['MicButtonExpandableMenu']));
+
+    expect(openedMenu.code).toContain('B1[Mic button shows small chevron or expandable menu affordance]');
+    expect(openedMenu.code).toContain('B1 --> B2');
+    expect(openedMenu.code).toContain('B2 --> B3');
+    expect(openedMenu.code).toContain('B3 --> B4');
+    expect(openedMenu.code).toContain('B4 --> C');
+    expect(openedMenu.code).toContain('C -.-> _ext_D');
+    expect(openedMenu.code).toContain('C -.-> _ext_J');
+
+    expect(openedMicModes.code).toContain('MicButtonExpandableMenu["📂 Mic Button Expandable Menu"]');
+    expect(openedMicModes.code).toContain('D[User taps mic]');
+    expect(openedMicModes.code).toContain('J[User taps mic to start live meeting recording]');
+    expect(openedMicModes.code).toContain('MicButtonExpandableMenu -->|Regular voice mode| D');
+    expect(openedMicModes.code).toContain('MicButtonExpandableMenu -->|Meeting mode| J');
   });
 });
 
