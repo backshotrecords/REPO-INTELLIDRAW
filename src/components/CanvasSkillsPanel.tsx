@@ -11,6 +11,7 @@ interface CanvasSkillsPanelProps {
   canvasId: string;
   isOpen: boolean;
   onClose: () => void;
+  inputBarHeight?: number;
   onSkillTriggered: (result: { updatedMermaidCode: string | null; response: string; skillTitle: string }) => void;
   onAddSkillToContext: (skill: { title: string; instructionText: string }) => void;
 }
@@ -33,6 +34,7 @@ export default function CanvasSkillsPanel({
   canvasId,
   isOpen,
   onClose,
+  inputBarHeight = 60,
   onSkillTriggered,
   onAddSkillToContext,
 }: CanvasSkillsPanelProps) {
@@ -221,9 +223,11 @@ export default function CanvasSkillsPanel({
 
   if (!isOpen) return null;
 
+  const panelBottomOffset = Math.max(80, inputBarHeight + 32);
+
   return (
     <div className="skills-panel absolute left-4 bottom-0 z-50 w-[340px] max-h-[70vh] bg-white/95 backdrop-blur-2xl rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.15)] border border-outline-variant/20 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 fade-in duration-200"
-      style={{ bottom: "80px" }}>
+      style={{ bottom: `${panelBottomOffset}px`, zIndex: 10020 }}>
       <div className="px-5 py-4 border-b border-outline-variant/10 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <span className="material-symbols-outlined text-lg text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
