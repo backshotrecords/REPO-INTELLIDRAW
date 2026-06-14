@@ -2390,6 +2390,7 @@ ${transcript}
                   canvasId={canvasId}
                   isOpen={showSkillsPanel}
                   onClose={() => setShowSkillsPanel(false)}
+                  inputBarHeight={inputBarHeight}
                   onAddSkillToContext={handleAddSkillToContext}
                   onSkillTriggered={(result) => {
                     flushPreviewMode();
