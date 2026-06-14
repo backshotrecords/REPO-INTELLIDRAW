@@ -26,12 +26,13 @@ interface VoiceMicButtonProps {
   canvasId?: string | null;
   disabled?: boolean;
   chunkLengthMinutes?: number;
+  onChunkQueueChange?: (chunks: VoiceQueueChunk[]) => void;
 }
 
 type VoiceState = "idle" | "recording" | "processing" | "success" | "cancelled";
-type VoiceChunkStatus = "transcribing" | "ready" | "chat_processing" | "complete" | "error";
+export type VoiceChunkStatus = "transcribing" | "ready" | "chat_processing" | "complete" | "error";
 
-interface VoiceChunkItem extends VoiceTranscriptChunk {
+export interface VoiceQueueChunk extends VoiceTranscriptChunk {
   status: VoiceChunkStatus;
   transcript?: string;
   error?: string;
@@ -56,34 +57,27 @@ function modeLabel(mode: VoiceMode) {
   return mode === "meeting" ? "Meeting Mode" : "Normal Voice";
 }
 
-function chunkStatusLabel(status: VoiceChunkStatus) {
-  switch (status) {
-    case "transcribing": return "transcribing";
-    case "ready": return "ready";
-    case "chat_processing": return "processing";
-    case "complete": return "done";
-    case "error": return "error";
-  }
-}
-
 export default function VoiceMicButton({
   onTranscript,
   onMeetingTranscript,
   canvasId,
   disabled,
   chunkLengthMinutes = DEFAULT_CHUNK_MINUTES,
+  onChunkQueueChange,
 }: VoiceMicButtonProps) {
   const [mode, setMode] = useState<VoiceMode>("normal");
   const [menuOpen, setMenuOpen] = useState(false);
   const [state, setState] = useState<VoiceState>("idle");
   const [seconds, setSeconds] = useState(0);
   const [currentChunkIndex, setCurrentChunkIndex] = useState(1);
-  const [chunks, setChunks] = useState<VoiceChunkItem[]>([]);
+  const [chunks, setChunks] = useState<VoiceQueueChunk[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null);
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recorderChunksRef = useRef<Blob[]>([]);
+  const recorderMimeTypeRef = useRef("audio/webm");
   const audioStreamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -91,6 +85,7 @@ export default function VoiceMicButton({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chunkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stateRef = useRef<VoiceState>("idle");
   const modeRef = useRef<VoiceMode>("normal");
@@ -110,6 +105,10 @@ export default function VoiceMicButton({
     onTranscriptRef.current = onTranscript;
     onMeetingTranscriptRef.current = onMeetingTranscript;
   }, [onTranscript, onMeetingTranscript]);
+
+  useEffect(() => {
+    onChunkQueueChange?.(chunks);
+  }, [chunks, onChunkQueueChange]);
 
   const updateMenuPosition = useCallback(() => {
     const wrapper = wrapperRef.current;
@@ -135,7 +134,7 @@ export default function VoiceMicButton({
     };
   }, [menuOpen, updateMenuPosition]);
 
-  const updateChunk = useCallback((id: string, updates: Partial<VoiceChunkItem>) => {
+  const updateChunk = useCallback((id: string, updates: Partial<VoiceQueueChunk>) => {
     setChunks((current) => current.map((chunk) => chunk.id === id ? { ...chunk, ...updates } : chunk));
   }, []);
 
@@ -230,6 +229,7 @@ export default function VoiceMicButton({
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      if (chunkTimerRef.current) clearTimeout(chunkTimerRef.current);
       audioStreamRef.current?.getTracks().forEach((track) => track.stop());
       void audioCtxRef.current?.close();
     };
@@ -288,6 +288,85 @@ export default function VoiceMicButton({
     }
   }, [canvasId, finishPendingChunk, updateChunk]);
 
+  const cleanupRecordingResources = useCallback(() => {
+    audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+    audioStreamRef.current = null;
+    void audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+    mediaRecorderRef.current = null;
+    recorderChunksRef.current = [];
+    if (chunkTimerRef.current) {
+      clearTimeout(chunkTimerRef.current);
+      chunkTimerRef.current = null;
+    }
+  }, []);
+
+  const startRecorderChunk = useCallback(() => {
+    const stream = audioStreamRef.current;
+    if (!stream || cancelledRef.current) return;
+
+    recorderChunksRef.current = [];
+    const recorderOptions = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? { mimeType: "audio/webm;codecs=opus" }
+      : undefined;
+    const mediaRecorder = new MediaRecorder(stream, recorderOptions);
+    mediaRecorderRef.current = mediaRecorder;
+    recorderMimeTypeRef.current = mediaRecorder.mimeType || recorderOptions?.mimeType || "audio/webm";
+
+    const chunkIndex = nextChunkIndexRef.current;
+    setCurrentChunkIndex(chunkIndex);
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) recorderChunksRef.current.push(event.data);
+    };
+
+    mediaRecorder.onstop = () => {
+      if (chunkTimerRef.current) {
+        clearTimeout(chunkTimerRef.current);
+        chunkTimerRef.current = null;
+      }
+
+      const blobParts = recorderChunksRef.current;
+      recorderChunksRef.current = [];
+
+      if (cancelledRef.current) {
+        pendingChunkCountRef.current = 0;
+        cancelledRef.current = false;
+        cleanupRecordingResources();
+        return;
+      }
+
+      if (blobParts.some((part) => part.size > 0)) {
+        const mimeType = recorderMimeTypeRef.current || blobParts.find((part) => part.type)?.type || "audio/webm";
+        const blob = new Blob(blobParts, { type: mimeType });
+        const chunk: VoiceTranscriptChunk = {
+          id: crypto.randomUUID(),
+          index: chunkIndex,
+          mode: sessionModeRef.current,
+        };
+        nextChunkIndexRef.current += 1;
+        setCurrentChunkIndex(nextChunkIndexRef.current);
+        void sendForTranscription(blob, chunk);
+      }
+
+      if (recordingActiveRef.current) {
+        startRecorderChunk();
+        return;
+      }
+
+      cleanupRecordingResources();
+      setState(pendingChunkCountRef.current > 0 ? "processing" : "success");
+      settleIfComplete();
+    };
+
+    mediaRecorder.start();
+    chunkTimerRef.current = setTimeout(() => {
+      if (mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+      }
+    }, chunkLengthRef.current * 60 * 1000);
+  }, [cleanupRecordingResources, sendForTranscription, settleIfComplete]);
+
   const startRecording = useCallback(async () => {
     setErrorMsg(null);
     setMenuOpen(false);
@@ -313,45 +392,7 @@ export default function VoiceMicButton({
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      const recorderOptions = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? { mimeType: "audio/webm;codecs=opus" }
-        : undefined;
-      const mediaRecorder = new MediaRecorder(stream, recorderOptions);
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (cancelledRef.current || event.data.size === 0) return;
-
-        const index = nextChunkIndexRef.current;
-        nextChunkIndexRef.current += 1;
-        setCurrentChunkIndex(nextChunkIndexRef.current);
-
-        const chunk: VoiceTranscriptChunk = {
-          id: crypto.randomUUID(),
-          index,
-          mode: sessionModeRef.current,
-        };
-        void sendForTranscription(event.data, chunk);
-      };
-
-      mediaRecorder.onstop = () => {
-        recordingActiveRef.current = false;
-        stream.getTracks().forEach((track) => track.stop());
-        void audioCtxRef.current?.close();
-        audioCtxRef.current = null;
-
-        if (cancelledRef.current) {
-          pendingChunkCountRef.current = 0;
-          cancelledRef.current = false;
-          return;
-        }
-
-        setState(pendingChunkCountRef.current > 0 ? "processing" : "success");
-        settleIfComplete();
-      };
-
-      const chunkMs = chunkLengthRef.current * 60 * 1000;
-      mediaRecorder.start(chunkMs);
+      startRecorderChunk();
       setState("recording");
       setSeconds(0);
       timerRef.current = setInterval(() => {
@@ -362,13 +403,15 @@ export default function VoiceMicButton({
       setErrorMsg("Microphone access denied.");
       setTimeout(() => setErrorMsg(null), 3000);
     }
-  }, [sendForTranscription, settleIfComplete]);
+  }, [startRecorderChunk]);
 
   const stopRecording = useCallback(() => {
     recordingActiveRef.current = false;
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
+    } else {
+      cleanupRecordingResources();
     }
 
     if (timerRef.current) {
@@ -378,29 +421,33 @@ export default function VoiceMicButton({
 
     stopWaveform();
     setState("processing");
-  }, [stopWaveform]);
+  }, [cleanupRecordingResources, stopWaveform]);
 
   const cancelRecording = useCallback(() => {
     cancelledRef.current = true;
     recordingActiveRef.current = false;
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
+    if (chunkTimerRef.current) {
+      clearTimeout(chunkTimerRef.current);
+      chunkTimerRef.current = null;
     }
 
-    audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    } else {
+      cleanupRecordingResources();
+    }
+
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
     stopWaveform();
-    void audioCtxRef.current?.close();
-    audioCtxRef.current = null;
     setChunks([]);
 
     setState("cancelled");
     setTimeout(() => setState("idle"), 1200);
-  }, [stopWaveform]);
+  }, [cleanupRecordingResources, stopWaveform]);
 
   const handlePointerDown = useCallback((event: React.PointerEvent) => {
     if (disabled && stateRef.current !== "recording") return;
@@ -432,20 +479,8 @@ export default function VoiceMicButton({
     mode === "meeting" && "voice-meeting-mode",
   ].filter(Boolean).join(" ");
 
-  const visibleChunks = chunks.slice(-4);
-  const activeChunk = visibleChunks.find((chunk) => chunk.status !== "complete") || visibleChunks[visibleChunks.length - 1];
-  const activeCount = chunks.filter((chunk) => chunk.status !== "complete").length;
-
   return (
     <div className="voice-mic-wrapper" ref={wrapperRef}>
-      {activeChunk && (
-        <div className="voice-chunk-pill" title={`Voice chunks: ${chunks.length}`}>
-          <span className={`voice-chunk-dot voice-chunk-${activeChunk.status}`} />
-          <span className="voice-chunk-label">#{activeChunk.index} {chunkStatusLabel(activeChunk.status)}</span>
-          {activeCount > 1 && <span className="voice-chunk-count">{activeCount}</span>}
-        </div>
-      )}
-
       <button
         type="button"
         onPointerDown={handlePointerDown}

@@ -6,7 +6,7 @@ import type { NodeAction } from "../components/NodeActionOverlay";
 import ScopeBreadcrumb from "../components/ScopeBreadcrumb";
 import SubgraphCollapseOverlay from "../components/SubgraphCollapseOverlay";
 import ProfileMenu from "../components/ProfileMenu";
-import VoiceMicButton, { type VoiceTranscriptChunk } from "../components/VoiceMicButton";
+import VoiceMicButton, { type VoiceQueueChunk, type VoiceTranscriptChunk } from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
 import CanvasSkillsPanel from "../components/CanvasSkillsPanel";
 import { NetworkError, apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext, apiTranscribeAudio } from "../lib/api";
@@ -67,6 +67,16 @@ function shouldKeepNativeUndoRedo(target: EventTarget | null, chatTextarea: HTML
 
   if (!isTextControl) return false;
   return !(target === chatTextarea && target instanceof HTMLTextAreaElement && target.value.trim() === "");
+}
+
+function formatVoiceQueueStatus(status: VoiceQueueChunk["status"]) {
+  switch (status) {
+    case "transcribing": return "Transcribing";
+    case "ready": return "Ready";
+    case "chat_processing": return "Processing";
+    case "complete": return "Done";
+    case "error": return "Error";
+  }
 }
 
 /** Selected node info stored as a pill */
@@ -147,6 +157,7 @@ export default function WorkspacePage() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [voiceChunkLengthMinutes, setVoiceChunkLengthMinutes] = useState(5);
+  const [voiceQueueChunks, setVoiceQueueChunks] = useState<VoiceQueueChunk[]>([]);
 
   // Ref mirrors — sendMessage reads these instead of closures (closure-proof)
   const chatHistoryRef = useRef<ChatMessage[]>([]);
@@ -1985,6 +1996,8 @@ ${transcript}
 
 
 
+  const visibleVoiceQueueChunks = voiceQueueChunks.slice(-8);
+
   return (
     <div className="bg-background font-body text-on-surface overflow-hidden h-dvh flex flex-col">
       {/* Naming overlay */}
@@ -2551,6 +2564,7 @@ ${transcript}
                     <VoiceMicButton
                       onTranscript={(text) => appendVoiceTranscript(text)}
                       onMeetingTranscript={enqueueMeetingTranscriptChunk}
+                      onChunkQueueChange={setVoiceQueueChunks}
                       canvasId={canvasId}
                       chunkLengthMinutes={voiceChunkLengthMinutes}
                       disabled={chatLoading || isOffline}
@@ -2576,6 +2590,24 @@ ${transcript}
                   </button>
                 </div>
               </div>
+
+              {visibleVoiceQueueChunks.length > 0 && (
+                <div className="px-3 pb-3 -mt-1">
+                  <div className="voice-input-queue-strip">
+                    {visibleVoiceQueueChunks.map((chunk) => (
+                      <div
+                        key={chunk.id}
+                        className={`voice-input-queue-pill voice-input-queue-${chunk.status}`}
+                        title={chunk.error || `Chunk ${chunk.index}: ${formatVoiceQueueStatus(chunk.status)}`}
+                      >
+                        <span className={`voice-chunk-dot voice-chunk-${chunk.status}`} />
+                        <span className="voice-input-queue-index">#{chunk.index}</span>
+                        <span className="voice-input-queue-status">{formatVoiceQueueStatus(chunk.status)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           )}
@@ -2628,6 +2660,7 @@ ${transcript}
             <VoiceMicButton
               onTranscript={(text) => appendVoiceTranscript(text)}
               onMeetingTranscript={enqueueMeetingTranscriptChunk}
+              onChunkQueueChange={setVoiceQueueChunks}
               canvasId={canvasId}
               chunkLengthMinutes={voiceChunkLengthMinutes}
               disabled={chatLoading || isOffline}
