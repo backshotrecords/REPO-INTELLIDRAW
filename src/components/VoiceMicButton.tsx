@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { apiTranscribeAudio } from "../lib/api";
 import { getSoundSettings } from "../lib/soundSettings";
@@ -26,6 +26,7 @@ interface VoiceMicButtonProps {
   canvasId?: string | null;
   disabled?: boolean;
   chunkLengthMinutes?: number;
+  inputBarHeight?: number;
   onChunkQueueChange?: (chunks: VoiceQueueChunk[]) => void;
 }
 
@@ -63,6 +64,7 @@ export default function VoiceMicButton({
   canvasId,
   disabled,
   chunkLengthMinutes = DEFAULT_CHUNK_MINUTES,
+  inputBarHeight = 60,
   onChunkQueueChange,
 }: VoiceMicButtonProps) {
   const [mode, setMode] = useState<VoiceMode>("normal");
@@ -97,6 +99,10 @@ export default function VoiceMicButton({
   const chunkLengthRef = useRef(clampChunkLength(chunkLengthMinutes));
   const onTranscriptRef = useRef(onTranscript);
   const onMeetingTranscriptRef = useRef(onMeetingTranscript);
+  const waveformBottom = Math.max(90, inputBarHeight + 32);
+  const waveformStyle = {
+    "--voice-waveform-bottom": `${waveformBottom}px`,
+  } as CSSProperties;
 
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
@@ -559,7 +565,7 @@ export default function VoiceMicButton({
       )}
 
       {(state === "recording") && createPortal(
-        <div className="voice-waveform-panel">
+        <div className="voice-waveform-panel" style={waveformStyle}>
           <div className="voice-waveform-inner">
             <div className="voice-waveform-status">
               <div className="voice-rec-dot" />

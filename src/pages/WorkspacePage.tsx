@@ -2567,6 +2567,7 @@ ${transcript}
                       onChunkQueueChange={setVoiceQueueChunks}
                       canvasId={canvasId}
                       chunkLengthMinutes={voiceChunkLengthMinutes}
+                      inputBarHeight={inputBarHeight}
                       disabled={chatLoading || isOffline}
                     />
                   </div>
@@ -2663,6 +2664,7 @@ ${transcript}
               onChunkQueueChange={setVoiceQueueChunks}
               canvasId={canvasId}
               chunkLengthMinutes={voiceChunkLengthMinutes}
+              inputBarHeight={inputBarHeight}
               disabled={chatLoading || isOffline}
             />
           </div>
