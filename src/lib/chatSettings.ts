@@ -5,11 +5,14 @@ export interface ChatSettings {
   rollingHistoryEnabled: boolean;
   /** Number of recent messages to include when rolling is enabled */
   rollingWindowLength: number;
+  /** Number of minutes per voice recording chunk */
+  voiceChunkLengthMinutes: number;
 }
 
 const DEFAULTS: ChatSettings = {
   rollingHistoryEnabled: false,
   rollingWindowLength: 10,
+  voiceChunkLengthMinutes: 5,
 };
 
 let cachedSettings: ChatSettings = { ...DEFAULTS };
@@ -21,6 +24,7 @@ export async function fetchChatSettings(): Promise<ChatSettings> {
     cachedSettings = {
       rollingHistoryEnabled: data.rollingHistoryEnabled ?? DEFAULTS.rollingHistoryEnabled,
       rollingWindowLength: data.rollingWindowLength ?? DEFAULTS.rollingWindowLength,
+      voiceChunkLengthMinutes: data.voiceChunkLengthMinutes ?? DEFAULTS.voiceChunkLengthMinutes,
     };
     hasFetched = true;
   } catch {

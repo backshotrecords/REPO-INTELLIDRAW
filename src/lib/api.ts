@@ -653,6 +653,7 @@ export async function apiGetChatConfig() {
 export async function apiUpdateChatConfig(opts: {
   rollingHistoryEnabled?: boolean;
   rollingWindowLength?: number;
+  voiceChunkLengthMinutes?: number;
 }) {
   const res = await apiFetch("/admin/chat-config", {
     method: "PUT",

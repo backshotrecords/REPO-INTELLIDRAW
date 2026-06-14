@@ -5,89 +5,163 @@ import { getSoundSettings } from "../lib/soundSettings";
 import { putOfflineBlob, removeOfflineBlob, upsertOfflineOperation, removeOfflineOperation } from "../lib/offlineQueue";
 
 /* ================================================================
-   VoiceMicButton — Voice-to-text input for the chat bar
+   VoiceMicButton — chunked voice capture for the chat bar
    ================================================================
-   State machine: idle → recording → processing → success → idle
-                                   ↘ cancelled → idle
-
-   Interaction modes:
-   • Tap-to-record: tap to start, tap to stop → text lands in input
-   • Push-to-talk:  hold ≥300ms to start, release to stop → auto-send
-   • Cancel:        X button on waveform, or slide-left during PTT
+   Modes:
+   • Normal Voice Recording: continuous chunks append to the input text area.
+   • Meeting Mode: continuous chunks bypass the input and enter chat processing.
    ================================================================ */
 
+export type VoiceMode = "normal" | "meeting";
+
+export interface VoiceTranscriptChunk {
+  id: string;
+  index: number;
+  mode: VoiceMode;
+}
+
 interface VoiceMicButtonProps {
-  onTranscript: (text: string) => void;
-  onAutoSendTranscript?: (text: string) => void;
+  onTranscript: (text: string, chunk: VoiceTranscriptChunk) => void;
+  onMeetingTranscript?: (text: string, chunk: VoiceTranscriptChunk) => Promise<void> | void;
   canvasId?: string | null;
   disabled?: boolean;
+  chunkLengthMinutes?: number;
+  onChunkQueueChange?: (chunks: VoiceQueueChunk[]) => void;
 }
 
 type VoiceState = "idle" | "recording" | "processing" | "success" | "cancelled";
+export type VoiceChunkStatus = "transcribing" | "ready" | "chat_processing" | "complete" | "error";
 
-const HOLD_THRESHOLD_MS = 300;
-const SLIDE_CANCEL_PX = 100;
+export interface VoiceQueueChunk extends VoiceTranscriptChunk {
+  status: VoiceChunkStatus;
+  transcript?: string;
+  error?: string;
+}
 
-export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, canvasId, disabled }: VoiceMicButtonProps) {
+const DEFAULT_CHUNK_MINUTES = 5;
+const MENU_WIDTH_PX = 220;
+const MENU_HEIGHT_PX = 96;
+
+function clampChunkLength(minutes?: number) {
+  if (!Number.isFinite(minutes)) return DEFAULT_CHUNK_MINUTES;
+  return Math.max(1, Math.min(10, Math.round(minutes || DEFAULT_CHUNK_MINUTES)));
+}
+
+function formatTime(s: number) {
+  const m = String(Math.floor(s / 60)).padStart(2, "0");
+  const sec = String(s % 60).padStart(2, "0");
+  return `${m}:${sec}`;
+}
+
+function modeLabel(mode: VoiceMode) {
+  return mode === "meeting" ? "Meeting Mode" : "Normal Voice";
+}
+
+export default function VoiceMicButton({
+  onTranscript,
+  onMeetingTranscript,
+  canvasId,
+  disabled,
+  chunkLengthMinutes = DEFAULT_CHUNK_MINUTES,
+  onChunkQueueChange,
+}: VoiceMicButtonProps) {
+  const [mode, setMode] = useState<VoiceMode>("normal");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [state, setState] = useState<VoiceState>("idle");
   const [seconds, setSeconds] = useState(0);
+  const [currentChunkIndex, setCurrentChunkIndex] = useState(1);
+  const [chunks, setChunks] = useState<VoiceQueueChunk[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [isPushToTalk, setIsPushToTalk] = useState(false);
-  const [slideOffset, setSlideOffset] = useState(0);
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null);
 
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const recorderChunksRef = useRef<Blob[]>([]);
+  const recorderMimeTypeRef = useRef("audio/webm");
   const audioStreamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chunkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Push-to-talk refs (used in async/timer callbacks to get latest values)
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
-  const isPushToTalkRef = useRef(false);
-  const cancelledRef = useRef(false);
-  const autoSendRef = useRef(false);
-  const isHoldingRef = useRef(false);
-  const slideOffsetRef = useRef(0);
   const stateRef = useRef<VoiceState>("idle");
-
-  // Callback refs — keeps latest prop callbacks accessible from stale closures
-  // (startRecording's useCallback has [] deps, so its onstop handler captures
-  //  sendForTranscription from render #1. These refs let it call the latest version.)
+  const modeRef = useRef<VoiceMode>("normal");
+  const sessionModeRef = useRef<VoiceMode>("normal");
+  const cancelledRef = useRef(false);
+  const recordingActiveRef = useRef(false);
+  const pendingChunkCountRef = useRef(0);
+  const nextChunkIndexRef = useRef(1);
+  const chunkLengthRef = useRef(clampChunkLength(chunkLengthMinutes));
   const onTranscriptRef = useRef(onTranscript);
-  const onAutoSendRef = useRef(onAutoSendTranscript);
+  const onMeetingTranscriptRef = useRef(onMeetingTranscript);
 
-  // Keep refs in sync every render
   useEffect(() => { stateRef.current = state; }, [state]);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { chunkLengthRef.current = clampChunkLength(chunkLengthMinutes); }, [chunkLengthMinutes]);
   useEffect(() => {
     onTranscriptRef.current = onTranscript;
-    onAutoSendRef.current = onAutoSendTranscript;
-  }, [onTranscript, onAutoSendTranscript]);
+    onMeetingTranscriptRef.current = onMeetingTranscript;
+  }, [onTranscript, onMeetingTranscript]);
 
-  const isCancelZone = slideOffset < -SLIDE_CANCEL_PX;
-
-  // ── Cleanup on unmount ───────────────────────────────────────
   useEffect(() => {
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-      audioStreamRef.current?.getTracks().forEach((t) => t.stop());
-      audioCtxRef.current?.close();
-    };
+    onChunkQueueChange?.(chunks);
+  }, [chunks, onChunkQueueChange]);
+
+  const updateMenuPosition = useCallback(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+
+    const rect = wrapper.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(8, rect.right - MENU_WIDTH_PX),
+      Math.max(8, window.innerWidth - MENU_WIDTH_PX - 8)
+    );
+    const top = Math.max(8, rect.top - MENU_HEIGHT_PX - 10);
+    setMenuPosition({ left, top });
   }, []);
 
-  // ── Format timer ─────────────────────────────────────────────
-  const formatTime = (s: number) => {
-    const m = String(Math.floor(s / 60)).padStart(2, "0");
-    const sec = String(s % 60).padStart(2, "0");
-    return `${m}:${sec}`;
-  };
+  useEffect(() => {
+    if (!menuOpen) return;
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [menuOpen, updateMenuPosition]);
 
-  // ── Waveform drawing ────────────────────────────────────────
+  const updateChunk = useCallback((id: string, updates: Partial<VoiceQueueChunk>) => {
+    setChunks((current) => current.map((chunk) => chunk.id === id ? { ...chunk, ...updates } : chunk));
+  }, []);
+
+  const stopWaveform = useCallback(() => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+  }, []);
+
+  const settleIfComplete = useCallback(() => {
+    if (recordingActiveRef.current || pendingChunkCountRef.current > 0 || cancelledRef.current) return;
+    if (stateRef.current !== "processing" && stateRef.current !== "recording") return;
+
+    setState("success");
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = setTimeout(() => {
+      setState("idle");
+      setChunks((current) => current.filter((chunk) => chunk.status === "error").slice(-3));
+    }, 1800);
+  }, []);
+
+  const finishPendingChunk = useCallback(() => {
+    pendingChunkCountRef.current = Math.max(0, pendingChunkCountRef.current - 1);
+    settleIfComplete();
+  }, [settleIfComplete]);
+
   const drawWaveform = useCallback(() => {
     const analyser = analyserRef.current;
     const canvas = canvasRef.current;
@@ -104,12 +178,9 @@ export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, can
       analyser.getByteTimeDomainData(dataArray);
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Light background to match app theme
       ctx.fillStyle = "#f4f3f9";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Subtle grid lines
       ctx.strokeStyle = "rgba(70, 70, 79, 0.06)";
       ctx.lineWidth = 0.5;
       for (let y = 0; y < canvas.height; y += 12) {
@@ -119,10 +190,9 @@ export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, can
         ctx.stroke();
       }
 
-      // Main waveform line — app primary/teal
       ctx.lineWidth = 2.5;
-      ctx.strokeStyle = "#00897b";
-      ctx.shadowColor = "rgba(0, 137, 123, 0.35)";
+      ctx.strokeStyle = modeRef.current === "meeting" ? "#0058bc" : "#00897b";
+      ctx.shadowColor = modeRef.current === "meeting" ? "rgba(0, 88, 188, 0.32)" : "rgba(0, 137, 123, 0.35)";
       ctx.shadowBlur = 8;
       ctx.beginPath();
 
@@ -139,149 +209,36 @@ export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, can
 
       ctx.lineTo(canvas.width, canvas.height / 2);
       ctx.stroke();
-
-      // Second pass — subtle glow
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(0, 137, 123, 0.2)";
-      ctx.shadowBlur = 14;
-      ctx.stroke();
-
       ctx.shadowBlur = 0;
     };
 
     draw();
   }, []);
 
-  const stopWaveform = useCallback(() => {
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = null;
-    }
-  }, []);
-
-  // ── Start waveform AFTER canvas is rendered ──────────────────
   useEffect(() => {
     if (state === "recording" && analyserRef.current && canvasRef.current) {
       drawWaveform();
     }
     return () => {
-      if (state !== "recording") {
-        stopWaveform();
-      }
+      if (state !== "recording") stopWaveform();
     };
   }, [state, drawWaveform, stopWaveform]);
 
-  // ── Start recording ──────────────────────────────────────────
-  const startRecording = useCallback(async () => {
-    setErrorMsg(null);
-    cancelledRef.current = false;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioStreamRef.current = stream;
-
-      // Set up Web Audio analyser for waveform
-      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      audioCtxRef.current = audioCtx;
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
-      source.connect(analyser);
-      analyserRef.current = analyser;
-
-      // MediaRecorder
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-
-        if (cancelledRef.current) {
-          cancelledRef.current = false;
-          return; // Cancelled — don't transcribe
-        }
-
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        sendForTranscription(blob, autoSendRef.current);
-        autoSendRef.current = false;
-      };
-
-      mediaRecorder.start();
-      setState("recording");
-
-      // Timer
-      setSeconds(0);
-      timerRef.current = setInterval(() => {
-        setSeconds((s) => s + 1);
-      }, 1000);
-
-      // NOTE: waveform is started by the useEffect above once canvas renders
-    } catch {
-      setErrorMsg("Microphone access denied.");
-      setTimeout(() => setErrorMsg(null), 3000);
-    }
+  useEffect(() => {
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      if (chunkTimerRef.current) clearTimeout(chunkTimerRef.current);
+      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+      void audioCtxRef.current?.close();
+    };
   }, []);
 
-  // ── Stop recording ───────────────────────────────────────────
-  const stopRecording = useCallback((autoSend = false) => {
-    autoSendRef.current = autoSend;
+  const sendForTranscription = useCallback(async (blob: Blob, chunk: VoiceTranscriptChunk) => {
+    pendingChunkCountRef.current += 1;
+    setChunks((current) => [...current, { ...chunk, status: "transcribing" }]);
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
-    }
-
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    stopWaveform();
-    setIsPushToTalk(false);
-    isPushToTalkRef.current = false;
-    setSlideOffset(0);
-    slideOffsetRef.current = 0;
-    setState("processing");
-  }, [stopWaveform]);
-
-  // ── Cancel recording (discard — no API call) ─────────────────
-  const cancelRecording = useCallback(() => {
-    cancelledRef.current = true;
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
-    }
-
-    // Stop mic stream
-    audioStreamRef.current?.getTracks().forEach((t) => t.stop());
-
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-
-    stopWaveform();
-
-    // Close audio context
-    audioCtxRef.current?.close();
-    audioCtxRef.current = null;
-
-    // Reset
-    audioChunksRef.current = [];
-    setIsPushToTalk(false);
-    isPushToTalkRef.current = false;
-    setSlideOffset(0);
-    slideOffsetRef.current = 0;
-
-    // Show cancelled state with trash animation, then return to idle
-    setState("cancelled");
-    setTimeout(() => setState("idle"), 1200);
-  }, [stopWaveform]);
-
-  // ── Send for transcription ───────────────────────────────────
-  const sendForTranscription = async (blob: Blob, autoSend = false) => {
     const operationId = `transcription:${crypto.randomUUID()}`;
     const blobKey = `${operationId}:audio`;
     await putOfflineBlob(blobKey, blob);
@@ -292,21 +249,25 @@ export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, can
       payload: {
         canvasId: canvasId || null,
         blobKey,
-        autoSend,
+        autoSend: chunk.mode === "meeting",
         mimeType: blob.type || "audio/webm",
+        mode: chunk.mode,
+        chunkIndex: chunk.index,
       },
     });
 
     try {
       const text = await apiTranscribeAudio(blob);
+      updateChunk(chunk.id, { transcript: text, status: chunk.mode === "meeting" ? "ready" : "complete" });
 
-      if (autoSend && onAutoSendRef.current) {
-        onAutoSendRef.current(text);
+      if (chunk.mode === "meeting") {
+        updateChunk(chunk.id, { status: "chat_processing" });
+        await onMeetingTranscriptRef.current?.(text, chunk);
+        updateChunk(chunk.id, { status: "complete" });
       } else {
-        onTranscriptRef.current(text);
+        onTranscriptRef.current(text, chunk);
       }
 
-      // Play voice transcription sound, respecting master settings
       const settings = getSoundSettings();
       if (settings.enabled && settings.volume > 0) {
         const audio = new Audio(settings.voiceSoundUrl);
@@ -314,109 +275,200 @@ export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, can
         audio.play().catch(() => {});
       }
 
-      setState("success");
       removeOfflineOperation(operationId);
       void removeOfflineBlob(blobKey);
-      setTimeout(() => setState("idle"), 1800);
     } catch (err) {
       console.error("Transcription error:", err);
-      setErrorMsg(err instanceof Error ? err.message : "Transcription failed");
-      setState("idle");
+      const message = err instanceof Error ? err.message : "Transcription failed";
+      updateChunk(chunk.id, { status: "error", error: message });
+      setErrorMsg(message);
       setTimeout(() => setErrorMsg(null), 4000);
+    } finally {
+      finishPendingChunk();
     }
-  };
+  }, [canvasId, finishPendingChunk, updateChunk]);
 
-  // ── Pointer handlers (tap vs. hold detection) ────────────────
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (disabled && stateRef.current !== "recording") return;
-    if (stateRef.current === "processing" || stateRef.current === "cancelled") return;
-
-    e.preventDefault();
-    isHoldingRef.current = true;
-    pointerStartRef.current = { x: e.clientX, y: e.clientY };
-    slideOffsetRef.current = 0;
-    setSlideOffset(0);
-
-    // Capture pointer so we get move/up events even outside the button
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-
-    if (stateRef.current === "recording") {
-      // Already recording in tap mode — pointer up will stop it
-      return;
+  const cleanupRecordingResources = useCallback(() => {
+    audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+    audioStreamRef.current = null;
+    void audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+    mediaRecorderRef.current = null;
+    recorderChunksRef.current = [];
+    if (chunkTimerRef.current) {
+      clearTimeout(chunkTimerRef.current);
+      chunkTimerRef.current = null;
     }
-
-    // Start hold detection timer
-    holdTimerRef.current = setTimeout(async () => {
-      if (!isHoldingRef.current) return; // User released before threshold
-      // Hold threshold reached → push-to-talk mode
-      isPushToTalkRef.current = true;
-      setIsPushToTalk(true);
-      await startRecording();
-      // If user released during getUserMedia, cancel silently
-      if (!isHoldingRef.current && stateRef.current === "recording") {
-        cancelRecording();
-      }
-    }, HOLD_THRESHOLD_MS);
-  }, [disabled, startRecording, cancelRecording]);
-
-  const handlePointerUp = useCallback(() => {
-    isHoldingRef.current = false;
-
-    // Clear hold timer if it hasn't fired yet (tap was < 300ms)
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-
-    // ── Push-to-talk release ──
-    if (isPushToTalkRef.current) {
-      if (stateRef.current === "recording") {
-        if (slideOffsetRef.current < -SLIDE_CANCEL_PX) {
-          cancelRecording();
-        } else {
-          stopRecording(true); // autoSend = true
-        }
-      }
-      // If state isn't "recording" yet (getUserMedia pending),
-      // the async check in handlePointerDown will handle it
-      isPushToTalkRef.current = false;
-      setIsPushToTalk(false);
-      return;
-    }
-
-    // ── Tap mode ──
-    if (stateRef.current === "recording") {
-      stopRecording(false);
-    } else if (stateRef.current === "idle" || stateRef.current === "success") {
-      startRecording();
-    }
-  }, [startRecording, stopRecording, cancelRecording]);
-
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!isPushToTalkRef.current || stateRef.current !== "recording") return;
-    if (!pointerStartRef.current) return;
-
-    const deltaX = e.clientX - pointerStartRef.current.x;
-    slideOffsetRef.current = deltaX;
-    setSlideOffset(deltaX);
   }, []);
 
-  // ── Keyboard accessibility ──────────────────────────────────
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    e.preventDefault();
+  const startRecorderChunk = useCallback(() => {
+    const stream = audioStreamRef.current;
+    if (!stream || cancelledRef.current) return;
+
+    recorderChunksRef.current = [];
+    const recorderOptions = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? { mimeType: "audio/webm;codecs=opus" }
+      : undefined;
+    const mediaRecorder = new MediaRecorder(stream, recorderOptions);
+    mediaRecorderRef.current = mediaRecorder;
+    recorderMimeTypeRef.current = mediaRecorder.mimeType || recorderOptions?.mimeType || "audio/webm";
+
+    const chunkIndex = nextChunkIndexRef.current;
+    setCurrentChunkIndex(chunkIndex);
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) recorderChunksRef.current.push(event.data);
+    };
+
+    mediaRecorder.onstop = () => {
+      if (chunkTimerRef.current) {
+        clearTimeout(chunkTimerRef.current);
+        chunkTimerRef.current = null;
+      }
+
+      const blobParts = recorderChunksRef.current;
+      recorderChunksRef.current = [];
+
+      if (cancelledRef.current) {
+        pendingChunkCountRef.current = 0;
+        cancelledRef.current = false;
+        cleanupRecordingResources();
+        return;
+      }
+
+      if (blobParts.some((part) => part.size > 0)) {
+        const mimeType = recorderMimeTypeRef.current || blobParts.find((part) => part.type)?.type || "audio/webm";
+        const blob = new Blob(blobParts, { type: mimeType });
+        const chunk: VoiceTranscriptChunk = {
+          id: crypto.randomUUID(),
+          index: chunkIndex,
+          mode: sessionModeRef.current,
+        };
+        nextChunkIndexRef.current += 1;
+        setCurrentChunkIndex(nextChunkIndexRef.current);
+        void sendForTranscription(blob, chunk);
+      }
+
+      if (recordingActiveRef.current) {
+        startRecorderChunk();
+        return;
+      }
+
+      cleanupRecordingResources();
+      setState(pendingChunkCountRef.current > 0 ? "processing" : "success");
+      settleIfComplete();
+    };
+
+    mediaRecorder.start();
+    chunkTimerRef.current = setTimeout(() => {
+      if (mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+      }
+    }, chunkLengthRef.current * 60 * 1000);
+  }, [cleanupRecordingResources, sendForTranscription, settleIfComplete]);
+
+  const startRecording = useCallback(async () => {
+    setErrorMsg(null);
+    setMenuOpen(false);
+    cancelledRef.current = false;
+    recordingActiveRef.current = true;
+    pendingChunkCountRef.current = 0;
+    nextChunkIndexRef.current = 1;
+    setCurrentChunkIndex(1);
+    setChunks([]);
+    sessionModeRef.current = modeRef.current;
+
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+
+      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      audioCtxRef.current = audioCtx;
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      startRecorderChunk();
+      setState("recording");
+      setSeconds(0);
+      timerRef.current = setInterval(() => {
+        setSeconds((value) => value + 1);
+      }, 1000);
+    } catch {
+      recordingActiveRef.current = false;
+      setErrorMsg("Microphone access denied.");
+      setTimeout(() => setErrorMsg(null), 3000);
+    }
+  }, [startRecorderChunk]);
+
+  const stopRecording = useCallback(() => {
+    recordingActiveRef.current = false;
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    } else {
+      cleanupRecordingResources();
+    }
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    stopWaveform();
+    setState("processing");
+  }, [cleanupRecordingResources, stopWaveform]);
+
+  const cancelRecording = useCallback(() => {
+    cancelledRef.current = true;
+    recordingActiveRef.current = false;
+
+    if (chunkTimerRef.current) {
+      clearTimeout(chunkTimerRef.current);
+      chunkTimerRef.current = null;
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    } else {
+      cleanupRecordingResources();
+    }
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    stopWaveform();
+    setChunks([]);
+
+    setState("cancelled");
+    setTimeout(() => setState("idle"), 1200);
+  }, [cleanupRecordingResources, stopWaveform]);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent) => {
     if (disabled && stateRef.current !== "recording") return;
     if (stateRef.current === "processing" || stateRef.current === "cancelled") return;
 
-    // Keyboard always uses tap mode
+    event.preventDefault();
     if (stateRef.current === "recording") {
-      stopRecording(false);
-    } else if (stateRef.current === "idle" || stateRef.current === "success") {
-      startRecording();
+      stopRecording();
+    } else {
+      void startRecording();
     }
   }, [disabled, startRecording, stopRecording]);
 
-  // ── Button class ─────────────────────────────────────────────
+  const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    if (disabled && stateRef.current !== "recording") return;
+    if (stateRef.current === "recording") stopRecording();
+    else if (stateRef.current === "idle" || stateRef.current === "success") void startRecording();
+  }, [disabled, startRecording, stopRecording]);
+
   const btnClass = [
     "voice-mic-btn",
     state === "recording" && "voice-recording",
@@ -424,35 +476,102 @@ export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, can
     state === "success" && "voice-success",
     state === "cancelled" && "voice-cancelled-state",
     disabled && "voice-disabled",
-  ]
-    .filter(Boolean)
-    .join(" ");
+    mode === "meeting" && "voice-meeting-mode",
+  ].filter(Boolean).join(" ");
 
   return (
-    <div className="voice-mic-wrapper">
-      {/* ── Floating waveform panel (portaled to body to escape parent transforms) ── */}
+    <div className="voice-mic-wrapper" ref={wrapperRef}>
+      <button
+        type="button"
+        onPointerDown={handlePointerDown}
+        onKeyDown={handleKeyDown}
+        className={btnClass}
+        aria-label={
+          state === "recording" ? "Stop recording" : state === "processing" ? "Processing recording chunks" : "Start voice input"
+        }
+        title={
+          state === "recording"
+            ? "Stop recording"
+            : state === "processing"
+              ? "Processing recording chunks"
+              : `${modeLabel(mode)} (${chunkLengthRef.current} min chunks)`
+        }
+        disabled={disabled && state !== "recording"}
+      >
+        {(state === "idle" || state === "success" || state === "cancelled") && (
+          <svg className="voice-icon" viewBox="0 0 24 24" fill="none">
+            <path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4Z" fill="currentColor" />
+            <path d="M19 10v1a7 7 0 0 1-14 0v-1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <path d="M12 19v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        )}
+
+        {state === "recording" && (
+          <svg className="voice-icon" viewBox="0 0 24 24" fill="none">
+            <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+          </svg>
+        )}
+
+        {state === "processing" && (
+          <svg className="voice-icon" viewBox="0 0 24 24" fill="none">
+            <path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4Z" fill="currentColor" />
+            <path d="M19 10v1a7 7 0 0 1-14 0v-1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <path d="M12 19v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        )}
+      </button>
+
+      <button
+        type="button"
+        className="voice-mode-menu-btn"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={() => {
+          if (state === "recording" || state === "processing") return;
+          if (!menuOpen) updateMenuPosition();
+          setMenuOpen((open) => !open);
+        }}
+        aria-label="Choose voice recording mode"
+        title="Choose voice recording mode"
+        disabled={state === "recording" || state === "processing"}
+      >
+        <span className="material-symbols-outlined">expand_more</span>
+      </button>
+
+      {menuOpen && menuPosition && createPortal(
+        <div className="voice-mode-menu" style={{ left: menuPosition.left, top: menuPosition.top }}>
+          {(["normal", "meeting"] as VoiceMode[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={`voice-mode-option ${mode === item ? "is-selected" : ""}`}
+              onClick={() => {
+                setMode(item);
+                setMenuOpen(false);
+              }}
+            >
+              <span className="material-symbols-outlined">{item === "meeting" ? "groups" : "keyboard_voice"}</span>
+              <span>{modeLabel(item)}</span>
+              {mode === item && <span className="material-symbols-outlined voice-mode-check">check</span>}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+
       {(state === "recording") && createPortal(
-        <div className={`voice-waveform-panel ${isPushToTalk ? "voice-ptt-mode" : ""}`}>
-          <div
-            className={`voice-waveform-inner ${isCancelZone ? "voice-waveform-cancel" : ""}`}
-            style={isPushToTalk && slideOffset < 0 ? {
-              transform: `translateX(${Math.max(slideOffset * 0.15, -20)}px)`,
-              transition: "transform 0.05s ease-out",
-            } : undefined}
-          >
+        <div className="voice-waveform-panel">
+          <div className="voice-waveform-inner">
             <div className="voice-waveform-status">
               <div className="voice-rec-dot" />
-              <span className="voice-rec-label">
-                {isPushToTalk ? "Push to talk" : "Recording"}
-              </span>
+              <span className="voice-rec-label">{modeLabel(sessionModeRef.current)}</span>
+              <span className="voice-chunk-live">Chunk #{currentChunkIndex}</span>
               <span className="voice-timer">{formatTime(seconds)}</span>
-              {/* Cancel X button */}
               <button
                 type="button"
                 className="voice-cancel-btn"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
                   cancelRecording();
                 }}
                 aria-label="Cancel recording"
@@ -461,145 +580,35 @@ export default function VoiceMicButton({ onTranscript, onAutoSendTranscript, can
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
               </button>
             </div>
-            <canvas
-              ref={canvasRef}
-              className="voice-waveform-canvas"
-              width={480}
-              height={64}
-            />
-            {/* Slide to cancel hint (PTT only) */}
-            {isPushToTalk && (
-              <div className={`voice-slide-hint ${isCancelZone ? "voice-slide-cancel-active" : ""}`}>
-                {isCancelZone ? (
-                  <>
-                    <span
-                      className="material-symbols-outlined voice-slide-trash-icon"
-                      style={{ fontSize: 14, fontVariationSettings: "'FILL' 1" }}
-                    >
-                      delete
-                    </span>
-                    <span>Release to cancel</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="voice-slide-chevron">‹</span>
-                    <span>Slide to cancel</span>
-                  </>
-                )}
-              </div>
-            )}
+            <canvas ref={canvasRef} className="voice-waveform-canvas" width={480} height={64} />
           </div>
         </div>,
         document.body
       )}
 
-      {/* ── Success toast (portaled) ── */}
       {state === "success" && createPortal(
         <div className="voice-success-toast">
-          <span className="material-symbols-outlined voice-success-icon" style={{ fontVariationSettings: "'FILL' 1" }}>
-            check_circle
-          </span>
+          <span className="material-symbols-outlined voice-success-icon" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
           <span>Transcribed</span>
         </div>,
         document.body
       )}
 
-      {/* ── Cancelled toast (portaled) — trash can animation ── */}
       {state === "cancelled" && createPortal(
         <div className="voice-cancelled-toast">
-          <span
-            className="material-symbols-outlined voice-trash-icon"
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            delete
-          </span>
+          <span className="material-symbols-outlined voice-trash-icon" style={{ fontVariationSettings: "'FILL' 1" }}>delete</span>
           <span>Cancelled</span>
         </div>,
         document.body
       )}
 
-      {/* ── Error toast (portaled) ── */}
       {errorMsg && createPortal(
         <div className="voice-error-toast">
-          <span className="material-symbols-outlined voice-error-icon" style={{ fontVariationSettings: "'FILL' 1" }}>
-            error
-          </span>
+          <span className="material-symbols-outlined voice-error-icon" style={{ fontVariationSettings: "'FILL' 1" }}>error</span>
           <span>{errorMsg}</span>
         </div>,
         document.body
       )}
-
-      {/* ── Mic button ───────────────────────────────────────── */}
-      <button
-        type="button"
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerMove={handlePointerMove}
-        onKeyDown={handleKeyDown}
-        className={btnClass}
-        aria-label={
-          state === "recording" ? "Stop recording" : state === "processing" ? "Transcribing..." : "Start voice input"
-        }
-        title={
-          state === "recording"
-            ? (isPushToTalk ? "Release to send" : "Tap to stop")
-            : state === "processing"
-              ? "Transcribing..."
-              : "Voice input"
-        }
-        disabled={disabled && state !== "recording"}
-      >
-        {/* Mic icon (idle / success / cancelled) */}
-        {(state === "idle" || state === "success" || state === "cancelled") && (
-          <svg className="voice-icon" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4Z"
-              fill="currentColor"
-            />
-            <path
-              d="M19 10v1a7 7 0 0 1-14 0v-1"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-            <path
-              d="M12 19v4"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-        )}
-
-        {/* Stop icon (recording) */}
-        {state === "recording" && (
-          <svg className="voice-icon" viewBox="0 0 24 24" fill="none">
-            <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
-          </svg>
-        )}
-
-        {/* Spinner (processing) */}
-        {state === "processing" && (
-          <svg className="voice-icon" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4Z"
-              fill="currentColor"
-            />
-            <path
-              d="M19 10v1a7 7 0 0 1-14 0v-1"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-            <path
-              d="M12 19v4"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-        )}
-      </button>
     </div>
   );
 }

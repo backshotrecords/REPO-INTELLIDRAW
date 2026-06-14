@@ -143,7 +143,8 @@ INSTRUCTIONS:
 6. If the user asks for changes, apply them and show the updated code
 7. Use descriptive node labels and proper flow connections
 8. IMPORTANT: If the current Mermaid code contains a %% EXTERNAL CONTEXT block, treat it as inherited project/folder context, preserve that entire block exactly, and keep it above %% OBJECTIVES.
-9. IMPORTANT: Immediately after any external context block, include a single-line comment summarizing the user's current objectives and overall intent for this flowchart. Format: %% OBJECTIVES: <one-paragraph summary of what the user is building and their goals>. If a previous objectives summary exists above, update it to reflect the latest changes.${skillInstructions}`,
+9. IMPORTANT: Immediately after any external context block, include a single-line comment summarizing the user's current objectives and overall intent for this flowchart. Format: %% OBJECTIVES: <one-paragraph summary of what the user is building and their goals>. If a previous objectives summary exists above, update it to reflect the latest changes.
+10. IMPORTANT: If the current Mermaid code contains a %% INTELLIDRAW_LIVE_MEETING_STATE block, preserve and update it compactly as Mermaid comments above the visible graph. Use it as the condensed meeting state for future transcript chunks.${skillInstructions}`,
       },
     ];
 

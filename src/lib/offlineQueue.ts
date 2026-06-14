@@ -29,6 +29,7 @@ export interface ChatSendPayload {
   scopePath: string[];
   localVersionNumber: number;
   userMessageInserted: boolean;
+  source?: "ai_chat" | "meeting_transcribe";
 }
 
 export interface TranscriptionPayload {
@@ -36,6 +37,8 @@ export interface TranscriptionPayload {
   blobKey: string;
   autoSend: boolean;
   mimeType: string;
+  mode?: "normal" | "meeting";
+  chunkIndex?: number;
 }
 
 export interface OfflineOperation<TPayload = unknown> {
