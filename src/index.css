@@ -393,11 +393,22 @@
 
 .voice-input-queue-strip {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
   padding-top: 8px;
+  padding-bottom: 2px;
   border-top: 1px solid rgba(196, 198, 205, 0.16);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+}
+
+.voice-input-queue-strip::-webkit-scrollbar {
+  display: none;
 }
 
 .voice-input-queue-pill {
@@ -405,6 +416,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
   max-width: 190px;
   padding: 0 9px;
   border-radius: 999px;
@@ -520,20 +532,21 @@
 @keyframes waveformSlideIn {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.96);
+    transform: translate(var(--voice-waveform-x, -50%), 8px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate(var(--voice-waveform-x, -50%), 0) scale(1);
   }
 }
 
 /* Fixed position on both desktop and mobile to escape overflow-hidden */
 .voice-waveform-panel {
   position: fixed;
-  bottom: 90px;
+  bottom: var(--voice-waveform-bottom, 90px);
   left: 50%;
-  transform: translateX(-50%);
+  --voice-waveform-x: -50%;
+  transform: translateX(var(--voice-waveform-x, -50%));
   z-index: 9999;
   animation: waveformSlideIn 250ms ease forwards;
   max-width: 480px;
@@ -542,9 +555,10 @@
 
 @media (max-width: 768px) {
   .voice-waveform-panel {
-    bottom: 140px;
+    bottom: var(--voice-waveform-mobile-bottom, 140px);
     left: 16px;
     right: 16px;
+    --voice-waveform-x: 0;
     transform: none;
     width: auto;
     max-width: 400px;
@@ -1348,6 +1362,12 @@
   font-size: 11px;
   font-weight: 800;
   color: #53657c;
+}
+
+@media (max-width: 768px) {
+  .dashboard-tree-controls {
+    bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 .dashboard-tree-node,
