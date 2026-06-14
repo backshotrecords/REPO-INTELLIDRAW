@@ -2655,7 +2655,10 @@ ${transcript}
 
         {/* Mobile floating action buttons (mic + paperclip) */}
         {!isInitialWorkspaceLoading && (
-        <div className="md:hidden absolute right-4 flex flex-col items-center gap-2 z-[10000] transition-all duration-300" style={{ bottom: `${inputBarHeight + 16}px` }}>
+        <div
+          className={`md:hidden absolute right-4 flex flex-col items-center gap-2 transition-all duration-300 ${showSkillsPanel ? "z-40" : "z-[10000]"}`}
+          style={{ bottom: `${inputBarHeight + 16}px` }}
+        >
           <label className="cursor-pointer shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all bg-white shadow-xl border border-outline-variant/30 shadow-[0_8px_32px_rgba(0,0,0,0.15)]">
             <span className="material-symbols-outlined text-xl">attach_file</span>
             <input
