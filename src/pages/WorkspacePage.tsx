@@ -2383,32 +2383,6 @@ ${transcript}
                 />
                 )}
               </div>
-
-              {/* Skills Panel */}
-              {canvasId && (
-                <CanvasSkillsPanel
-                  canvasId={canvasId}
-                  isOpen={showSkillsPanel}
-                  onClose={() => setShowSkillsPanel(false)}
-                  inputBarHeight={inputBarHeight}
-                  onAddSkillToContext={handleAddSkillToContext}
-                  onSkillTriggered={(result) => {
-                    flushPreviewMode();
-                    if (result.updatedMermaidCode) {
-                      setMermaidCode(result.updatedMermaidCode);
-                      playCanvasSound();
-                      autoSave(result.updatedMermaidCode);
-                      createCommit(result.updatedMermaidCode, "ai_chat", `Skill: ${result.skillTitle}`);
-                    }
-                    const skillMsg: ChatMessage = {
-                      role: "assistant",
-                      content: result.response || `⚡ Applied skill "${result.skillTitle}"`,
-                      timestamp: new Date().toISOString(),
-                    };
-                    setChatHistory(prev => [...prev, skillMsg]);
-                  }}
-                />
-              )}
             </div>
 
             {/* Node Action Overlay — rendered OUTSIDE the canvas div to escape overflow:hidden */}
@@ -2621,6 +2595,32 @@ ${transcript}
           </div>
           )}
         </div>
+
+        {/* Skills Panel — rendered at main level so mobile controls share the same stacking context */}
+        {activeView === "flowchart" && canvasId && (
+          <CanvasSkillsPanel
+            canvasId={canvasId}
+            isOpen={showSkillsPanel}
+            onClose={() => setShowSkillsPanel(false)}
+            inputBarHeight={inputBarHeight}
+            onAddSkillToContext={handleAddSkillToContext}
+            onSkillTriggered={(result) => {
+              flushPreviewMode();
+              if (result.updatedMermaidCode) {
+                setMermaidCode(result.updatedMermaidCode);
+                playCanvasSound();
+                autoSave(result.updatedMermaidCode);
+                createCommit(result.updatedMermaidCode, "ai_chat", `Skill: ${result.skillTitle}`);
+              }
+              const skillMsg: ChatMessage = {
+                role: "assistant",
+                content: result.response || `⚡ Applied skill "${result.skillTitle}"`,
+                timestamp: new Date().toISOString(),
+              };
+              setChatHistory(prev => [...prev, skillMsg]);
+            }}
+          />
+        )}
 
         {/* Agent Manager panel (desktop sidebar / mobile bottom sheet) */}
         {!isInitialWorkspaceLoading && (
