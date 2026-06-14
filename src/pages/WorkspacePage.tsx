@@ -686,16 +686,21 @@ export default function WorkspacePage() {
 
   // Track input bar height for dynamic floating button positioning
   useEffect(() => {
+    if (isInitialWorkspaceLoading) return;
     const el = inputBarRef.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setInputBarHeight(entry.contentRect.height);
-      }
+
+    const updateInputBarHeight = () => {
+      setInputBarHeight(Math.ceil(el.getBoundingClientRect().height));
+    };
+
+    updateInputBarHeight();
+    const ro = new ResizeObserver(() => {
+      updateInputBarHeight();
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [isInitialWorkspaceLoading]);
 
   // Auto-resize textarea whenever chatInput changes (from any source)
   useEffect(() => {

@@ -100,8 +100,10 @@ export default function VoiceMicButton({
   const onTranscriptRef = useRef(onTranscript);
   const onMeetingTranscriptRef = useRef(onMeetingTranscript);
   const waveformBottom = Math.max(90, inputBarHeight + 32);
+  const mobileWaveformBottom = Math.max(154, inputBarHeight + 148);
   const waveformStyle = {
     "--voice-waveform-bottom": `${waveformBottom}px`,
+    "--voice-waveform-mobile-bottom": `${mobileWaveformBottom}px`,
   } as CSSProperties;
 
   useEffect(() => { stateRef.current = state; }, [state]);

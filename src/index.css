@@ -555,7 +555,7 @@
 
 @media (max-width: 768px) {
   .voice-waveform-panel {
-    bottom: var(--voice-waveform-bottom, 140px);
+    bottom: var(--voice-waveform-mobile-bottom, 140px);
     left: 16px;
     right: 16px;
     --voice-waveform-x: 0;
