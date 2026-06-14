@@ -70,4 +70,14 @@ flowchart TD
 flowchart TD
     A --> B`);
   });
+
+  it("leaves default canvas content comparable after clearing context", () => {
+    const code = `%% EXTERNAL CONTEXT:
+%% Folder context
+%% END EXTERNAL CONTEXT
+flowchart TD
+    A[Start] --> B[Next Step]`;
+
+    expect(clearMermaidExternalContext(code).trim()).toBe("flowchart TD\n    A[Start] --> B[Next Step]");
+  });
 });

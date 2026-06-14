@@ -29,6 +29,7 @@ import {
 } from "../lib/offlineQueue";
 import { parseMermaidAST, getScopeViewCode, getRootViewWithCollapseState, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope } from "../utils/mermaidParser";
 import { getRenderedClusterSubgraphId } from "../utils/mermaidDom";
+import { clearMermaidExternalContext } from "../utils/mermaidContext";
 import type { MermaidAST } from "../utils/mermaidParser";
 import type { ChatMessage, CanvasCommit, DashboardCanvas } from "../types";
 import { isLongTermMemoryItem } from "../types";
@@ -1048,7 +1049,8 @@ export default function WorkspacePage() {
     }
 
     // Use the latest committed code for the blank-canvas check (not the previewed code)
-    const hasChanges = latestMermaidCodeRef.current.trim() !== DEFAULT_MERMAID_CODE.trim();
+    const userMermaidCode = clearMermaidExternalContext(latestMermaidCodeRef.current).trim();
+    const hasChanges = userMermaidCode !== DEFAULT_MERMAID_CODE.trim();
 
     if (!hasChanges) {
       // No edits — delete the blank canvas silently
