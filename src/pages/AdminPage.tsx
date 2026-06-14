@@ -108,7 +108,9 @@ export default function AdminPage() {
   // Chat config state
   const [chatRollingEnabled, setChatRollingEnabled] = useState(false);
   const [chatWindowLength, setChatWindowLength] = useState(10);
+  const [voiceChunkLengthMinutes, setVoiceChunkLengthMinutes] = useState(5);
   const chatWindowDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceChunkDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // User reset state
   const [resetEmail, setResetEmail] = useState("");
@@ -225,6 +227,7 @@ export default function AdminPage() {
       const data = await apiGetChatConfig();
       setChatRollingEnabled(data.rollingHistoryEnabled ?? false);
       setChatWindowLength(data.rollingWindowLength ?? 10);
+      setVoiceChunkLengthMinutes(data.voiceChunkLengthMinutes ?? 5);
     } catch (err) {
       console.error("Failed to load chat config:", err);
     }
@@ -248,6 +251,17 @@ export default function AdminPage() {
     if (chatWindowDebounceRef.current) clearTimeout(chatWindowDebounceRef.current);
     chatWindowDebounceRef.current = setTimeout(async () => {
       try { await apiUpdateChatConfig({ rollingWindowLength: clamped }); } catch (err) { console.error("Failed to save chat window length:", err); }
+    }, 400);
+  };
+
+  const handleVoiceChunkLengthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseInt(e.target.value, 10);
+    if (isNaN(val)) return;
+    const clamped = Math.max(1, Math.min(10, val));
+    setVoiceChunkLengthMinutes(clamped);
+    if (voiceChunkDebounceRef.current) clearTimeout(voiceChunkDebounceRef.current);
+    voiceChunkDebounceRef.current = setTimeout(async () => {
+      try { await apiUpdateChatConfig({ voiceChunkLengthMinutes: clamped }); } catch (err) { console.error("Failed to save voice chunk length:", err); }
     }, 400);
   };
 
@@ -1089,7 +1103,7 @@ export default function AdminPage() {
             <div
               className="transition-all duration-300 ease-in-out overflow-hidden"
               style={{
-                maxHeight: expandedSection === "chat" ? "600px" : "0",
+                maxHeight: expandedSection === "chat" ? "760px" : "0",
                 opacity: expandedSection === "chat" ? 1 : 0,
               }}
             >
@@ -1150,6 +1164,35 @@ export default function AdminPage() {
                       />
                       <span className="text-xs font-medium text-on-surface-variant/60">50</span>
                     </div>
+                  </div>
+                </div>
+
+                {/* Voice Chunk Length */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between items-center">
+                    <label className="text-sm font-semibold text-on-surface">Voice Chunk Length</label>
+                    <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                      {voiceChunkLengthMinutes} min
+                    </span>
+                  </div>
+                  <p className="text-xs text-on-surface-variant">
+                    Length of each continuous mic recording chunk before it is sent for transcription.
+                  </p>
+                  <div className="flex items-center gap-3 mt-2">
+                    <span className="text-xs font-medium text-on-surface-variant/60">1</span>
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={voiceChunkLengthMinutes}
+                      onChange={handleVoiceChunkLengthChange}
+                      className="flex-1 h-2 rounded-full appearance-none cursor-pointer accent-primary"
+                      style={{
+                        background: `linear-gradient(to right, var(--md-sys-color-primary, #6750A4) 0%, var(--md-sys-color-primary, #6750A4) ${((voiceChunkLengthMinutes - 1) / 9) * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) ${((voiceChunkLengthMinutes - 1) / 9) * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) 100%)`,
+                      }}
+                    />
+                    <span className="text-xs font-medium text-on-surface-variant/60">10</span>
                   </div>
                 </div>
 

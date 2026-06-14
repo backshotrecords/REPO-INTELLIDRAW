@@ -4,7 +4,7 @@ export interface ChatMessage {
   timestamp: string;
   causedCrash?: boolean;
   mermaidSnapshot?: string;
-  versionSource?: "ai_chat" | "manual" | "auto_fix" | "upload" | "restore" | "project_context";
+  versionSource?: "ai_chat" | "manual" | "auto_fix" | "upload" | "restore" | "project_context" | "meeting_transcribe";
 }
 
 export interface CanvasCommit {

@@ -245,6 +245,7 @@
   position: relative;
   display: flex;
   align-items: center;
+  gap: 6px;
   flex-shrink: 0;
 }
 
@@ -306,6 +307,151 @@
   background: rgba(239, 68, 68, 0.08);
   color: #ef4444;
   animation: voicePulse 1.5s ease-in-out infinite;
+}
+
+.voice-mic-btn.voice-meeting-mode:not(.voice-recording):not(.voice-processing) {
+  border-color: rgba(0, 88, 188, 0.32);
+  color: #0058bc;
+  background: rgba(0, 88, 188, 0.06);
+}
+
+.voice-mode-menu-btn {
+  width: 24px;
+  height: 32px;
+  border: 1px solid rgba(196, 198, 205, 0.24);
+  border-radius: 999px;
+  background: rgba(245, 247, 250, 0.78);
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+  padding: 0;
+}
+
+.voice-mode-menu-btn:hover:not(:disabled) {
+  color: #0058bc;
+  background: rgba(0, 88, 188, 0.08);
+  border-color: rgba(0, 88, 188, 0.24);
+}
+
+.voice-mode-menu-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.voice-mode-menu-btn .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.voice-mode-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 10000;
+  min-width: 210px;
+  padding: 6px;
+  border: 1px solid rgba(196, 198, 205, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 14px 34px rgba(4, 22, 39, 0.14);
+  animation: dropdownIn 160ms ease forwards;
+}
+
+.voice-mode-option {
+  width: 100%;
+  height: 38px;
+  display: grid;
+  grid-template-columns: 24px 1fr 20px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+  padding: 0 9px;
+}
+
+.voice-mode-option:hover,
+.voice-mode-option.is-selected {
+  background: rgba(0, 88, 188, 0.08);
+  color: #0058bc;
+}
+
+.voice-mode-option .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.voice-mode-check {
+  color: #0058bc;
+}
+
+.voice-chunk-pill {
+  height: 30px;
+  max-width: 150px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(196, 198, 205, 0.32);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #334155;
+  padding: 0 8px;
+  box-shadow: 0 6px 18px rgba(4, 22, 39, 0.08);
+}
+
+.voice-chunk-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #94a3b8;
+  flex-shrink: 0;
+}
+
+.voice-chunk-transcribing,
+.voice-chunk-chat_processing,
+.voice-chunk-ready {
+  background: #0058bc;
+  animation: voicePulse 1.4s ease-in-out infinite;
+}
+
+.voice-chunk-complete {
+  background: #16a34a;
+}
+
+.voice-chunk-error {
+  background: #dc2626;
+}
+
+.voice-chunk-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.voice-chunk-count {
+  min-width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  background: rgba(0, 88, 188, 0.12);
+  color: #0058bc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  flex-shrink: 0;
 }
 
 /* ── Processing state (spinning) ────────────────────────── */
@@ -425,6 +571,12 @@
   color: #ef4444;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.voice-chunk-live {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .voice-timer {

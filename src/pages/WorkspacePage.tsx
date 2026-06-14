@@ -6,7 +6,7 @@ import type { NodeAction } from "../components/NodeActionOverlay";
 import ScopeBreadcrumb from "../components/ScopeBreadcrumb";
 import SubgraphCollapseOverlay from "../components/SubgraphCollapseOverlay";
 import ProfileMenu from "../components/ProfileMenu";
-import VoiceMicButton from "../components/VoiceMicButton";
+import VoiceMicButton, { type VoiceTranscriptChunk } from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
 import CanvasSkillsPanel from "../components/CanvasSkillsPanel";
 import { NetworkError, apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext, apiTranscribeAudio } from "../lib/api";
@@ -146,6 +146,7 @@ export default function WorkspacePage() {
   const [showCopyDropdown, setShowCopyDropdown] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [voiceChunkLengthMinutes, setVoiceChunkLengthMinutes] = useState(5);
 
   // Ref mirrors — sendMessage reads these instead of closures (closure-proof)
   const chatHistoryRef = useRef<ChatMessage[]>([]);
@@ -155,6 +156,7 @@ export default function WorkspacePage() {
   const commitsRef = useRef<CanvasCommit[]>([]);
   const mountedRef = useRef(true);
   const chatLoadingRef = useRef(false);
+  const meetingChunkQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
   useEffect(() => { mermaidCodeRef.current = mermaidCode; }, [mermaidCode]);
@@ -376,7 +378,9 @@ export default function WorkspacePage() {
   useEffect(() => {
     fetchSoundSettings();
     fetchCanvasSettings();
-    fetchChatSettings();
+    fetchChatSettings().then((settings) => {
+      if (mountedRef.current) setVoiceChunkLengthMinutes(settings.voiceChunkLengthMinutes);
+    });
   }, []);
 
   // ── Native wheel listener via callback ref ──
@@ -1370,6 +1374,122 @@ export default function WorkspacePage() {
     }
   }, [autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure]);
 
+  const appendVoiceTranscript = useCallback((text: string) => {
+    const transcript = text.trim();
+    if (!transcript) return;
+    setChatInput((prev) => prev ? `${prev}\n\n${transcript}` : transcript);
+  }, []);
+
+  const processMeetingTranscriptChunk = useCallback(async (text: string, chunk: VoiceTranscriptChunk) => {
+    const transcript = text.trim();
+    if (!transcript) return;
+
+    while (chatLoadingRef.current) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    flushPreviewMode();
+
+    const chunkLabel = `Meeting transcript chunk #${chunk.index}`;
+    const meetingMessage = `[Live meeting transcript chunk #${chunk.index}]
+
+${transcript}
+
+[Instruction: Treat this as transcribed meeting audio for the current canvas. Compare it against the current Mermaid artifact and update the flowchart only when the chunk meaningfully changes the workflow. Maintain a compact %% INTELLIDRAW_LIVE_MEETING_STATE comment block as the meeting state. Preserve stable structure unless this transcript clearly revises it.]`;
+
+    const userMessage: ChatMessage = {
+      role: "user",
+      content: meetingMessage,
+      timestamp: new Date().toISOString(),
+    };
+
+    const newHistory = [...chatHistoryRef.current, userMessage];
+    chatHistoryRef.current = newHistory;
+    setChatHistory(newHistory);
+    setChatLoading(true);
+
+    const codeAtStart = mermaidCodeRef.current;
+    const chatOperationId = `chat_send:${crypto.randomUUID()}`;
+    const chatPayload: ChatSendPayload = {
+      canvasId: canvasId || null,
+      originalText: chunkLabel,
+      augmentedMessage: meetingMessage,
+      mermaidCode: codeAtStart,
+      chatHistory: newHistory,
+      activeScopeId: activeScopeIdRef.current,
+      scopePath: scopePathRef.current.map(s => s.label),
+      localVersionNumber: commitsRef.current.length + 1,
+      userMessageInserted: true,
+      source: "meeting_transcribe",
+    };
+    upsertOfflineOperation<ChatSendPayload>({
+      id: chatOperationId,
+      type: "chat_send",
+      canvasId: canvasId || null,
+      payload: chatPayload,
+    });
+
+    try {
+      const result = await apiChat(
+        meetingMessage,
+        codeAtStart,
+        newHistory,
+        canvasId || undefined,
+        activeScopeIdRef.current,
+        scopePathRef.current.map(s => s.label)
+      );
+
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: result.response,
+        timestamp: new Date().toISOString(),
+        versionSource: "meeting_transcribe",
+        mermaidSnapshot: result.updatedMermaidCode || undefined,
+      };
+
+      const updatedHistory = [...newHistory, assistantMessage];
+      chatHistoryRef.current = updatedHistory;
+      setChatHistory(updatedHistory);
+
+      if (result.updatedMermaidCode) {
+        mermaidCodeRef.current = result.updatedMermaidCode;
+        setMermaidCode(result.updatedMermaidCode);
+        playCanvasSound();
+        createCommit(result.updatedMermaidCode, "meeting_transcribe", chunkLabel);
+      }
+
+      autoSave(result.updatedMermaidCode || mermaidCodeRef.current, updatedHistory);
+      removeOfflineOperation(chatOperationId);
+    } catch (err) {
+      const isNetworkError = err instanceof NetworkError;
+      const errorMessage: ChatMessage = {
+        role: "assistant",
+        content: isNetworkError
+          ? `Waiting to retry... ${err.message}`
+          : `Something went wrong: ${err instanceof Error ? err.message : "Meeting transcript processing failed"}`,
+        timestamp: new Date().toISOString(),
+        versionSource: "meeting_transcribe",
+      };
+      const failedHistory = [...newHistory, errorMessage];
+      chatHistoryRef.current = failedHistory;
+      setChatHistory(failedHistory);
+      if (isNetworkError) {
+        reportNetworkFailure();
+        throw err;
+      }
+      removeOfflineOperation(chatOperationId);
+      throw err;
+    } finally {
+      setChatLoading(false);
+    }
+  }, [autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure]);
+
+  const enqueueMeetingTranscriptChunk = useCallback((text: string, chunk: VoiceTranscriptChunk) => {
+    const pending = meetingChunkQueueRef.current.then(() => processMeetingTranscriptChunk(text, chunk));
+    meetingChunkQueueRef.current = pending.catch(() => {});
+    return pending;
+  }, [processMeetingTranscriptChunk]);
+
   const handleAddSkillToContext = useCallback((skill: { title: string; instructionText: string }) => {
     const block = `Use this skill as context:\n\nSkill: ${skill.title}\n${skill.instructionText}`;
     setChatInput(prev => prev.trim() ? `${prev.trim()}\n\n${block}` : block);
@@ -1428,6 +1548,8 @@ export default function WorkspacePage() {
         role: "assistant",
         content: result.response,
         timestamp: new Date().toISOString(),
+        versionSource: payload.source,
+        mermaidSnapshot: result.updatedMermaidCode || undefined,
       };
       const cleanedHistory = payload.chatHistory.filter(
         (message) => !(message.role === "assistant" && message.content.startsWith("Waiting to retry..."))
@@ -1438,7 +1560,7 @@ export default function WorkspacePage() {
       if (result.updatedMermaidCode) {
         setMermaidCode(result.updatedMermaidCode);
         playCanvasSound();
-        createCommit(result.updatedMermaidCode, "ai_chat", payload.originalText);
+        createCommit(result.updatedMermaidCode, payload.source || "ai_chat", payload.originalText);
       }
 
       const codeToSave = result.updatedMermaidCode || mermaidCodeRef.current;
@@ -1486,15 +1608,21 @@ export default function WorkspacePage() {
     }
 
     const text = await apiTranscribeAudio(blob);
-    if (payload.autoSend) {
+    if (payload.mode === "meeting") {
+      await enqueueMeetingTranscriptChunk(text, {
+        id: operation.id,
+        index: payload.chunkIndex || 1,
+        mode: "meeting",
+      });
+    } else if (payload.autoSend) {
       await sendMessage(text);
     } else {
-      setChatInput((prev) => prev ? `${prev} ${text}` : text);
+      appendVoiceTranscript(text);
     }
 
     removeOfflineOperation(operation.id);
     await removeOfflineBlob(payload.blobKey);
-  }, [sendMessage, setReconnectMessage]);
+  }, [appendVoiceTranscript, enqueueMeetingTranscriptChunk, sendMessage, setReconnectMessage]);
 
   const processOfflineQueue = useCallback(async () => {
     const operations = getOfflineOperations();
@@ -2421,9 +2549,10 @@ export default function WorkspacePage() {
                   {/* Desktop-only: mic inline */}
                   <div className="hidden md:block">
                     <VoiceMicButton
-                      onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
-                      onAutoSendTranscript={sendMessage}
+                      onTranscript={(text) => appendVoiceTranscript(text)}
+                      onMeetingTranscript={enqueueMeetingTranscriptChunk}
                       canvasId={canvasId}
+                      chunkLengthMinutes={voiceChunkLengthMinutes}
                       disabled={chatLoading || isOffline}
                     />
                   </div>
@@ -2497,9 +2626,10 @@ export default function WorkspacePage() {
           </label>
           <div className="voice-mic-mobile-float shadow-[0_8px_32px_rgba(0,0,0,0.15)] rounded-full">
             <VoiceMicButton
-              onTranscript={(text) => setChatInput((prev) => prev ? `${prev} ${text}` : text)}
-              onAutoSendTranscript={sendMessage}
+              onTranscript={(text) => appendVoiceTranscript(text)}
+              onMeetingTranscript={enqueueMeetingTranscriptChunk}
               canvasId={canvasId}
+              chunkLengthMinutes={voiceChunkLengthMinutes}
               disabled={chatLoading || isOffline}
             />
           </div>

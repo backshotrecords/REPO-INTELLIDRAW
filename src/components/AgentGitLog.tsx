@@ -38,6 +38,7 @@ function sourceIcon(source?: string): string {
     case "upload": return "attach_file";
     case "restore": return "restore";
     case "project_context": return "folder_open";
+    case "meeting_transcribe": return "groups";
     default: return "history";
   }
 }
