@@ -38,6 +38,8 @@ interface VoiceChunkItem extends VoiceTranscriptChunk {
 }
 
 const DEFAULT_CHUNK_MINUTES = 5;
+const MENU_WIDTH_PX = 220;
+const MENU_HEIGHT_PX = 96;
 
 function clampChunkLength(minutes?: number) {
   if (!Number.isFinite(minutes)) return DEFAULT_CHUNK_MINUTES;
@@ -78,7 +80,9 @@ export default function VoiceMicButton({
   const [currentChunkIndex, setCurrentChunkIndex] = useState(1);
   const [chunks, setChunks] = useState<VoiceChunkItem[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null);
 
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -106,6 +110,30 @@ export default function VoiceMicButton({
     onTranscriptRef.current = onTranscript;
     onMeetingTranscriptRef.current = onMeetingTranscript;
   }, [onTranscript, onMeetingTranscript]);
+
+  const updateMenuPosition = useCallback(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+
+    const rect = wrapper.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(8, rect.right - MENU_WIDTH_PX),
+      Math.max(8, window.innerWidth - MENU_WIDTH_PX - 8)
+    );
+    const top = Math.max(8, rect.top - MENU_HEIGHT_PX - 10);
+    setMenuPosition({ left, top });
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [menuOpen, updateMenuPosition]);
 
   const updateChunk = useCallback((id: string, updates: Partial<VoiceChunkItem>) => {
     setChunks((current) => current.map((chunk) => chunk.id === id ? { ...chunk, ...updates } : chunk));
@@ -409,7 +437,7 @@ export default function VoiceMicButton({
   const activeCount = chunks.filter((chunk) => chunk.status !== "complete").length;
 
   return (
-    <div className="voice-mic-wrapper">
+    <div className="voice-mic-wrapper" ref={wrapperRef}>
       {activeChunk && (
         <div className="voice-chunk-pill" title={`Voice chunks: ${chunks.length}`}>
           <span className={`voice-chunk-dot voice-chunk-${activeChunk.status}`} />
@@ -464,6 +492,7 @@ export default function VoiceMicButton({
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => {
           if (state === "recording" || state === "processing") return;
+          if (!menuOpen) updateMenuPosition();
           setMenuOpen((open) => !open);
         }}
         aria-label="Choose voice recording mode"
@@ -473,8 +502,8 @@ export default function VoiceMicButton({
         <span className="material-symbols-outlined">expand_more</span>
       </button>
 
-      {menuOpen && (
-        <div className="voice-mode-menu">
+      {menuOpen && menuPosition && createPortal(
+        <div className="voice-mode-menu" style={{ left: menuPosition.left, top: menuPosition.top }}>
           {(["normal", "meeting"] as VoiceMode[]).map((item) => (
             <button
               key={item}
@@ -490,7 +519,8 @@ export default function VoiceMicButton({
               {mode === item && <span className="material-symbols-outlined voice-mode-check">check</span>}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
 
       {(state === "recording") && createPortal(

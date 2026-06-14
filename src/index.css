@@ -346,11 +346,9 @@
 }
 
 .voice-mode-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
+  position: fixed;
   z-index: 10000;
-  min-width: 210px;
+  width: 220px;
   padding: 6px;
   border: 1px solid rgba(196, 198, 205, 0.28);
   border-radius: 12px;
