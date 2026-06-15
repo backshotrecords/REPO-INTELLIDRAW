@@ -31,7 +31,7 @@ import { parseMermaidAST, getScopeViewCode, getRootViewWithCollapseState, getSco
 import { getRenderedClusterSubgraphId } from "../utils/mermaidDom";
 import { clearMermaidExternalContext } from "../utils/mermaidContext";
 import type { MermaidAST } from "../utils/mermaidParser";
-import type { ChatMessage, CanvasCommit, DashboardCanvas } from "../types";
+import type { ChatMessage, CanvasCommit, DashboardCanvas, MeetingTranscriptSignal } from "../types";
 import { isLongTermMemoryItem } from "../types";
 
 const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
@@ -78,6 +78,138 @@ function formatVoiceQueueStatus(status: VoiceQueueChunk["status"]) {
     case "complete": return "Done";
     case "error": return "Error";
   }
+}
+
+const MEETING_SIGNAL_STOP_WORDS = new Set([
+  "about", "after", "again", "also", "and", "are", "because", "been", "before", "being", "but", "can", "could",
+  "did", "does", "doing", "for", "from", "had", "has", "have", "her", "here", "him", "his", "how", "into",
+  "its", "just", "like", "more", "most", "not", "now", "our", "out", "over", "really", "said", "see", "she",
+  "should", "some", "than", "that", "the", "their", "them", "then", "there", "these", "they", "thing", "this",
+  "those", "through", "too", "was", "way", "were", "what", "when", "where", "which", "who", "why", "will",
+  "with", "would", "you", "your"
+]);
+
+const MEETING_SIGNAL_JUNK_WORDS = new Set([
+  "ah", "eh", "er", "ha", "hmm", "hm", "huh", "mm", "mmm", "oh", "okay", "ok", "uh", "uhh", "um", "umm",
+  "yeah", "yep"
+]);
+
+const LOW_SIGNAL_PHRASES = [
+  "background noise",
+  "inaudible",
+  "music playing",
+  "no speech",
+  "silence",
+  "thank you for watching",
+  "thanks for watching"
+];
+
+function tokenizeMeetingSignalText(text: string) {
+  return text.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+}
+
+function normalizeMeetingSignalTerm(word: string) {
+  return word
+    .replace(/^'+|'+$/g, "")
+    .replace(/(?:ing|ed|es|s)$/i, "");
+}
+
+function getMeetingSignalContentWords(text: string) {
+  return tokenizeMeetingSignalText(text)
+    .map(normalizeMeetingSignalTerm)
+    .filter((word) => word.length > 2 && !MEETING_SIGNAL_STOP_WORDS.has(word));
+}
+
+function getRepeatedWordRatio(words: string[]) {
+  if (words.length === 0) return 0;
+  const counts = new Map<string, number>();
+  for (const word of words) counts.set(word, (counts.get(word) ?? 0) + 1);
+  const repeatedCount = Array.from(counts.values()).reduce((sum, count) => sum + Math.max(0, count - 1), 0);
+  return repeatedCount / words.length;
+}
+
+function buildMeetingContextTerms(mermaidCode: string, chatHistory: ChatMessage[]) {
+  const contextText = [
+    mermaidCode,
+    ...chatHistory.slice(-12).map((message) => message.content),
+  ].join("\n");
+  return new Set(getMeetingSignalContentWords(contextText).filter((word) => word.length > 3));
+}
+
+function analyzeMeetingTranscriptSignal(
+  transcript: string,
+  chunkIndex: number,
+  mermaidCode: string,
+  chatHistory: ChatMessage[]
+): MeetingTranscriptSignal {
+  const words = tokenizeMeetingSignalText(transcript);
+  const meaningfulWords = getMeetingSignalContentWords(transcript);
+  const normalizedWords = words.map(normalizeMeetingSignalTerm).filter(Boolean);
+  const repeatedWordRatio = getRepeatedWordRatio(normalizedWords);
+  const lowerTranscript = transcript.toLowerCase();
+  const phraseHit = LOW_SIGNAL_PHRASES.find((phrase) => lowerTranscript.includes(phrase));
+  const junkWordCount = normalizedWords.filter((word) => (
+    word.length <= 1 ||
+    MEETING_SIGNAL_JUNK_WORDS.has(word) ||
+    /^([a-z])\1{2,}$/.test(word)
+  )).length;
+  const junkWordRatio = normalizedWords.length > 0 ? junkWordCount / normalizedWords.length : 1;
+  const contextTerms = buildMeetingContextTerms(mermaidCode, chatHistory);
+  const contextMatches = meaningfulWords.filter((word) => contextTerms.has(word)).length;
+  const contextMatchRatio = meaningfulWords.length > 0 ? contextMatches / meaningfulWords.length : 0;
+
+  const reasons: string[] = [];
+  let status: MeetingTranscriptSignal["status"] = "normal";
+  let score = 0;
+
+  if (words.length < 6 || meaningfulWords.length < 3) {
+    status = "low_signal";
+    score = Math.max(score, 0.9);
+    reasons.push("very short transcript");
+  }
+
+  if (junkWordRatio >= 0.8) {
+    status = "low_signal";
+    score = Math.max(score, junkWordRatio);
+    reasons.push("80%+ filler or noise-like words");
+  }
+
+  if (phraseHit) {
+    status = "low_signal";
+    score = Math.max(score, 0.85);
+    reasons.push(`contains low-signal phrase: "${phraseHit}"`);
+  }
+
+  if (repeatedWordRatio >= 0.65 && words.length >= 8) {
+    status = "low_signal";
+    score = Math.max(score, repeatedWordRatio);
+    reasons.push("high repeated-word ratio");
+  }
+
+  if (
+    status === "normal" &&
+    contextTerms.size >= 12 &&
+    meaningfulWords.length >= 10 &&
+    contextMatchRatio <= 0.05
+  ) {
+    status = "possibly_off_topic";
+    score = Math.max(score, 1 - contextMatchRatio);
+    reasons.push("low overlap with current flowchart and recent meeting context");
+  }
+
+  return {
+    chunkIndex,
+    status,
+    score: Math.round(score * 100) / 100,
+    reasons,
+    metrics: {
+      wordCount: words.length,
+      meaningfulWordCount: meaningfulWords.length,
+      junkWordRatio: Math.round(junkWordRatio * 100) / 100,
+      contextMatchRatio: Math.round(contextMatchRatio * 100) / 100,
+      repeatedWordRatio: Math.round(repeatedWordRatio * 100) / 100,
+    },
+  };
 }
 
 /** Selected node info stored as a pill */
@@ -1408,6 +1540,13 @@ export default function WorkspacePage() {
 
     flushPreviewMode();
 
+    const codeAtStart = mermaidCodeRef.current;
+    const meetingSignal = analyzeMeetingTranscriptSignal(
+      transcript,
+      chunk.index,
+      codeAtStart,
+      chatHistoryRef.current
+    );
     const chunkLabel = `Meeting transcript chunk #${chunk.index}`;
     const meetingMessage = `[Live meeting transcript chunk #${chunk.index}]
 
@@ -1419,6 +1558,8 @@ ${transcript}
       role: "user",
       content: meetingMessage,
       timestamp: new Date().toISOString(),
+      versionSource: "meeting_transcribe",
+      meetingSignal,
     };
 
     const newHistory = [...chatHistoryRef.current, userMessage];
@@ -1426,7 +1567,6 @@ ${transcript}
     setChatHistory(newHistory);
     setChatLoading(true);
 
-    const codeAtStart = mermaidCodeRef.current;
     const chatOperationId = `chat_send:${crypto.randomUUID()}`;
     const chatPayload: ChatSendPayload = {
       canvasId: canvasId || null,

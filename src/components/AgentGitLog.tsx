@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
-import type { ChatMessage, CanvasCommit } from "../types";
+import type { ChatMessage, CanvasCommit, MeetingTranscriptSignal } from "../types";
 import ModelPicker from "./ModelPicker";
 
 interface AgentGitLogProps {
@@ -46,6 +46,23 @@ function sourceIcon(source?: string): string {
 function cleanMessageContent(content: string): string {
   const cleaned = content.replace(/```mermaid\n[\s\S]*?```/g, "").trim();
   return cleaned || "Flowchart updated.";
+}
+
+function meetingSignalLabel(signal?: MeetingTranscriptSignal): string | null {
+  if (!signal || signal.status === "normal") return null;
+  if (signal.status === "low_signal") return "Low signal";
+  return "Off-topic?";
+}
+
+function meetingSignalClass(signal: MeetingTranscriptSignal) {
+  return signal.status === "low_signal"
+    ? "border-amber-200 bg-amber-50 text-amber-700"
+    : "border-blue-200 bg-blue-50 text-blue-700";
+}
+
+function meetingSignalTitle(signal: MeetingTranscriptSignal) {
+  const reasons = signal.reasons.length > 0 ? signal.reasons.join("; ") : "No specific reason recorded";
+  return `Chunk #${signal.chunkIndex}: ${reasons}`;
 }
 
 interface Interaction {
@@ -435,6 +452,15 @@ export default function AgentGitLog({
                                 {interaction.userMessage.content}
                               </div>
                             </div>
+                            {interaction.userMessage.meetingSignal && meetingSignalLabel(interaction.userMessage.meetingSignal) && (
+                              <span
+                                className={`mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${meetingSignalClass(interaction.userMessage.meetingSignal)}`}
+                                title={meetingSignalTitle(interaction.userMessage.meetingSignal)}
+                              >
+                                <span className="material-symbols-outlined text-[12px]">flag</span>
+                                {meetingSignalLabel(interaction.userMessage.meetingSignal)}
+                              </span>
+                            )}
                           </div>
                           <span className={`material-symbols-outlined text-on-surface-variant/50 text-lg shrink-0 mt-0.5 transition-transform duration-500 ease-in-out ${
                             expandedPills[interaction.id] ? "rotate-180" : ""
