@@ -1,17 +1,7 @@
-export type MeetingTranscriptSignalStatus = "normal" | "low_signal" | "possibly_off_topic";
-
-export interface MeetingTranscriptSignal {
-  chunkIndex: number;
-  status: MeetingTranscriptSignalStatus;
-  score: number;
-  reasons: string[];
-  metrics: {
-    wordCount: number;
-    meaningfulWordCount: number;
-    junkWordRatio: number;
-    contextMatchRatio: number;
-    repeatedWordRatio: number;
-  };
+export interface MeetingProcessingMetrics {
+  isMeetingContent: boolean;
+  relevanceScore: number;
+  reason: string;
 }
 
 export interface ChatMessage {
@@ -21,7 +11,7 @@ export interface ChatMessage {
   causedCrash?: boolean;
   mermaidSnapshot?: string;
   versionSource?: "ai_chat" | "manual" | "auto_fix" | "upload" | "restore" | "project_context" | "meeting_transcribe";
-  meetingSignal?: MeetingTranscriptSignal;
+  meetingMetrics?: MeetingProcessingMetrics;
 }
 
 export interface CanvasCommit {

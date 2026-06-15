@@ -4,6 +4,14 @@ import { supabase } from "./lib/db.js";
 import { decrypt } from "./lib/crypto.js";
 import OpenAI from "openai";
 
+interface MeetingProcessingMetrics {
+  isMeetingContent: boolean;
+  relevanceScore: number;
+  reason: string;
+}
+
+const MEETING_METRICS_PREFIX = "%% INTELLIDRAW_MEETING_METRICS:";
+
 /** Read rolling chat history config from admin_config table */
 async function getChatConfig() {
   const { data: rows } = await supabase
@@ -24,6 +32,48 @@ async function getChatConfig() {
 function extractObjectives(mermaidCode: string): string | null {
   const match = mermaidCode.match(/%% OBJECTIVES:\s*(.+)/);
   return match ? match[1].trim() : null;
+}
+
+function parseMeetingMetricsLine(line: string): MeetingProcessingMetrics | null {
+  const body = line.slice(MEETING_METRICS_PREFIX.length).trim();
+  const contentMatch = body.match(/(?:^|;)\s*isMeetingContent\s*=\s*(true|false)\s*(?:;|$)/i);
+  const scoreMatch = body.match(/(?:^|;)\s*relevanceScore\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*(?:;|$)/i);
+  const reasonMatch = body.match(/(?:^|;)\s*reason\s*=\s*(.+)$/i);
+
+  if (!contentMatch || !scoreMatch || !reasonMatch) return null;
+
+  const relevanceScore = Number(scoreMatch[1]);
+  if (!Number.isFinite(relevanceScore) || relevanceScore < 0 || relevanceScore > 1) return null;
+
+  const reason = reasonMatch[1].trim().replace(/\s*;+\s*$/, "");
+  if (!reason) return null;
+
+  return {
+    isMeetingContent: contentMatch[1].toLowerCase() === "true",
+    relevanceScore,
+    reason,
+  };
+}
+
+function extractMeetingMetrics(response: string, enabled: boolean) {
+  if (!enabled) return { visibleResponse: response, meetingMetrics: undefined as MeetingProcessingMetrics | undefined };
+
+  const lines = response.split(/\r?\n/);
+  const metricsIndex = lines.findLastIndex((line) => line.trim().startsWith(MEETING_METRICS_PREFIX));
+  if (metricsIndex === -1) {
+    return { visibleResponse: response, meetingMetrics: undefined as MeetingProcessingMetrics | undefined };
+  }
+
+  const metricsLine = lines[metricsIndex].trim();
+  const visibleResponse = [
+    ...lines.slice(0, metricsIndex),
+    ...lines.slice(metricsIndex + 1),
+  ].join("\n").trim();
+
+  return {
+    visibleResponse: visibleResponse || "Meeting chunk processed.",
+    meetingMetrics: parseMeetingMetricsLine(metricsLine) || undefined,
+  };
 }
 
 async function loadActiveSkillInstructions(userId: string, canvasId: string): Promise<string> {
@@ -63,7 +113,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { message, mermaidCode, chatHistory, canvasId, activeScopeId, scopePath } = req.body;
+  const { message, mermaidCode, chatHistory, canvasId, activeScopeId, scopePath, source } = req.body;
+  const isMeetingTranscript = source === "meeting_transcribe";
 
   if (!message) {
     return res.status(400).json({ error: "Message is required" });
@@ -123,6 +174,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       scopeContext = `\n\nACTIVE SCOPE CONTEXT:\nThe user is currently viewing a specific subgraph scope within the full flowchart.\n- Active Scope ID: ${activeScopeId}\n- Scope Path (breadcrumb): ${scopePathStr}\n- The user's edits are focused on this scope, but you MUST output the COMPLETE updated Mermaid code (the entire project, not just the active scope).\n- When making changes to the active scope, be careful not to break nodes/edges in other scopes.\n- Subgraph boundaries (subgraph ... end) define scope structure. Do not remove or rename subgraph IDs unless explicitly asked.`;
     }
 
+    const meetingMetricsInstruction = isMeetingTranscript
+      ? `\n11. IMPORTANT: For live meeting transcript chunks only, first respond and decide Mermaid updates exactly as usual. Then append one final metadata line for UI observability only, using this exact format:\n%% INTELLIDRAW_MEETING_METRICS: isMeetingContent=true; relevanceScore=0.92; reason=Chunk contains workflow-relevant discussion.\nSet isMeetingContent=false only when the transcript is side chatter that should be visible in chat history but is not useful meeting/workflow content. This metadata line must not change whether you update Mermaid.`
+      : "";
+
     // Build conversation history for context
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       {
@@ -144,7 +199,7 @@ INSTRUCTIONS:
 7. Use descriptive node labels and proper flow connections
 8. IMPORTANT: If the current Mermaid code contains a %% EXTERNAL CONTEXT block, treat it as inherited project/folder context, preserve that entire block exactly, and keep it above %% OBJECTIVES.
 9. IMPORTANT: Immediately after any external context block, include a single-line comment summarizing the user's current objectives and overall intent for this flowchart. Format: %% OBJECTIVES: <one-paragraph summary of what the user is building and their goals>. If a previous objectives summary exists above, update it to reflect the latest changes.
-10. IMPORTANT: If the current Mermaid code contains a %% INTELLIDRAW_LIVE_MEETING_STATE block, preserve and update it compactly as Mermaid comments above the visible graph. Use it as the condensed meeting state for future transcript chunks.${skillInstructions}`,
+10. IMPORTANT: If the current Mermaid code contains a %% INTELLIDRAW_LIVE_MEETING_STATE block, preserve and update it compactly as Mermaid comments above the visible graph. Use it as the condensed meeting state for future transcript chunks.${meetingMetricsInstruction}${skillInstructions}`,
       },
     ];
 
@@ -177,14 +232,16 @@ INSTRUCTIONS:
 
     const aiResponse = completion.choices[0]?.message?.content || "I couldn't generate a response. Please try again.";
 
-    // Extract mermaid code from the response if present
+    // Extract mermaid code from the raw response so observability metadata never gates canvas updates.
     const mermaidMatch = aiResponse.match(/```mermaid\n([\s\S]*?)```/);
     const updatedMermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
+    const { visibleResponse, meetingMetrics } = extractMeetingMetrics(aiResponse, isMeetingTranscript);
 
     return res.status(200).json({
-      response: aiResponse,
+      response: visibleResponse,
       updatedMermaidCode,
       model: modelId,
+      ...(meetingMetrics ? { meetingMetrics } : {}),
     });
   } catch (err: unknown) {
     console.error("Chat error:", err);

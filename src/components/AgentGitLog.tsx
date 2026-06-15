@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
-import type { ChatMessage, CanvasCommit, MeetingTranscriptSignal } from "../types";
+import type { ChatMessage, CanvasCommit, MeetingProcessingMetrics } from "../types";
 import ModelPicker from "./ModelPicker";
 
 interface AgentGitLogProps {
@@ -48,27 +48,21 @@ function cleanMessageContent(content: string): string {
   return cleaned || "Flowchart updated.";
 }
 
-function meetingSignalLabel(signal?: MeetingTranscriptSignal): string | null {
-  if (!signal || signal.status === "normal") return null;
-  if (signal.status === "low_signal") return "Low signal";
-  return "Off-topic?";
+function meetingMetricsTitle(metrics: MeetingProcessingMetrics) {
+  const score = Math.round(metrics.relevanceScore * 100);
+  return `Relevance ${score}%: ${metrics.reason}`;
 }
 
-function meetingSignalClass(signal: MeetingTranscriptSignal) {
-  return signal.status === "low_signal"
-    ? "border-amber-200 bg-amber-50 text-amber-700"
-    : "border-blue-200 bg-blue-50 text-blue-700";
-}
-
-function meetingSignalTitle(signal: MeetingTranscriptSignal) {
-  const reasons = signal.reasons.length > 0 ? signal.reasons.join("; ") : "No specific reason recorded";
-  return `Chunk #${signal.chunkIndex}: ${reasons}`;
-}
+const sideChatterBadgeClass = "border-amber-200 bg-amber-50 text-amber-700";
 
 interface Interaction {
   id: number;
   userMessage: ChatMessage | null;
   assistantMessages: ChatMessage[];
+}
+
+function getSideChatterMetrics(interaction: Interaction) {
+  return interaction.assistantMessages.find((message) => message.meetingMetrics?.isMeetingContent === false)?.meetingMetrics;
 }
 
 export default function AgentGitLog({
@@ -420,7 +414,10 @@ export default function AgentGitLog({
                 </div>
               )}
 
-              {interactions.map((interaction, idx) => (
+              {interactions.map((interaction, idx) => {
+                const sideChatterMetrics = getSideChatterMetrics(interaction);
+
+                return (
                 <div key={interaction.id} className={`flex flex-col relative ${idx === 0 ? "mt-1" : ""}`}>
                   {interaction.userMessage ? (
                     <>
@@ -452,13 +449,13 @@ export default function AgentGitLog({
                                 {interaction.userMessage.content}
                               </div>
                             </div>
-                            {interaction.userMessage.meetingSignal && meetingSignalLabel(interaction.userMessage.meetingSignal) && (
+                            {sideChatterMetrics && (
                               <span
-                                className={`mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${meetingSignalClass(interaction.userMessage.meetingSignal)}`}
-                                title={meetingSignalTitle(interaction.userMessage.meetingSignal)}
+                                className={`mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${sideChatterBadgeClass}`}
+                                title={meetingMetricsTitle(sideChatterMetrics)}
                               >
                                 <span className="material-symbols-outlined text-[12px]">flag</span>
-                                {meetingSignalLabel(interaction.userMessage.meetingSignal)}
+                                Side chatter
                               </span>
                             )}
                           </div>
@@ -520,7 +517,8 @@ export default function AgentGitLog({
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
 
               {/* Loading */}
               {chatLoading && (
