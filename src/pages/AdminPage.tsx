@@ -109,8 +109,12 @@ export default function AdminPage() {
   const [chatRollingEnabled, setChatRollingEnabled] = useState(false);
   const [chatWindowLength, setChatWindowLength] = useState(10);
   const [voiceChunkLengthMinutes, setVoiceChunkLengthMinutes] = useState(5);
+  const [meetingSilenceStopSeconds, setMeetingSilenceStopSeconds] = useState(120);
+  const [meetingSideChatterStopChunks, setMeetingSideChatterStopChunks] = useState(3);
   const chatWindowDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceChunkDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const meetingSilenceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const meetingSideChatterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // User reset state
   const [resetEmail, setResetEmail] = useState("");
@@ -228,6 +232,8 @@ export default function AdminPage() {
       setChatRollingEnabled(data.rollingHistoryEnabled ?? false);
       setChatWindowLength(data.rollingWindowLength ?? 10);
       setVoiceChunkLengthMinutes(data.voiceChunkLengthMinutes ?? 5);
+      setMeetingSilenceStopSeconds(data.meetingSilenceStopSeconds ?? 120);
+      setMeetingSideChatterStopChunks(data.meetingSideChatterStopChunks ?? 3);
     } catch (err) {
       console.error("Failed to load chat config:", err);
     }
@@ -262,6 +268,28 @@ export default function AdminPage() {
     if (voiceChunkDebounceRef.current) clearTimeout(voiceChunkDebounceRef.current);
     voiceChunkDebounceRef.current = setTimeout(async () => {
       try { await apiUpdateChatConfig({ voiceChunkLengthMinutes: clamped }); } catch (err) { console.error("Failed to save voice chunk length:", err); }
+    }, 400);
+  };
+
+  const handleMeetingSilenceStopChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseInt(e.target.value, 10);
+    if (isNaN(val)) return;
+    const clamped = Math.max(0, Math.min(600, val));
+    setMeetingSilenceStopSeconds(clamped);
+    if (meetingSilenceDebounceRef.current) clearTimeout(meetingSilenceDebounceRef.current);
+    meetingSilenceDebounceRef.current = setTimeout(async () => {
+      try { await apiUpdateChatConfig({ meetingSilenceStopSeconds: clamped }); } catch (err) { console.error("Failed to save meeting silence auto-stop:", err); }
+    }, 400);
+  };
+
+  const handleMeetingSideChatterStopChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseInt(e.target.value, 10);
+    if (isNaN(val)) return;
+    const clamped = Math.max(0, Math.min(10, val));
+    setMeetingSideChatterStopChunks(clamped);
+    if (meetingSideChatterDebounceRef.current) clearTimeout(meetingSideChatterDebounceRef.current);
+    meetingSideChatterDebounceRef.current = setTimeout(async () => {
+      try { await apiUpdateChatConfig({ meetingSideChatterStopChunks: clamped }); } catch (err) { console.error("Failed to save side chatter auto-stop:", err); }
     }, 400);
   };
 
@@ -1103,7 +1131,7 @@ export default function AdminPage() {
             <div
               className="transition-all duration-300 ease-in-out overflow-hidden"
               style={{
-                maxHeight: expandedSection === "chat" ? "760px" : "0",
+                maxHeight: expandedSection === "chat" ? "1250px" : "0",
                 opacity: expandedSection === "chat" ? 1 : 0,
               }}
             >
@@ -1193,6 +1221,75 @@ export default function AdminPage() {
                       }}
                     />
                     <span className="text-xs font-medium text-on-surface-variant/60">10</span>
+                  </div>
+                </div>
+
+                {/* Meeting Auto-stop Controls */}
+                <div className="flex flex-col gap-4 p-4 rounded-2xl bg-surface-container-lowest border border-outline-variant/15">
+                  <div className="flex items-start gap-2">
+                    <span className="material-symbols-outlined text-base text-primary mt-0.5">motion_photos_pause</span>
+                    <div>
+                      <h3 className="text-sm font-bold text-on-surface">Meeting Mode Auto-stop</h3>
+                      <p className="text-xs text-on-surface-variant">
+                        Stops unattended meeting recordings after sustained quiet or repeated side chatter.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-sm font-semibold text-on-surface">Silence Stop Delay</label>
+                      <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                        {meetingSilenceStopSeconds === 0 ? "Off" : `${meetingSilenceStopSeconds} sec`}
+                      </span>
+                    </div>
+                    <p className="text-xs text-on-surface-variant">
+                      Continuous below-gate audio duration before Meeting Mode stops recording.
+                    </p>
+                    <div className="flex items-center gap-3 mt-2">
+                      <span className="text-xs font-medium text-on-surface-variant/60">Off</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="600"
+                        step="5"
+                        value={meetingSilenceStopSeconds}
+                        onChange={handleMeetingSilenceStopChange}
+                        className="flex-1 h-2 rounded-full appearance-none cursor-pointer accent-primary"
+                        style={{
+                          background: `linear-gradient(to right, var(--md-sys-color-primary, #6750A4) 0%, var(--md-sys-color-primary, #6750A4) ${(meetingSilenceStopSeconds / 600) * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) ${(meetingSilenceStopSeconds / 600) * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) 100%)`,
+                        }}
+                      />
+                      <span className="text-xs font-medium text-on-surface-variant/60">600s</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-sm font-semibold text-on-surface">Side Chatter Stop Count</label>
+                      <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                        {meetingSideChatterStopChunks === 0 ? "Off" : `${meetingSideChatterStopChunks} chunks`}
+                      </span>
+                    </div>
+                    <p className="text-xs text-on-surface-variant">
+                      Consecutive LLM-marked side-chatter chunks before Meeting Mode stops recording.
+                    </p>
+                    <div className="flex items-center gap-3 mt-2">
+                      <span className="text-xs font-medium text-on-surface-variant/60">Off</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="10"
+                        step="1"
+                        value={meetingSideChatterStopChunks}
+                        onChange={handleMeetingSideChatterStopChange}
+                        className="flex-1 h-2 rounded-full appearance-none cursor-pointer accent-primary"
+                        style={{
+                          background: `linear-gradient(to right, var(--md-sys-color-primary, #6750A4) 0%, var(--md-sys-color-primary, #6750A4) ${(meetingSideChatterStopChunks / 10) * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) ${(meetingSideChatterStopChunks / 10) * 100}%, var(--md-sys-color-surface-container-high, #E6E0E9) 100%)`,
+                        }}
+                      />
+                      <span className="text-xs font-medium text-on-surface-variant/60">10</span>
+                    </div>
                   </div>
                 </div>
 

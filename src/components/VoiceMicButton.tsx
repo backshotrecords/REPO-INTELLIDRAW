@@ -26,6 +26,8 @@ interface VoiceMicButtonProps {
   canvasId?: string | null;
   disabled?: boolean;
   chunkLengthMinutes?: number;
+  meetingSilenceStopSeconds?: number;
+  externalStopSignal?: number;
   inputBarHeight?: number;
   onChunkQueueChange?: (chunks: VoiceQueueChunk[]) => void;
 }
@@ -50,6 +52,11 @@ function clampChunkLength(minutes?: number) {
   return Math.max(1, Math.min(10, Math.round(minutes || DEFAULT_CHUNK_MINUTES)));
 }
 
+function clampSilenceStopSeconds(seconds?: number) {
+  if (!Number.isFinite(seconds)) return 120;
+  return Math.max(0, Math.min(600, Math.round(seconds || 0)));
+}
+
 function formatTime(s: number) {
   const m = String(Math.floor(s / 60)).padStart(2, "0");
   const sec = String(s % 60).padStart(2, "0");
@@ -66,6 +73,8 @@ export default function VoiceMicButton({
   canvasId,
   disabled,
   chunkLengthMinutes = DEFAULT_CHUNK_MINUTES,
+  meetingSilenceStopSeconds = 120,
+  externalStopSignal = 0,
   inputBarHeight = 60,
   onChunkQueueChange,
 }: VoiceMicButtonProps) {
@@ -101,7 +110,11 @@ export default function VoiceMicButton({
   const nextChunkIndexRef = useRef(1);
   const silenceStartedAtRef = useRef<number | null>(null);
   const silenceDetectedRef = useRef(false);
+  const silenceAutoStopTriggeredRef = useRef(false);
   const chunkLengthRef = useRef(clampChunkLength(chunkLengthMinutes));
+  const silenceStopSecondsRef = useRef(clampSilenceStopSeconds(meetingSilenceStopSeconds));
+  const stopRecordingRef = useRef<(() => void) | null>(null);
+  const lastExternalStopSignalRef = useRef(externalStopSignal);
   const onTranscriptRef = useRef(onTranscript);
   const onMeetingTranscriptRef = useRef(onMeetingTranscript);
   const waveformBottom = Math.max(90, inputBarHeight + 32);
@@ -114,6 +127,9 @@ export default function VoiceMicButton({
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { chunkLengthRef.current = clampChunkLength(chunkLengthMinutes); }, [chunkLengthMinutes]);
+  useEffect(() => {
+    silenceStopSecondsRef.current = clampSilenceStopSeconds(meetingSilenceStopSeconds);
+  }, [meetingSilenceStopSeconds]);
   useEffect(() => {
     onTranscriptRef.current = onTranscript;
     onMeetingTranscriptRef.current = onMeetingTranscript;
@@ -185,6 +201,16 @@ export default function VoiceMicButton({
         silenceDetectedRef.current = true;
         setSilenceDetected(true);
       }
+      const silenceStopMs = silenceStopSecondsRef.current * 1000;
+      if (
+        sessionModeRef.current === "meeting" &&
+        silenceStopMs > 0 &&
+        !silenceAutoStopTriggeredRef.current &&
+        now - silenceStartedAtRef.current >= silenceStopMs
+      ) {
+        silenceAutoStopTriggeredRef.current = true;
+        stopRecordingRef.current?.();
+      }
       return;
     }
 
@@ -198,6 +224,7 @@ export default function VoiceMicButton({
   const resetSilenceIndicator = useCallback(() => {
     silenceStartedAtRef.current = null;
     silenceDetectedRef.current = false;
+    silenceAutoStopTriggeredRef.current = false;
     setSilenceDetected(false);
   }, []);
 
@@ -470,6 +497,22 @@ export default function VoiceMicButton({
     stopWaveform();
     setState("processing");
   }, [cleanupRecordingResources, stopWaveform]);
+
+  useEffect(() => {
+    stopRecordingRef.current = stopRecording;
+  }, [stopRecording]);
+
+  useEffect(() => {
+    if (lastExternalStopSignalRef.current === externalStopSignal) return;
+    lastExternalStopSignalRef.current = externalStopSignal;
+    if (
+      externalStopSignal > 0 &&
+      sessionModeRef.current === "meeting" &&
+      stateRef.current === "recording"
+    ) {
+      stopRecording();
+    }
+  }, [externalStopSignal, stopRecording]);
 
   const cancelRecording = useCallback(() => {
     cancelledRef.current = true;

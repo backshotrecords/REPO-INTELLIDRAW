@@ -2,6 +2,8 @@ export interface MeetingProcessingMetrics {
   isMeetingContent: boolean;
   relevanceScore: number;
   reason: string;
+  sideChatterRunCount?: number;
+  sideChatterStopAfterChunks?: number;
 }
 
 export interface ChatMessage {

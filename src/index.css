@@ -434,6 +434,12 @@
   background: rgba(254, 242, 242, 0.82);
 }
 
+.voice-input-queue-side_chatter {
+  border-color: rgba(217, 119, 6, 0.28);
+  color: #92400e;
+  background: rgba(255, 251, 235, 0.88);
+}
+
 .voice-input-queue-index,
 .voice-input-queue-status {
   min-width: 0;
@@ -463,6 +469,10 @@
 
 .voice-chunk-error {
   background: #dc2626;
+}
+
+.voice-chunk-side_chatter {
+  background: #d97706;
 }
 
 .voice-chunk-label {

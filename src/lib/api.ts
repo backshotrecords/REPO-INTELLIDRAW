@@ -660,6 +660,8 @@ export async function apiUpdateChatConfig(opts: {
   rollingHistoryEnabled?: boolean;
   rollingWindowLength?: number;
   voiceChunkLengthMinutes?: number;
+  meetingSilenceStopSeconds?: number;
+  meetingSideChatterStopChunks?: number;
 }) {
   const res = await apiFetch("/admin/chat-config", {
     method: "PUT",

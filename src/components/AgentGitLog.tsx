@@ -50,7 +50,11 @@ function cleanMessageContent(content: string): string {
 
 function meetingMetricsTitle(metrics: MeetingProcessingMetrics) {
   const score = Math.round(metrics.relevanceScore * 100);
-  return `Relevance ${score}%: ${metrics.reason}`;
+  const reason = metrics.reason.trim().replace(/[.!?]+$/, "");
+  const run = metrics.sideChatterRunCount
+    ? ` Side chatter run: ${metrics.sideChatterRunCount}${metrics.sideChatterStopAfterChunks ? `/${metrics.sideChatterStopAfterChunks}` : ""}.`
+    : "";
+  return `Relevance ${score}%: ${reason}.${run}`;
 }
 
 const sideChatterBadgeClass = "border-amber-200 bg-amber-50 text-amber-700";
