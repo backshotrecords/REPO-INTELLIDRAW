@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
-import type { ChatMessage, CanvasCommit } from "../types";
+import type { ChatMessage, CanvasCommit, MeetingProcessingMetrics } from "../types";
 import ModelPicker from "./ModelPicker";
 
 interface AgentGitLogProps {
@@ -48,10 +48,25 @@ function cleanMessageContent(content: string): string {
   return cleaned || "Flowchart updated.";
 }
 
+function meetingMetricsTitle(metrics: MeetingProcessingMetrics) {
+  const score = Math.round(metrics.relevanceScore * 100);
+  const reason = metrics.reason.trim().replace(/[.!?]+$/, "");
+  const run = metrics.sideChatterRunCount
+    ? ` Side chatter run: ${metrics.sideChatterRunCount}${metrics.sideChatterStopAfterChunks ? `/${metrics.sideChatterStopAfterChunks}` : ""}.`
+    : "";
+  return `Relevance ${score}%: ${reason}.${run}`;
+}
+
+const sideChatterBadgeClass = "border-amber-200 bg-amber-50 text-amber-700";
+
 interface Interaction {
   id: number;
   userMessage: ChatMessage | null;
   assistantMessages: ChatMessage[];
+}
+
+function getSideChatterMetrics(interaction: Interaction) {
+  return interaction.assistantMessages.find((message) => message.meetingMetrics?.isMeetingContent === false)?.meetingMetrics;
 }
 
 export default function AgentGitLog({
@@ -403,7 +418,10 @@ export default function AgentGitLog({
                 </div>
               )}
 
-              {interactions.map((interaction, idx) => (
+              {interactions.map((interaction, idx) => {
+                const sideChatterMetrics = getSideChatterMetrics(interaction);
+
+                return (
                 <div key={interaction.id} className={`flex flex-col relative ${idx === 0 ? "mt-1" : ""}`}>
                   {interaction.userMessage ? (
                     <>
@@ -435,6 +453,15 @@ export default function AgentGitLog({
                                 {interaction.userMessage.content}
                               </div>
                             </div>
+                            {sideChatterMetrics && (
+                              <span
+                                className={`mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${sideChatterBadgeClass}`}
+                                title={meetingMetricsTitle(sideChatterMetrics)}
+                              >
+                                <span className="material-symbols-outlined text-[12px]">flag</span>
+                                Side chatter
+                              </span>
+                            )}
                           </div>
                           <span className={`material-symbols-outlined text-on-surface-variant/50 text-lg shrink-0 mt-0.5 transition-transform duration-500 ease-in-out ${
                             expandedPills[interaction.id] ? "rotate-180" : ""
@@ -494,7 +521,8 @@ export default function AgentGitLog({
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
 
               {/* Loading */}
               {chatLoading && (

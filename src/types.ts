@@ -1,3 +1,11 @@
+export interface MeetingProcessingMetrics {
+  isMeetingContent: boolean;
+  relevanceScore: number;
+  reason: string;
+  sideChatterRunCount?: number;
+  sideChatterStopAfterChunks?: number;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -5,6 +13,7 @@ export interface ChatMessage {
   causedCrash?: boolean;
   mermaidSnapshot?: string;
   versionSource?: "ai_chat" | "manual" | "auto_fix" | "upload" | "restore" | "project_context" | "meeting_transcribe";
+  meetingMetrics?: MeetingProcessingMetrics;
 }
 
 export interface CanvasCommit {

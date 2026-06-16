@@ -2,7 +2,13 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 
-const ALL_KEYS = ["chat_rolling_enabled", "chat_rolling_window_length", "voice_chunk_length_minutes"];
+const ALL_KEYS = [
+  "chat_rolling_enabled",
+  "chat_rolling_window_length",
+  "voice_chunk_length_minutes",
+  "meeting_silence_stop_seconds",
+  "meeting_side_chatter_stop_chunks",
+];
 
 async function getChatConfig() {
   const { data: rows } = await supabase
@@ -13,6 +19,8 @@ async function getChatConfig() {
   const cfg: Record<string, string> = {};
   for (const row of rows || []) cfg[row.key] = row.value;
   const voiceChunkLength = parseInt(cfg.voice_chunk_length_minutes ?? "5", 10);
+  const meetingSilenceStopSeconds = parseInt(cfg.meeting_silence_stop_seconds ?? "120", 10);
+  const meetingSideChatterStopChunks = parseInt(cfg.meeting_side_chatter_stop_chunks ?? "3", 10);
 
   return {
     rollingHistoryEnabled: (cfg.chat_rolling_enabled ?? "false") === "true",
@@ -20,6 +28,12 @@ async function getChatConfig() {
     voiceChunkLengthMinutes: Number.isFinite(voiceChunkLength)
       ? Math.max(1, Math.min(10, voiceChunkLength))
       : 5,
+    meetingSilenceStopSeconds: Number.isFinite(meetingSilenceStopSeconds)
+      ? Math.max(0, Math.min(600, meetingSilenceStopSeconds))
+      : 120,
+    meetingSideChatterStopChunks: Number.isFinite(meetingSideChatterStopChunks)
+      ? Math.max(0, Math.min(10, meetingSideChatterStopChunks))
+      : 3,
   };
 }
 
@@ -60,7 +74,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(403).json({ error: "Forbidden: Admins only" });
       }
 
-      const { rollingHistoryEnabled, rollingWindowLength, voiceChunkLengthMinutes } = req.body || {};
+      const {
+        rollingHistoryEnabled,
+        rollingWindowLength,
+        voiceChunkLengthMinutes,
+        meetingSilenceStopSeconds,
+        meetingSideChatterStopChunks,
+      } = req.body || {};
 
       if (rollingHistoryEnabled !== undefined) {
         await setConfig("chat_rolling_enabled", String(rollingHistoryEnabled));
@@ -74,6 +94,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (voiceChunkLengthMinutes !== undefined) {
         const clamped = Math.max(1, Math.min(10, parseInt(String(voiceChunkLengthMinutes), 10)));
         await setConfig("voice_chunk_length_minutes", String(clamped));
+      }
+
+      if (meetingSilenceStopSeconds !== undefined) {
+        const clamped = Math.max(0, Math.min(600, parseInt(String(meetingSilenceStopSeconds), 10)));
+        await setConfig("meeting_silence_stop_seconds", String(clamped));
+      }
+
+      if (meetingSideChatterStopChunks !== undefined) {
+        const clamped = Math.max(0, Math.min(10, parseInt(String(meetingSideChatterStopChunks), 10)));
+        await setConfig("meeting_side_chatter_stop_chunks", String(clamped));
       }
 
       const config = await getChatConfig();

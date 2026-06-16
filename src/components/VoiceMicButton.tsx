@@ -26,6 +26,8 @@ interface VoiceMicButtonProps {
   canvasId?: string | null;
   disabled?: boolean;
   chunkLengthMinutes?: number;
+  meetingSilenceStopSeconds?: number;
+  externalStopSignal?: number;
   inputBarHeight?: number;
   onChunkQueueChange?: (chunks: VoiceQueueChunk[]) => void;
 }
@@ -42,10 +44,17 @@ export interface VoiceQueueChunk extends VoiceTranscriptChunk {
 const DEFAULT_CHUNK_MINUTES = 5;
 const MENU_WIDTH_PX = 220;
 const MENU_HEIGHT_PX = 96;
+const SILENCE_INDICATOR_MS = 2000;
+const SILENCE_RMS_THRESHOLD = 0.015;
 
 function clampChunkLength(minutes?: number) {
   if (!Number.isFinite(minutes)) return DEFAULT_CHUNK_MINUTES;
   return Math.max(1, Math.min(10, Math.round(minutes || DEFAULT_CHUNK_MINUTES)));
+}
+
+function clampSilenceStopSeconds(seconds?: number) {
+  if (!Number.isFinite(seconds)) return 120;
+  return Math.max(0, Math.min(600, Math.round(seconds || 0)));
 }
 
 function formatTime(s: number) {
@@ -64,6 +73,8 @@ export default function VoiceMicButton({
   canvasId,
   disabled,
   chunkLengthMinutes = DEFAULT_CHUNK_MINUTES,
+  meetingSilenceStopSeconds = 120,
+  externalStopSignal = 0,
   inputBarHeight = 60,
   onChunkQueueChange,
 }: VoiceMicButtonProps) {
@@ -75,6 +86,7 @@ export default function VoiceMicButton({
   const [chunks, setChunks] = useState<VoiceQueueChunk[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null);
+  const [silenceDetected, setSilenceDetected] = useState(false);
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -96,7 +108,13 @@ export default function VoiceMicButton({
   const recordingActiveRef = useRef(false);
   const pendingChunkCountRef = useRef(0);
   const nextChunkIndexRef = useRef(1);
+  const silenceStartedAtRef = useRef<number | null>(null);
+  const silenceDetectedRef = useRef(false);
+  const silenceAutoStopTriggeredRef = useRef(false);
   const chunkLengthRef = useRef(clampChunkLength(chunkLengthMinutes));
+  const silenceStopSecondsRef = useRef(clampSilenceStopSeconds(meetingSilenceStopSeconds));
+  const stopRecordingRef = useRef<(() => void) | null>(null);
+  const lastExternalStopSignalRef = useRef(externalStopSignal);
   const onTranscriptRef = useRef(onTranscript);
   const onMeetingTranscriptRef = useRef(onMeetingTranscript);
   const waveformBottom = Math.max(90, inputBarHeight + 32);
@@ -109,6 +127,9 @@ export default function VoiceMicButton({
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { chunkLengthRef.current = clampChunkLength(chunkLengthMinutes); }, [chunkLengthMinutes]);
+  useEffect(() => {
+    silenceStopSecondsRef.current = clampSilenceStopSeconds(meetingSilenceStopSeconds);
+  }, [meetingSilenceStopSeconds]);
   useEffect(() => {
     onTranscriptRef.current = onTranscript;
     onMeetingTranscriptRef.current = onMeetingTranscript;
@@ -170,6 +191,43 @@ export default function VoiceMicButton({
     settleIfComplete();
   }, [settleIfComplete]);
 
+  const updateSilenceIndicator = useCallback((rms: number) => {
+    const now = performance.now();
+    const isBelowGate = rms < SILENCE_RMS_THRESHOLD;
+
+    if (isBelowGate) {
+      silenceStartedAtRef.current ??= now;
+      if (!silenceDetectedRef.current && now - silenceStartedAtRef.current >= SILENCE_INDICATOR_MS) {
+        silenceDetectedRef.current = true;
+        setSilenceDetected(true);
+      }
+      const silenceStopMs = silenceStopSecondsRef.current * 1000;
+      if (
+        sessionModeRef.current === "meeting" &&
+        silenceStopMs > 0 &&
+        !silenceAutoStopTriggeredRef.current &&
+        now - silenceStartedAtRef.current >= silenceStopMs
+      ) {
+        silenceAutoStopTriggeredRef.current = true;
+        stopRecordingRef.current?.();
+      }
+      return;
+    }
+
+    silenceStartedAtRef.current = null;
+    if (silenceDetectedRef.current) {
+      silenceDetectedRef.current = false;
+      setSilenceDetected(false);
+    }
+  }, []);
+
+  const resetSilenceIndicator = useCallback(() => {
+    silenceStartedAtRef.current = null;
+    silenceDetectedRef.current = false;
+    silenceAutoStopTriggeredRef.current = false;
+    setSilenceDetected(false);
+  }, []);
+
   const drawWaveform = useCallback(() => {
     const analyser = analyserRef.current;
     const canvas = canvasRef.current;
@@ -184,6 +242,13 @@ export default function VoiceMicButton({
     const draw = () => {
       animFrameRef.current = requestAnimationFrame(draw);
       analyser.getByteTimeDomainData(dataArray);
+
+      let energySum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        const centered = (dataArray[i] - 128) / 128;
+        energySum += centered * centered;
+      }
+      updateSilenceIndicator(Math.sqrt(energySum / bufferLength));
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = "#f4f3f9";
@@ -221,7 +286,7 @@ export default function VoiceMicButton({
     };
 
     draw();
-  }, []);
+  }, [updateSilenceIndicator]);
 
   useEffect(() => {
     if (state === "recording" && analyserRef.current && canvasRef.current) {
@@ -297,6 +362,7 @@ export default function VoiceMicButton({
   }, [canvasId, finishPendingChunk, updateChunk]);
 
   const cleanupRecordingResources = useCallback(() => {
+    resetSilenceIndicator();
     audioStreamRef.current?.getTracks().forEach((track) => track.stop());
     audioStreamRef.current = null;
     void audioCtxRef.current?.close();
@@ -307,7 +373,7 @@ export default function VoiceMicButton({
       clearTimeout(chunkTimerRef.current);
       chunkTimerRef.current = null;
     }
-  }, []);
+  }, [resetSilenceIndicator]);
 
   const startRecorderChunk = useCallback(() => {
     const stream = audioStreamRef.current;
@@ -378,6 +444,7 @@ export default function VoiceMicButton({
   const startRecording = useCallback(async () => {
     setErrorMsg(null);
     setMenuOpen(false);
+    resetSilenceIndicator();
     cancelledRef.current = false;
     recordingActiveRef.current = true;
     pendingChunkCountRef.current = 0;
@@ -411,7 +478,7 @@ export default function VoiceMicButton({
       setErrorMsg("Microphone access denied.");
       setTimeout(() => setErrorMsg(null), 3000);
     }
-  }, [startRecorderChunk]);
+  }, [resetSilenceIndicator, startRecorderChunk]);
 
   const stopRecording = useCallback(() => {
     recordingActiveRef.current = false;
@@ -430,6 +497,22 @@ export default function VoiceMicButton({
     stopWaveform();
     setState("processing");
   }, [cleanupRecordingResources, stopWaveform]);
+
+  useEffect(() => {
+    stopRecordingRef.current = stopRecording;
+  }, [stopRecording]);
+
+  useEffect(() => {
+    if (lastExternalStopSignalRef.current === externalStopSignal) return;
+    lastExternalStopSignalRef.current = externalStopSignal;
+    if (
+      externalStopSignal > 0 &&
+      sessionModeRef.current === "meeting" &&
+      stateRef.current === "recording"
+    ) {
+      stopRecording();
+    }
+  }, [externalStopSignal, stopRecording]);
 
   const cancelRecording = useCallback(() => {
     cancelledRef.current = true;
@@ -573,6 +656,12 @@ export default function VoiceMicButton({
               <div className="voice-rec-dot" />
               <span className="voice-rec-label">{modeLabel(sessionModeRef.current)}</span>
               <span className="voice-chunk-live">Chunk #{currentChunkIndex}</span>
+              {silenceDetected && (
+                <span className="voice-silence-badge">
+                  <span className="material-symbols-outlined">volume_off</span>
+                  Quiet
+                </span>
+              )}
               <span className="voice-timer">{formatTime(seconds)}</span>
               <button
                 type="button"

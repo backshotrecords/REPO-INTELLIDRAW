@@ -1,4 +1,4 @@
-import type { CanvasCommit, CanvasPreviewCode, CanvasProject, DashboardCanvas, ProjectAccent, SkillScope, SkillTriggerMode } from "../types";
+import type { CanvasCommit, CanvasPreviewCode, CanvasProject, DashboardCanvas, MeetingProcessingMetrics, ProjectAccent, SkillScope, SkillTriggerMode } from "../types";
 
 const API_BASE = "/api";
 const PREVIEW_CODE_BATCH_SIZE = 100;
@@ -341,11 +341,17 @@ export async function apiChat(
   chatHistory: Array<{ role: string; content: string }>,
   canvasId?: string,
   activeScopeId?: string | null,
-  scopePath?: string[]
-) {
+  scopePath?: string[],
+  source?: "ai_chat" | "meeting_transcribe"
+): Promise<{
+  response: string;
+  updatedMermaidCode: string | null;
+  model: string;
+  meetingMetrics?: MeetingProcessingMetrics;
+}> {
   const res = await apiFetch("/chat", {
     method: "POST",
-    body: JSON.stringify({ message, mermaidCode, chatHistory, canvasId, activeScopeId, scopePath }),
+    body: JSON.stringify({ message, mermaidCode, chatHistory, canvasId, activeScopeId, scopePath, source }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Chat failed");
@@ -654,6 +660,8 @@ export async function apiUpdateChatConfig(opts: {
   rollingHistoryEnabled?: boolean;
   rollingWindowLength?: number;
   voiceChunkLengthMinutes?: number;
+  meetingSilenceStopSeconds?: number;
+  meetingSideChatterStopChunks?: number;
 }) {
   const res = await apiFetch("/admin/chat-config", {
     method: "PUT",

@@ -31,7 +31,7 @@ import { parseMermaidAST, getScopeViewCode, getRootViewWithCollapseState, getSco
 import { getRenderedClusterSubgraphId } from "../utils/mermaidDom";
 import { clearMermaidExternalContext } from "../utils/mermaidContext";
 import type { MermaidAST } from "../utils/mermaidParser";
-import type { ChatMessage, CanvasCommit, DashboardCanvas } from "../types";
+import type { ChatMessage, CanvasCommit, DashboardCanvas, MeetingProcessingMetrics } from "../types";
 import { isLongTermMemoryItem } from "../types";
 
 const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
@@ -56,6 +56,18 @@ function getDashboardReturnPath(canvas: DashboardReturnCanvas | null) {
 
   const query = params.toString();
   return query ? `/dashboard?${query}` : "/dashboard";
+}
+
+function getTrailingMeetingSideChatterRunCount(history: ChatMessage[]) {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message.role !== "assistant") continue;
+    if (message.versionSource !== "meeting_transcribe") return 0;
+    if (!message.meetingMetrics || message.meetingMetrics.isMeetingContent) return 0;
+    return message.meetingMetrics.sideChatterRunCount ?? 1;
+  }
+
+  return 0;
 }
 
 function shouldKeepNativeUndoRedo(target: EventTarget | null, chatTextarea: HTMLTextAreaElement | null) {
@@ -158,6 +170,10 @@ export default function WorkspacePage() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [voiceChunkLengthMinutes, setVoiceChunkLengthMinutes] = useState(5);
+  const [meetingSilenceStopSeconds, setMeetingSilenceStopSeconds] = useState(120);
+  const [meetingSideChatterStopChunks, setMeetingSideChatterStopChunks] = useState(3);
+  const [meetingSideChatterRunCount, setMeetingSideChatterRunCount] = useState(0);
+  const [voiceExternalStopSignal, setVoiceExternalStopSignal] = useState(0);
   const [voiceQueueChunks, setVoiceQueueChunks] = useState<VoiceQueueChunk[]>([]);
 
   // Ref mirrors — sendMessage reads these instead of closures (closure-proof)
@@ -169,6 +185,9 @@ export default function WorkspacePage() {
   const mountedRef = useRef(true);
   const chatLoadingRef = useRef(false);
   const meetingChunkQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const meetingSideChatterRunCountRef = useRef(0);
+  const meetingSideChatterStopChunksRef = useRef(3);
+  const meetingAutoStopTriggeredRef = useRef(false);
 
   useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
   useEffect(() => { mermaidCodeRef.current = mermaidCode; }, [mermaidCode]);
@@ -176,6 +195,7 @@ export default function WorkspacePage() {
   useEffect(() => { titleRef.current = title; }, [title]);
   useEffect(() => { commitsRef.current = commits; }, [commits]);
   useEffect(() => { chatLoadingRef.current = chatLoading; }, [chatLoading]);
+  useEffect(() => { meetingSideChatterStopChunksRef.current = meetingSideChatterStopChunks; }, [meetingSideChatterStopChunks]);
   useEffect(() => { activeScopeIdRef.current = activeScopeId; }, [activeScopeId]);
   useEffect(() => { scopePathRef.current = scopePath; }, [scopePath]);
   useEffect(() => () => { mountedRef.current = false; }, []);
@@ -391,7 +411,11 @@ export default function WorkspacePage() {
     fetchSoundSettings();
     fetchCanvasSettings();
     fetchChatSettings().then((settings) => {
-      if (mountedRef.current) setVoiceChunkLengthMinutes(settings.voiceChunkLengthMinutes);
+      if (mountedRef.current) {
+        setVoiceChunkLengthMinutes(settings.voiceChunkLengthMinutes);
+        setMeetingSilenceStopSeconds(settings.meetingSilenceStopSeconds);
+        setMeetingSideChatterStopChunks(settings.meetingSideChatterStopChunks);
+      }
     });
   }, []);
 
@@ -1398,6 +1422,40 @@ export default function WorkspacePage() {
     setChatInput((prev) => prev ? `${prev}\n\n${transcript}` : transcript);
   }, []);
 
+  const resetMeetingSideChatterRun = useCallback(() => {
+    meetingSideChatterRunCountRef.current = 0;
+    meetingAutoStopTriggeredRef.current = false;
+    setMeetingSideChatterRunCount(0);
+  }, []);
+
+  const annotateMeetingMetrics = useCallback((metrics?: MeetingProcessingMetrics) => {
+    if (!metrics) {
+      resetMeetingSideChatterRun();
+      return undefined;
+    }
+
+    if (metrics.isMeetingContent) {
+      resetMeetingSideChatterRun();
+      return metrics;
+    }
+
+    const nextCount = meetingSideChatterRunCountRef.current + 1;
+    const stopAfter = meetingSideChatterStopChunksRef.current;
+    meetingSideChatterRunCountRef.current = nextCount;
+    setMeetingSideChatterRunCount(nextCount);
+
+    if (stopAfter > 0 && nextCount >= stopAfter && !meetingAutoStopTriggeredRef.current) {
+      meetingAutoStopTriggeredRef.current = true;
+      setVoiceExternalStopSignal((value) => value + 1);
+    }
+
+    return {
+      ...metrics,
+      sideChatterRunCount: nextCount,
+      sideChatterStopAfterChunks: stopAfter > 0 ? stopAfter : undefined,
+    };
+  }, [resetMeetingSideChatterRun]);
+
   const processMeetingTranscriptChunk = useCallback(async (text: string, chunk: VoiceTranscriptChunk) => {
     const transcript = text.trim();
     if (!transcript) return;
@@ -1407,7 +1465,9 @@ export default function WorkspacePage() {
     }
 
     flushPreviewMode();
+    if (chunk.index === 1) resetMeetingSideChatterRun();
 
+    const codeAtStart = mermaidCodeRef.current;
     const chunkLabel = `Meeting transcript chunk #${chunk.index}`;
     const meetingMessage = `[Live meeting transcript chunk #${chunk.index}]
 
@@ -1419,6 +1479,7 @@ ${transcript}
       role: "user",
       content: meetingMessage,
       timestamp: new Date().toISOString(),
+      versionSource: "meeting_transcribe",
     };
 
     const newHistory = [...chatHistoryRef.current, userMessage];
@@ -1426,7 +1487,6 @@ ${transcript}
     setChatHistory(newHistory);
     setChatLoading(true);
 
-    const codeAtStart = mermaidCodeRef.current;
     const chatOperationId = `chat_send:${crypto.randomUUID()}`;
     const chatPayload: ChatSendPayload = {
       canvasId: canvasId || null,
@@ -1454,8 +1514,10 @@ ${transcript}
         newHistory,
         canvasId || undefined,
         activeScopeIdRef.current,
-        scopePathRef.current.map(s => s.label)
+        scopePathRef.current.map(s => s.label),
+        "meeting_transcribe"
       );
+      const meetingMetrics = annotateMeetingMetrics(result.meetingMetrics);
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
@@ -1463,6 +1525,7 @@ ${transcript}
         timestamp: new Date().toISOString(),
         versionSource: "meeting_transcribe",
         mermaidSnapshot: result.updatedMermaidCode || undefined,
+        meetingMetrics,
       };
 
       const updatedHistory = [...newHistory, assistantMessage];
@@ -1500,7 +1563,7 @@ ${transcript}
     } finally {
       setChatLoading(false);
     }
-  }, [autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure]);
+  }, [annotateMeetingMetrics, autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure, resetMeetingSideChatterRun]);
 
   const enqueueMeetingTranscriptChunk = useCallback((text: string, chunk: VoiceTranscriptChunk) => {
     const pending = meetingChunkQueueRef.current.then(() => processMeetingTranscriptChunk(text, chunk));
@@ -1559,19 +1622,29 @@ ${transcript}
         payload.chatHistory,
         payload.canvasId || undefined,
         payload.activeScopeId,
-        payload.scopePath
+        payload.scopePath,
+        payload.source
       );
 
+      const cleanedHistory = payload.chatHistory.filter(
+        (message) => !(message.role === "assistant" && message.content.startsWith("Waiting to retry..."))
+      );
+      if (payload.source === "meeting_transcribe") {
+        const priorSideChatterCount = getTrailingMeetingSideChatterRunCount(cleanedHistory);
+        meetingSideChatterRunCountRef.current = priorSideChatterCount;
+        setMeetingSideChatterRunCount(priorSideChatterCount);
+      }
+      const meetingMetrics = payload.source === "meeting_transcribe"
+        ? annotateMeetingMetrics(result.meetingMetrics)
+        : result.meetingMetrics;
       const assistantMessage: ChatMessage = {
         role: "assistant",
         content: result.response,
         timestamp: new Date().toISOString(),
         versionSource: payload.source,
         mermaidSnapshot: result.updatedMermaidCode || undefined,
+        meetingMetrics,
       };
-      const cleanedHistory = payload.chatHistory.filter(
-        (message) => !(message.role === "assistant" && message.content.startsWith("Waiting to retry..."))
-      );
       const updatedHistory = [...cleanedHistory, assistantMessage];
       setChatHistory(updatedHistory);
 
@@ -1610,7 +1683,7 @@ ${transcript}
       setChatHistory([...cleanedHistory, errorMessage]);
       removeOfflineOperation(operation.id);
     }
-  }, [cacheCanvasSave, createCommit, playCanvasSound, setReconnectMessage]);
+  }, [annotateMeetingMetrics, cacheCanvasSave, createCommit, playCanvasSound, setReconnectMessage]);
 
   const processTranscriptionOperation = useCallback(async (operation: OfflineOperation<TranscriptionPayload>) => {
     const payload = operation.payload;
@@ -2549,6 +2622,8 @@ ${transcript}
                       onChunkQueueChange={setVoiceQueueChunks}
                       canvasId={canvasId}
                       chunkLengthMinutes={voiceChunkLengthMinutes}
+                      meetingSilenceStopSeconds={meetingSilenceStopSeconds}
+                      externalStopSignal={voiceExternalStopSignal}
                       inputBarHeight={inputBarHeight}
                       disabled={chatLoading || isOffline}
                     />
@@ -2577,6 +2652,22 @@ ${transcript}
               {visibleVoiceQueueChunks.length > 0 && (
                 <div className="px-3 pb-3 -mt-1">
                   <div className="voice-input-queue-strip">
+                    {meetingSideChatterRunCount > 0 && (
+                      <div
+                        className="voice-input-queue-pill voice-input-queue-side_chatter"
+                        title={
+                          meetingSideChatterStopChunks > 0
+                            ? `Consecutive side-chatter chunks: ${meetingSideChatterRunCount}/${meetingSideChatterStopChunks}`
+                            : `Consecutive side-chatter chunks: ${meetingSideChatterRunCount}`
+                        }
+                      >
+                        <span className="voice-chunk-dot voice-chunk-side_chatter" />
+                        <span className="voice-input-queue-status">
+                          Side chatter {meetingSideChatterRunCount}
+                          {meetingSideChatterStopChunks > 0 ? `/${meetingSideChatterStopChunks}` : ""}
+                        </span>
+                      </div>
+                    )}
                     {visibleVoiceQueueChunks.map((chunk) => (
                       <div
                         key={chunk.id}
@@ -2675,6 +2766,8 @@ ${transcript}
               onChunkQueueChange={setVoiceQueueChunks}
               canvasId={canvasId}
               chunkLengthMinutes={voiceChunkLengthMinutes}
+              meetingSilenceStopSeconds={meetingSilenceStopSeconds}
+              externalStopSignal={voiceExternalStopSignal}
               inputBarHeight={inputBarHeight}
               disabled={chatLoading || isOffline}
             />

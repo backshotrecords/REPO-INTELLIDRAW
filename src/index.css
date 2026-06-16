@@ -434,6 +434,12 @@
   background: rgba(254, 242, 242, 0.82);
 }
 
+.voice-input-queue-side_chatter {
+  border-color: rgba(217, 119, 6, 0.28);
+  color: #92400e;
+  background: rgba(255, 251, 235, 0.88);
+}
+
 .voice-input-queue-index,
 .voice-input-queue-status {
   min-width: 0;
@@ -463,6 +469,10 @@
 
 .voice-chunk-error {
   background: #dc2626;
+}
+
+.voice-chunk-side_chatter {
+  background: #d97706;
 }
 
 .voice-chunk-label {
@@ -614,6 +624,25 @@
   color: #64748b;
   font-size: 12px;
   font-weight: 700;
+}
+
+.voice-silence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.voice-silence-badge .material-symbols-outlined {
+  font-size: 13px;
 }
 
 .voice-timer {

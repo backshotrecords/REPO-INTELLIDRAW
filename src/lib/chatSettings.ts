@@ -7,12 +7,18 @@ export interface ChatSettings {
   rollingWindowLength: number;
   /** Number of minutes per voice recording chunk */
   voiceChunkLengthMinutes: number;
+  /** Seconds of continuous meeting-mode silence before recording auto-stops; 0 disables */
+  meetingSilenceStopSeconds: number;
+  /** Consecutive meeting-mode side-chatter chunks before recording auto-stops; 0 disables */
+  meetingSideChatterStopChunks: number;
 }
 
 const DEFAULTS: ChatSettings = {
   rollingHistoryEnabled: false,
   rollingWindowLength: 10,
   voiceChunkLengthMinutes: 5,
+  meetingSilenceStopSeconds: 120,
+  meetingSideChatterStopChunks: 3,
 };
 
 let cachedSettings: ChatSettings = { ...DEFAULTS };
@@ -25,6 +31,8 @@ export async function fetchChatSettings(): Promise<ChatSettings> {
       rollingHistoryEnabled: data.rollingHistoryEnabled ?? DEFAULTS.rollingHistoryEnabled,
       rollingWindowLength: data.rollingWindowLength ?? DEFAULTS.rollingWindowLength,
       voiceChunkLengthMinutes: data.voiceChunkLengthMinutes ?? DEFAULTS.voiceChunkLengthMinutes,
+      meetingSilenceStopSeconds: data.meetingSilenceStopSeconds ?? DEFAULTS.meetingSilenceStopSeconds,
+      meetingSideChatterStopChunks: data.meetingSideChatterStopChunks ?? DEFAULTS.meetingSideChatterStopChunks,
     };
     hasFetched = true;
   } catch {
