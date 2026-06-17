@@ -562,6 +562,11 @@ export default function DashboardPage() {
             <p className="text-on-surface-variant max-w-md">
               {activeProject?.description || "Precision diagrams curated by your master drafter AI. Organize, edit, and export your architectural flows."}
             </p>
+            {activeProject && !activeProjectIsOwner && activeProject.shared_via_group_name && (
+              <div className="mt-4">
+                <CollabProjectAudience groupName={activeProject.shared_via_group_name} />
+              </div>
+            )}
           </div>
           <div className="flex gap-4">
             {activeProject ? (
@@ -974,7 +979,7 @@ function ProjectCard({
       <div className={`project-folder-art-production project-${project.accent}`}>
         <span className="material-symbols-outlined fill">folder</span>
       </div>
-      <div className="pl-28 pr-3">
+      <div className="pl-28 pr-3 min-h-[160px] flex flex-col">
         <div className="flex items-center gap-2">
           <h3 className="text-lg font-extrabold text-primary truncate" title={project.title}>{project.title}</h3>
           {isShared && (
@@ -993,10 +998,12 @@ function ProjectCard({
               {project.access_level === "edit" ? "Can edit" : "View only"}
             </span>
           )}
-          {isShared && project.shared_via_group_name && (
-            <span className="rounded-full bg-surface-container-high px-2.5 py-1">via {project.shared_via_group_name}</span>
-          )}
         </div>
+        {isShared && project.shared_via_group_name && (
+          <div className="mt-auto pt-4">
+            <CollabProjectAudience groupName={project.shared_via_group_name} />
+          </div>
+        )}
       </div>
       <div className="absolute left-5 bottom-4 z-40" ref={menuOpen ? menuRef : undefined}>
         <button
@@ -1013,6 +1020,19 @@ function ProjectCard({
         {menuOpen && <ProjectMenu menuAbove={menuAbove} menuClosing={menuClosing} isOwner={isOwner} canEdit={project.access_level !== "view"} onOpen={onOpen} onEdit={onEdit} onCollaborate={onCollaborate} onMove={onMove} onArchive={onArchive} onDelete={onDelete} />}
       </div>
     </article>
+  );
+}
+
+function CollabProjectAudience({ groupName }: { groupName: string }) {
+  return (
+    <div className="project-collab-audience" title={`Shared via ${groupName}`}>
+      <span className="project-collab-avatar-stack" aria-hidden="true">
+        <span className="project-collab-avatar-dot" />
+        <span className="project-collab-avatar-dot" />
+        <span className="project-collab-avatar-dot" />
+      </span>
+      <span className="truncate">Shared via {groupName}</span>
+    </div>
   );
 }
 

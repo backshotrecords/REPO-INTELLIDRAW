@@ -1632,6 +1632,50 @@
   background: linear-gradient(135deg, rgba(4, 22, 39, 0.06), transparent 42%);
 }
 
+.project-collab-audience {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  max-width: 100%;
+  width: fit-content;
+  border-radius: 9999px;
+  background: rgba(237, 248, 255, 0.92);
+  border: 1px solid rgba(0, 125, 151, 0.12);
+  color: #243347;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0.42rem 0.65rem 0.42rem 0.48rem;
+  box-shadow: 0 5px 14px rgba(4, 22, 39, 0.05);
+}
+
+.project-collab-avatar-stack {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.project-collab-avatar-dot {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.96);
+  background: #cfedf8;
+}
+
+.project-collab-avatar-dot + .project-collab-avatar-dot {
+  margin-left: -7px;
+}
+
+.project-collab-avatar-dot:nth-child(2) {
+  background: #aee3f6;
+}
+
+.project-collab-avatar-dot:nth-child(3) {
+  background: #8dd1ee;
+}
+
 .project-folder-art-production {
   position: absolute;
   left: 20px;
