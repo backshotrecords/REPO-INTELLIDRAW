@@ -142,6 +142,7 @@ export default function DashboardPage() {
   const isTreeWorkspace = Boolean(showCanvasTreeView && activeProject);
   const activeProjectCanEdit = !activeProject || activeProject.access_level !== "view";
   const activeProjectIsOwner = activeProject?.access_level !== "edit" && activeProject?.access_level !== "view";
+  const activeProjectAudienceLabel = activeProject ? getProjectAudienceLabelForPath(projectPath) : "";
 
   useEffect(() => {
     const cid = (location.state as Record<string, unknown> | null)?.closedCanvasId as string | undefined;
@@ -306,13 +307,17 @@ export default function DashboardPage() {
     navigate(projectId ? `/dashboard?project=${projectId}` : "/dashboard");
   }
 
+  function openUserManagement() {
+    navigate("/user-management");
+  }
+
   function refreshProjectContextInBackground(projectId: string) {
     if (projectContextRefreshesRef.current.has(projectId)) return;
     projectContextRefreshesRef.current.add(projectId);
     apiRefreshProjectContext(projectId)
       .then((result) => {
         setProjects((current) => current.map((project) => (
-          project.id === result.project.id ? result.project : project
+          project.id === result.project.id ? mergeProjectPreservingCollab(project, result.project) : project
         )));
       })
       .catch((err) => {
@@ -345,7 +350,11 @@ export default function DashboardPage() {
     try {
       if (projectWizard?.mode === "edit") {
         const project = await apiUpdateProject(projectWizard.projectId, draft);
-        setProjects((current) => [project, ...current.filter((item) => item.id !== project.id)]);
+        setProjects((current) => {
+          const previous = current.find((item) => item.id === project.id);
+          const merged = previous ? mergeProjectPreservingCollab(previous, project) : project;
+          return [merged, ...current.filter((item) => item.id !== project.id)];
+        });
       } else {
         const project = await apiCreateProject({ ...draft, parentProjectId: activeProjectId });
         setProjects((current) => [project, ...current]);
@@ -397,7 +406,7 @@ export default function DashboardPage() {
   async function handleArchiveProject(project: CanvasProject) {
     try {
       const updated = await apiUpdateProject(project.id, { manuallyArchived: true });
-      setProjects((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setProjects((current) => current.map((item) => item.id === updated.id ? mergeProjectPreservingCollab(item, updated) : item));
       setArchiveOnly(true);
       setProjectsCollapsed(false);
       setMenuOpen(null);
@@ -440,7 +449,11 @@ export default function DashboardPage() {
     if (!movingProject) return;
     try {
       const updated = await apiUpdateProject(movingProject.id, { parentProjectId: targetProjectId });
-      setProjects((current) => [updated, ...current.filter((project) => project.id !== updated.id)]);
+      setProjects((current) => {
+        const previous = current.find((project) => project.id === updated.id);
+        const merged = previous ? mergeProjectPreservingCollab(previous, updated) : updated;
+        return [merged, ...current.filter((project) => project.id !== updated.id)];
+      });
       setMovingProjectId(null);
       setMenuOpen(null);
       setArchiveOnly(false);
@@ -517,6 +530,8 @@ export default function DashboardPage() {
         {projectPath.length > 0 && (
           <ProjectBreadcrumb
             path={projectPath}
+            audienceLabel={isTreeWorkspace ? activeProjectAudienceLabel : ""}
+            onOpenUserManagement={openUserManagement}
             onNavigate={navigateToProject}
             action={<DashboardFileViewToggle mode={fileViewMode} onChange={setFileViewMode} />}
           />
@@ -562,6 +577,11 @@ export default function DashboardPage() {
             <p className="text-on-surface-variant max-w-md">
               {activeProject?.description || "Precision diagrams curated by your master drafter AI. Organize, edit, and export your architectural flows."}
             </p>
+            {activeProjectAudienceLabel && (
+              <div className="mt-4">
+                <CollabProjectAudience label={activeProjectAudienceLabel} onOpenUserManagement={openUserManagement} />
+              </div>
+            )}
           </div>
           <div className="flex gap-4">
             {activeProject ? (
@@ -652,6 +672,7 @@ export default function DashboardPage() {
                         menuClosing={menuClosing}
                         menuRef={menuOpen?.type === "project" && menuOpen.id === project.id ? menuRef : undefined}
                         onOpen={() => navigateToProject(project.id)}
+                        onOpenUserManagement={openUserManagement}
                         onToggleMenu={(button) => openMenu("project", project.id, button)}
                         onEdit={() => {
                           setMenuOpen(null);
@@ -945,6 +966,7 @@ function ProjectCard({
   menuClosing,
   menuRef,
   onOpen,
+  onOpenUserManagement,
   onToggleMenu,
   onEdit,
   onCollaborate,
@@ -959,6 +981,7 @@ function ProjectCard({
   menuClosing: boolean;
   menuRef?: RefObject<HTMLDivElement | null>;
   onOpen: () => void;
+  onOpenUserManagement: () => void;
   onToggleMenu: (button: HTMLButtonElement) => void;
   onEdit: () => void;
   onCollaborate: () => void;
@@ -968,16 +991,18 @@ function ProjectCard({
 }) {
   const isShared = project.access_level === "view" || project.access_level === "edit";
   const isOwner = !isShared;
+  const projectAudienceLabel = getProjectAudienceLabel(project);
+  const hasCollabSignal = isShared || Boolean(projectAudienceLabel);
 
   return (
-    <article onClick={onOpen} className={`project-card-production project-${project.accent}${isShared ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible`}>
+    <article onClick={onOpen} className={`project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible`}>
       <div className={`project-folder-art-production project-${project.accent}`}>
         <span className="material-symbols-outlined fill">folder</span>
       </div>
-      <div className="pl-28 pr-3">
+      <div className="pl-28 pr-3 min-h-[160px] flex flex-col">
         <div className="flex items-center gap-2">
           <h3 className="text-lg font-extrabold text-primary truncate" title={project.title}>{project.title}</h3>
-          {isShared && (
+          {hasCollabSignal && (
             <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-secondary-fixed/55 px-2 py-0.5 text-[10px] font-black uppercase text-primary">
               <span className="material-symbols-outlined text-[13px]">groups</span>
               Collab
@@ -993,10 +1018,12 @@ function ProjectCard({
               {project.access_level === "edit" ? "Can edit" : "View only"}
             </span>
           )}
-          {isShared && project.shared_via_group_name && (
-            <span className="rounded-full bg-surface-container-high px-2.5 py-1">via {project.shared_via_group_name}</span>
-          )}
         </div>
+        {projectAudienceLabel && (
+          <div className="mt-auto pt-4">
+            <CollabProjectAudience label={projectAudienceLabel} onOpenUserManagement={onOpenUserManagement} />
+          </div>
+        )}
       </div>
       <div className="absolute left-5 bottom-4 z-40" ref={menuOpen ? menuRef : undefined}>
         <button
@@ -1013,6 +1040,66 @@ function ProjectCard({
         {menuOpen && <ProjectMenu menuAbove={menuAbove} menuClosing={menuClosing} isOwner={isOwner} canEdit={project.access_level !== "view"} onOpen={onOpen} onEdit={onEdit} onCollaborate={onCollaborate} onMove={onMove} onArchive={onArchive} onDelete={onDelete} />}
       </div>
     </article>
+  );
+}
+
+function getProjectAudienceLabel(project: CanvasProject) {
+  if ((project.access_level === "view" || project.access_level === "edit") && project.shared_via_group_name) {
+    return `Shared via ${project.shared_via_group_name}`;
+  }
+
+  const count = project.shared_with_group_count ?? 0;
+  if (count <= 0) return "";
+
+  const names = project.shared_with_group_names ?? [];
+  const firstName = names[0];
+  if (!firstName) return `Shared with ${count} group${count === 1 ? "" : "s"}`;
+  if (count === 1) return `Shared with ${firstName}`;
+  return `Shared with ${firstName} + ${count - 1}`;
+}
+
+function getProjectAudienceLabelForPath(path: CanvasProject[]) {
+  for (let index = path.length - 1; index >= 0; index -= 1) {
+    const label = getProjectAudienceLabel(path[index]);
+    if (label) return label;
+  }
+  return "";
+}
+
+function mergeProjectPreservingCollab(current: CanvasProject, incoming: CanvasProject): CanvasProject {
+  return {
+    ...current,
+    ...incoming,
+    access_level: incoming.access_level ?? current.access_level,
+    shared_root_project_id: incoming.shared_root_project_id ?? current.shared_root_project_id,
+    shared_via_group_id: incoming.shared_via_group_id ?? current.shared_via_group_id,
+    shared_via_group_name: incoming.shared_via_group_name ?? current.shared_via_group_name,
+    shared_with_group_count: incoming.shared_with_group_count ?? current.shared_with_group_count,
+    shared_with_group_names: incoming.shared_with_group_names ?? current.shared_with_group_names,
+  };
+}
+
+function CollabProjectAudience({ label, onOpenUserManagement }: { label: string; onOpenUserManagement?: () => void }) {
+  function handleClick(event: React.MouseEvent<HTMLButtonElement>) {
+    event.stopPropagation();
+    onOpenUserManagement?.();
+  }
+
+  return (
+    <button
+      type="button"
+      className="project-collab-audience"
+      title={`${label}. Open user management.`}
+      aria-label={`${label}. Open user management.`}
+      onClick={handleClick}
+    >
+      <span className="project-collab-avatar-stack" aria-hidden="true">
+        <span className="project-collab-avatar-dot" />
+        <span className="project-collab-avatar-dot" />
+        <span className="project-collab-avatar-dot" />
+      </span>
+      <span className="truncate">{label}</span>
+    </button>
   );
 }
 
@@ -1599,11 +1686,15 @@ function MoveToProjectDialog({
 
 function ProjectBreadcrumb({
   path,
+  audienceLabel,
   action,
+  onOpenUserManagement,
   onNavigate,
 }: {
   path: CanvasProject[];
+  audienceLabel?: string;
   action?: ReactNode;
+  onOpenUserManagement: () => void;
   onNavigate: (projectId: string | null) => void;
 }) {
   return (
@@ -1623,6 +1714,11 @@ function ProjectBreadcrumb({
           </span>
         ))}
       </nav>
+      {audienceLabel && (
+        <div className="hidden min-w-0 shrink md:block">
+          <CollabProjectAudience label={audienceLabel} onOpenUserManagement={onOpenUserManagement} />
+        </div>
+      )}
       {action && <div className="shrink-0">{action}</div>}
     </div>
   );

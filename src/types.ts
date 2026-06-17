@@ -68,6 +68,8 @@ export interface CanvasProject {
   shared_root_project_id?: string | null;
   shared_via_group_id?: string | null;
   shared_via_group_name?: string | null;
+  shared_with_group_count?: number;
+  shared_with_group_names?: string[];
   created_at: string;
   updated_at: string;
 }
