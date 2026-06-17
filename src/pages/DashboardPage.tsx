@@ -995,7 +995,7 @@ function ProjectCard({
   const hasCollabSignal = isShared || Boolean(projectAudienceLabel);
 
   return (
-    <article onClick={onOpen} className={`project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible`}>
+    <article onClick={onOpen} className={`project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible${menuOpen ? " z-40" : ""}`}>
       <div className={`project-folder-art-production project-${project.accent}`}>
         <span className="material-symbols-outlined fill">folder</span>
       </div>
