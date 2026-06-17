@@ -493,6 +493,7 @@ export default function PublicViewPage() {
                 code={filteredCode}
                 className="min-h-[400px] min-w-[300px]"
                 onRenderComplete={handleDiagramRenderComplete}
+                selectedNodeIds={[]}
                 compoundNodeIds={compoundNodeIds}
                 parsedAST={parsedAST}
               />
