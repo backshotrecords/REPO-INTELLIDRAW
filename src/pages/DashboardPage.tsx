@@ -142,7 +142,7 @@ export default function DashboardPage() {
   const isTreeWorkspace = Boolean(showCanvasTreeView && activeProject);
   const activeProjectCanEdit = !activeProject || activeProject.access_level !== "view";
   const activeProjectIsOwner = activeProject?.access_level !== "edit" && activeProject?.access_level !== "view";
-  const activeProjectAudienceLabel = activeProject ? getProjectAudienceLabel(activeProject) : "";
+  const activeProjectAudienceLabel = activeProject ? getProjectAudienceLabelForPath(projectPath) : "";
 
   useEffect(() => {
     const cid = (location.state as Record<string, unknown> | null)?.closedCanvasId as string | undefined;
@@ -518,6 +518,7 @@ export default function DashboardPage() {
         {projectPath.length > 0 && (
           <ProjectBreadcrumb
             path={projectPath}
+            audienceLabel={activeProjectAudienceLabel}
             onNavigate={navigateToProject}
             action={<DashboardFileViewToggle mode={fileViewMode} onChange={setFileViewMode} />}
           />
@@ -1039,6 +1040,14 @@ function getProjectAudienceLabel(project: CanvasProject) {
   if (!firstName) return `Shared with ${count} group${count === 1 ? "" : "s"}`;
   if (count === 1) return `Shared with ${firstName}`;
   return `Shared with ${firstName} + ${count - 1}`;
+}
+
+function getProjectAudienceLabelForPath(path: CanvasProject[]) {
+  for (let index = path.length - 1; index >= 0; index -= 1) {
+    const label = getProjectAudienceLabel(path[index]);
+    if (label) return label;
+  }
+  return "";
 }
 
 function CollabProjectAudience({ label }: { label: string }) {
@@ -1637,10 +1646,12 @@ function MoveToProjectDialog({
 
 function ProjectBreadcrumb({
   path,
+  audienceLabel,
   action,
   onNavigate,
 }: {
   path: CanvasProject[];
+  audienceLabel?: string;
   action?: ReactNode;
   onNavigate: (projectId: string | null) => void;
 }) {
@@ -1661,6 +1672,11 @@ function ProjectBreadcrumb({
           </span>
         ))}
       </nav>
+      {audienceLabel && (
+        <div className="hidden min-w-0 shrink md:block">
+          <CollabProjectAudience label={audienceLabel} />
+        </div>
+      )}
       {action && <div className="shrink-0">{action}</div>}
     </div>
   );

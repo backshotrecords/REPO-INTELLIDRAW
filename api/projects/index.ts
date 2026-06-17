@@ -33,6 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const ownedRows = (ownedProjects || []) as Record<string, unknown>[];
       const ownedProjectIds = ownedRows.map((project) => String(project.id));
       const ownerShareSummaries = new Map<string, { count: number; names: string[] }>();
+      const ownedProjectsById = new Map(ownedRows.map((project) => [String(project.id), project]));
 
       if (ownedProjectIds.length > 0) {
         const { data: ownerShares, error: ownerShareError } = await supabase
@@ -52,8 +53,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
+      const getInheritedShareSummary = (project: Record<string, unknown>) => {
+        const seen = new Set<string>();
+        let current: Record<string, unknown> | undefined = project;
+
+        while (current) {
+          const currentId = String(current.id);
+          if (seen.has(currentId)) break;
+          seen.add(currentId);
+
+          const summary = ownerShareSummaries.get(currentId);
+          if (summary) return summary;
+
+          const parentId = current.parent_project_id ? String(current.parent_project_id) : "";
+          current = parentId ? ownedProjectsById.get(parentId) : undefined;
+        }
+
+        return null;
+      };
+
       const ownedWithAccess = ownedRows.map((project) => {
-        const shareSummary = ownerShareSummaries.get(String(project.id));
+        const shareSummary = getInheritedShareSummary(project);
         return {
           ...withAccessMetadata(project, { accessLevel: "owner" }),
           shared_with_group_count: shareSummary?.count ?? 0,
