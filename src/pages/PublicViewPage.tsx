@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import MermaidRenderer from "../components/MermaidRenderer";
+import SubgraphCollapseOverlay from "../components/SubgraphCollapseOverlay";
 import { apiGetPublicCanvas } from "../lib/api";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
+import { parseMermaidAST, getRootViewWithCollapseState } from "../utils/mermaidParser";
 
 export default function PublicViewPage() {
   const { id } = useParams<{ id: string }>();
@@ -13,6 +15,7 @@ export default function PublicViewPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [collapsedSubgraphIds, setCollapsedSubgraphIds] = useState<Set<string>>(new Set());
 
   // Pan/zoom state
   const [zoom, setZoom] = useState(1);
@@ -23,8 +26,44 @@ export default function PublicViewPage() {
   const [isWheeling, setIsWheeling] = useState(false);
   const lastPanPos = useRef({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
+  const diagramLayerRef = useRef<HTMLDivElement>(null);
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const lastPinchDist = useRef<number | null>(null);
+
+  const parsedAST = useMemo(() => {
+    if (!mermaidCode?.trim()) return null;
+    try {
+      return parseMermaidAST(mermaidCode);
+    } catch (err) {
+      console.error("Public Mermaid parse error:", err);
+      return null;
+    }
+  }, [mermaidCode]);
+
+  const { filteredCode, compoundNodeIds } = useMemo(() => {
+    if (!parsedAST) {
+      return { filteredCode: mermaidCode, compoundNodeIds: [] as string[] };
+    }
+
+    const result = getRootViewWithCollapseState(parsedAST, collapsedSubgraphIds);
+    return { filteredCode: result.code, compoundNodeIds: result.compoundNodeIds };
+  }, [collapsedSubgraphIds, mermaidCode, parsedAST]);
+
+  const hasSubgraphs = Boolean(parsedAST && parsedAST.allSubgraphsFlat.size > 0);
+  const allGroupsCollapsed = Boolean(
+    parsedAST &&
+    parsedAST.allSubgraphsFlat.size > 0 &&
+    collapsedSubgraphIds.size === parsedAST.allSubgraphsFlat.size
+  );
+
+  const collapseAllSubgraphs = useCallback(() => {
+    if (!parsedAST) return;
+    setCollapsedSubgraphIds(new Set(parsedAST.allSubgraphsFlat.keys()));
+  }, [parsedAST]);
+
+  const expandAllSubgraphs = useCallback(() => {
+    setCollapsedSubgraphIds(new Set());
+  }, []);
 
   // Pinch distance helper
   const getPointerDist = (): number | null => {
@@ -42,8 +81,16 @@ export default function PublicViewPage() {
     const loadPublicCanvas = async () => {
       try {
         const canvas = await apiGetPublicCanvas(id);
+        const nextCode = canvas.mermaid_code || "";
         setTitle(canvas.title);
-        setMermaidCode(canvas.mermaid_code);
+        setMermaidCode(nextCode);
+
+        try {
+          const ast = parseMermaidAST(nextCode);
+          setCollapsedSubgraphIds(new Set(ast.allSubgraphsFlat.keys()));
+        } catch {
+          setCollapsedSubgraphIds(new Set());
+        }
       } catch {
         setNotFound(true);
       } finally {
@@ -332,7 +379,39 @@ export default function PublicViewPage() {
               {title}
             </h1>
           </div>
-          <div className="flex items-center shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
+            {hasSubgraphs && (
+              <>
+                <button
+                  onClick={expandAllSubgraphs}
+                  disabled={collapsedSubgraphIds.size === 0}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 sm:px-3.5 rounded-full text-xs font-bold border border-outline-variant/20 transition-all duration-200 active:scale-95 ${
+                    collapsedSubgraphIds.size === 0
+                      ? "bg-surface-container-high/50 text-on-surface-variant/35 cursor-not-allowed"
+                      : "bg-surface-container-high text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface"
+                  }`}
+                  title="Expand all groups"
+                  aria-label="Expand all groups"
+                >
+                  <span className="material-symbols-outlined text-base">unfold_more</span>
+                  <span className="hidden md:inline">Expand All</span>
+                </button>
+                <button
+                  onClick={collapseAllSubgraphs}
+                  disabled={allGroupsCollapsed}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 sm:px-3.5 rounded-full text-xs font-bold border border-outline-variant/20 transition-all duration-200 active:scale-95 ${
+                    allGroupsCollapsed
+                      ? "bg-surface-container-high/50 text-on-surface-variant/35 cursor-not-allowed"
+                      : "bg-surface-container-high text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface"
+                  }`}
+                  title="Collapse all groups"
+                  aria-label="Collapse all groups"
+                >
+                  <span className="material-symbols-outlined text-base">unfold_less</span>
+                  <span className="hidden md:inline">Collapse All</span>
+                </button>
+              </>
+            )}
             <button
               onClick={() => {
                 navigator.clipboard.writeText(mermaidCode);
@@ -395,7 +474,8 @@ export default function PublicViewPage() {
 
             {/* Rendered diagram */}
             <div
-              className="h-full min-h-0 w-full flex items-center justify-center"
+              ref={diagramLayerRef}
+              className="h-full min-h-0 w-full flex items-center justify-center relative"
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 transformOrigin: "center center",
@@ -403,8 +483,28 @@ export default function PublicViewPage() {
               }}
             >
               <MermaidRenderer
-                code={mermaidCode}
+                code={filteredCode}
                 className="min-h-[400px] min-w-[300px]"
+                compoundNodeIds={compoundNodeIds}
+                parsedAST={parsedAST}
+              />
+              <SubgraphCollapseOverlay
+                diagramLayerRef={diagramLayerRef}
+                parsedAST={parsedAST}
+                collapsedSubgraphIds={collapsedSubgraphIds}
+                onCollapse={(subgraphId) => {
+                  setCollapsedSubgraphIds(prev => new Set([...prev, subgraphId]));
+                }}
+                onExpand={(subgraphId) => {
+                  setCollapsedSubgraphIds(prev => {
+                    const next = new Set(prev);
+                    next.delete(subgraphId);
+                    return next;
+                  });
+                }}
+                filteredCode={filteredCode}
+                zoom={zoom}
+                isCanvasInteracting={isPanningVisual || isWheeling}
               />
             </div>
           </div>
