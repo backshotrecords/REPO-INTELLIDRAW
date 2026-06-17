@@ -313,7 +313,7 @@ export default function DashboardPage() {
     apiRefreshProjectContext(projectId)
       .then((result) => {
         setProjects((current) => current.map((project) => (
-          project.id === result.project.id ? result.project : project
+          project.id === result.project.id ? mergeProjectPreservingCollab(project, result.project) : project
         )));
       })
       .catch((err) => {
@@ -346,7 +346,11 @@ export default function DashboardPage() {
     try {
       if (projectWizard?.mode === "edit") {
         const project = await apiUpdateProject(projectWizard.projectId, draft);
-        setProjects((current) => [project, ...current.filter((item) => item.id !== project.id)]);
+        setProjects((current) => {
+          const previous = current.find((item) => item.id === project.id);
+          const merged = previous ? mergeProjectPreservingCollab(previous, project) : project;
+          return [merged, ...current.filter((item) => item.id !== project.id)];
+        });
       } else {
         const project = await apiCreateProject({ ...draft, parentProjectId: activeProjectId });
         setProjects((current) => [project, ...current]);
@@ -398,7 +402,7 @@ export default function DashboardPage() {
   async function handleArchiveProject(project: CanvasProject) {
     try {
       const updated = await apiUpdateProject(project.id, { manuallyArchived: true });
-      setProjects((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setProjects((current) => current.map((item) => item.id === updated.id ? mergeProjectPreservingCollab(item, updated) : item));
       setArchiveOnly(true);
       setProjectsCollapsed(false);
       setMenuOpen(null);
@@ -441,7 +445,11 @@ export default function DashboardPage() {
     if (!movingProject) return;
     try {
       const updated = await apiUpdateProject(movingProject.id, { parentProjectId: targetProjectId });
-      setProjects((current) => [updated, ...current.filter((project) => project.id !== updated.id)]);
+      setProjects((current) => {
+        const previous = current.find((project) => project.id === updated.id);
+        const merged = previous ? mergeProjectPreservingCollab(previous, updated) : updated;
+        return [merged, ...current.filter((project) => project.id !== updated.id)];
+      });
       setMovingProjectId(null);
       setMenuOpen(null);
       setArchiveOnly(false);
@@ -1048,6 +1056,19 @@ function getProjectAudienceLabelForPath(path: CanvasProject[]) {
     if (label) return label;
   }
   return "";
+}
+
+function mergeProjectPreservingCollab(current: CanvasProject, incoming: CanvasProject): CanvasProject {
+  return {
+    ...current,
+    ...incoming,
+    access_level: incoming.access_level ?? current.access_level,
+    shared_root_project_id: incoming.shared_root_project_id ?? current.shared_root_project_id,
+    shared_via_group_id: incoming.shared_via_group_id ?? current.shared_via_group_id,
+    shared_via_group_name: incoming.shared_via_group_name ?? current.shared_via_group_name,
+    shared_with_group_count: incoming.shared_with_group_count ?? current.shared_with_group_count,
+    shared_with_group_names: incoming.shared_with_group_names ?? current.shared_with_group_names,
+  };
 }
 
 function CollabProjectAudience({ label }: { label: string }) {
