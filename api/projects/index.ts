@@ -30,9 +30,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: "Failed to fetch projects" });
       }
 
-      const ownedWithAccess = ((ownedProjects || []) as Record<string, unknown>[]).map((project) => (
-        withAccessMetadata(project, { accessLevel: "owner" })
-      ));
+      const ownedRows = (ownedProjects || []) as Record<string, unknown>[];
+      const ownedProjectIds = ownedRows.map((project) => String(project.id));
+      const ownerShareSummaries = new Map<string, { count: number; names: string[] }>();
+
+      if (ownedProjectIds.length > 0) {
+        const { data: ownerShares, error: ownerShareError } = await supabase
+          .from("project_shares")
+          .select("project_id, user_groups(name)")
+          .in("project_id", ownedProjectIds);
+
+        if (ownerShareError) {
+          console.error("List owned project shares error:", ownerShareError);
+        } else {
+          for (const share of (ownerShares || []) as Array<{ project_id: string; user_groups?: { name?: string } | null }>) {
+            const summary = ownerShareSummaries.get(share.project_id) ?? { count: 0, names: [] };
+            summary.count += 1;
+            if (share.user_groups?.name) summary.names.push(share.user_groups.name);
+            ownerShareSummaries.set(share.project_id, summary);
+          }
+        }
+      }
+
+      const ownedWithAccess = ownedRows.map((project) => {
+        const shareSummary = ownerShareSummaries.get(String(project.id));
+        return {
+          ...withAccessMetadata(project, { accessLevel: "owner" }),
+          shared_with_group_count: shareSummary?.count ?? 0,
+          shared_with_group_names: shareSummary?.names ?? [],
+        };
+      });
 
       const { data: memberships } = await supabase
         .from("group_members")

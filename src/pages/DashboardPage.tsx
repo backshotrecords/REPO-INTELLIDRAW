@@ -142,6 +142,7 @@ export default function DashboardPage() {
   const isTreeWorkspace = Boolean(showCanvasTreeView && activeProject);
   const activeProjectCanEdit = !activeProject || activeProject.access_level !== "view";
   const activeProjectIsOwner = activeProject?.access_level !== "edit" && activeProject?.access_level !== "view";
+  const activeProjectAudienceLabel = activeProject ? getProjectAudienceLabel(activeProject) : "";
 
   useEffect(() => {
     const cid = (location.state as Record<string, unknown> | null)?.closedCanvasId as string | undefined;
@@ -562,9 +563,9 @@ export default function DashboardPage() {
             <p className="text-on-surface-variant max-w-md">
               {activeProject?.description || "Precision diagrams curated by your master drafter AI. Organize, edit, and export your architectural flows."}
             </p>
-            {activeProject && !activeProjectIsOwner && activeProject.shared_via_group_name && (
+            {activeProjectAudienceLabel && (
               <div className="mt-4">
-                <CollabProjectAudience groupName={activeProject.shared_via_group_name} />
+                <CollabProjectAudience label={activeProjectAudienceLabel} />
               </div>
             )}
           </div>
@@ -973,16 +974,18 @@ function ProjectCard({
 }) {
   const isShared = project.access_level === "view" || project.access_level === "edit";
   const isOwner = !isShared;
+  const projectAudienceLabel = getProjectAudienceLabel(project);
+  const hasCollabSignal = isShared || Boolean(projectAudienceLabel);
 
   return (
-    <article onClick={onOpen} className={`project-card-production project-${project.accent}${isShared ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible`}>
+    <article onClick={onOpen} className={`project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible`}>
       <div className={`project-folder-art-production project-${project.accent}`}>
         <span className="material-symbols-outlined fill">folder</span>
       </div>
       <div className="pl-28 pr-3 min-h-[160px] flex flex-col">
         <div className="flex items-center gap-2">
           <h3 className="text-lg font-extrabold text-primary truncate" title={project.title}>{project.title}</h3>
-          {isShared && (
+          {hasCollabSignal && (
             <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-secondary-fixed/55 px-2 py-0.5 text-[10px] font-black uppercase text-primary">
               <span className="material-symbols-outlined text-[13px]">groups</span>
               Collab
@@ -999,9 +1002,9 @@ function ProjectCard({
             </span>
           )}
         </div>
-        {isShared && project.shared_via_group_name && (
+        {projectAudienceLabel && (
           <div className="mt-auto pt-4">
-            <CollabProjectAudience groupName={project.shared_via_group_name} />
+            <CollabProjectAudience label={projectAudienceLabel} />
           </div>
         )}
       </div>
@@ -1023,15 +1026,30 @@ function ProjectCard({
   );
 }
 
-function CollabProjectAudience({ groupName }: { groupName: string }) {
+function getProjectAudienceLabel(project: CanvasProject) {
+  if ((project.access_level === "view" || project.access_level === "edit") && project.shared_via_group_name) {
+    return `Shared via ${project.shared_via_group_name}`;
+  }
+
+  const count = project.shared_with_group_count ?? 0;
+  if (count <= 0) return "";
+
+  const names = project.shared_with_group_names ?? [];
+  const firstName = names[0];
+  if (!firstName) return `Shared with ${count} group${count === 1 ? "" : "s"}`;
+  if (count === 1) return `Shared with ${firstName}`;
+  return `Shared with ${firstName} + ${count - 1}`;
+}
+
+function CollabProjectAudience({ label }: { label: string }) {
   return (
-    <div className="project-collab-audience" title={`Shared via ${groupName}`}>
+    <div className="project-collab-audience" title={label}>
       <span className="project-collab-avatar-stack" aria-hidden="true">
         <span className="project-collab-avatar-dot" />
         <span className="project-collab-avatar-dot" />
         <span className="project-collab-avatar-dot" />
       </span>
-      <span className="truncate">Shared via {groupName}</span>
+      <span className="truncate">{label}</span>
     </div>
   );
 }
