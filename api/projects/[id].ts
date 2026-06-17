@@ -2,7 +2,6 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import {
-  assertProjectOwned,
   getProjectAndDescendantIds,
   normalizeProjectAccent,
   normalizeProjectId,
@@ -10,6 +9,7 @@ import {
   touchProjectAncestors,
 } from "../lib/canvas-projects.js";
 import { deleteCanvasesInProjectsForUser } from "../lib/canvas-lifecycle.js";
+import { canEdit, canOwn, getProjectAccess, withAccessMetadata } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -24,8 +24,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Project ID is required" });
   }
 
-  const existingProject = await assertProjectOwned(projectId, userId);
-  if (!existingProject) {
+  const access = await getProjectAccess(projectId, userId);
+  if (!access) {
     return res.status(404).json({ error: "Project not found" });
   }
 
@@ -35,14 +35,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from("canvas_projects")
         .select(PROJECT_SELECT)
         .eq("id", projectId)
-        .eq("user_id", userId)
         .single();
 
       if (error || !data) {
         return res.status(404).json({ error: "Project not found" });
       }
 
-      return res.status(200).json({ project: data });
+      return res.status(200).json({ project: withAccessMetadata(data as Record<string, unknown>, access) });
     } catch (err) {
       console.error("Get project error:", err);
       return res.status(500).json({ error: "Internal server error" });
@@ -59,12 +58,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       parentProjectId !== undefined;
 
     try {
+      if (!canEdit(access)) {
+        return res.status(403).json({ error: "You do not have permission to edit this project" });
+      }
+
+      if ((parentProjectId !== undefined || manuallyArchived !== undefined) && !canOwn(access)) {
+        return res.status(403).json({ error: "Only the project owner can move or archive this project" });
+      }
+
       if (requestedParentId) {
-        if (!(await assertProjectOwned(requestedParentId, userId))) {
+        const parentAccess = await getProjectAccess(requestedParentId, userId);
+        if (!parentAccess || !canOwn(parentAccess)) {
           return res.status(400).json({ error: "Destination project not found" });
         }
 
-        const blockedIds = await getProjectAndDescendantIds(projectId, userId);
+        const blockedIds = await getProjectAndDescendantIds(projectId, access.ownerUserId);
         if (blockedIds.has(requestedParentId)) {
           return res.status(400).json({ error: "Cannot move a project into itself or a child project" });
         }
@@ -93,7 +101,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from("canvas_projects")
         .update(updateData)
         .eq("id", projectId)
-        .eq("user_id", userId)
         .select(PROJECT_SELECT)
         .single();
 
@@ -103,13 +110,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       if (hasRealChange) {
-        await touchProjectAncestors(existingProject.parent_project_id, userId, now);
-        if (requestedParentId !== existingProject.parent_project_id) {
-          await touchProjectAncestors(requestedParentId, userId, now);
+        await touchProjectAncestors(access.project.parent_project_id as string | null, access.ownerUserId, now);
+        if (requestedParentId !== access.project.parent_project_id) {
+          await touchProjectAncestors(requestedParentId, access.ownerUserId, now);
         }
       }
 
-      return res.status(200).json({ project: data });
+      return res.status(200).json({ project: withAccessMetadata(data as Record<string, unknown>, access) });
     } catch (err) {
       console.error("Update project error:", err);
       return res.status(500).json({ error: "Internal server error" });
@@ -118,6 +125,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === "DELETE") {
     try {
+      if (!canOwn(access)) {
+        return res.status(403).json({ error: "Only the project owner can delete this project" });
+      }
+
       const projectIdsToDelete = await getProjectAndDescendantIds(projectId, userId);
       const canvasDeletion = await deleteCanvasesInProjectsForUser({
         projectIds: [...projectIdsToDelete],
@@ -135,7 +146,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: "Failed to delete project" });
       }
 
-      await touchProjectAncestors(existingProject.parent_project_id, userId);
+      await touchProjectAncestors(access.project.parent_project_id as string | null, userId);
 
       return res.status(200).json({ success: true, deletedProjectIds: [...projectIdsToDelete], ...canvasDeletion });
     } catch (err) {

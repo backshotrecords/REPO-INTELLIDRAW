@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { canEdit, getCanvasAccess, withAccessMetadata } from "../../lib/project-access.js";
 import {
   extractMermaidExternalContext,
   setMermaidExternalContext,
@@ -12,7 +13,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const userId = authPayload.userId;
   const canvasId = req.query.id as string;
 
   if (!canvasId) {
@@ -20,20 +20,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === "GET") {
-    const { data, error } = await supabase
-      .from("canvases")
-      .select("id, mermaid_code")
-      .eq("id", canvasId)
-      .eq("user_id", userId)
-      .single();
-
-    if (error || !data) {
-      return res.status(404).json({ error: "Canvas not found" });
-    }
+    const access = await getCanvasAccess(canvasId, authPayload.userId);
+    if (!access) return res.status(404).json({ error: "Canvas not found" });
 
     return res.status(200).json({
-      externalContext: extractMermaidExternalContext(data.mermaid_code || ""),
-      mermaidCode: data.mermaid_code,
+      externalContext: extractMermaidExternalContext(String(access.canvas.mermaid_code || "")),
+      mermaidCode: access.canvas.mermaid_code,
     });
   }
 
@@ -43,18 +35,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: "externalContext is required" });
     }
 
-    const { data: canvas, error: canvasError } = await supabase
-      .from("canvases")
-      .select("id, mermaid_code, project_id")
-      .eq("id", canvasId)
-      .eq("user_id", userId)
-      .single();
+    const access = await getCanvasAccess(canvasId, authPayload.userId);
+    if (!access) return res.status(404).json({ error: "Canvas not found" });
+    if (!canEdit(access)) return res.status(403).json({ error: "You do not have permission to update this canvas" });
 
-    if (canvasError || !canvas) {
-      return res.status(404).json({ error: "Canvas not found" });
-    }
-
-    const currentCode = String(canvas.mermaid_code || "");
+    const currentCode = String(access.canvas.mermaid_code || "");
     const nextCode = setMermaidExternalContext(currentCode, String(externalContext));
     if (nextCode === currentCode) {
       return res.status(200).json({
@@ -73,7 +58,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         manually_archived: false,
       })
       .eq("id", canvasId)
-      .eq("user_id", userId)
       .select("*")
       .single();
 
@@ -98,7 +82,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       changed: true,
-      canvas: updated,
+      canvas: withAccessMetadata(updated as Record<string, unknown>, access.projectAccess ?? access),
       commit: commit || null,
       externalContext: extractMermaidExternalContext(nextCode),
       mermaidCode: nextCode,

@@ -34,6 +34,10 @@ export interface DashboardCanvas {
   is_public: boolean;
   project_id: string | null;
   manually_archived: boolean;
+  access_level?: "owner" | "edit" | "view";
+  shared_root_project_id?: string | null;
+  shared_via_group_id?: string | null;
+  shared_via_group_name?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,8 +64,21 @@ export interface CanvasProject {
   context_status: "stale" | "refreshing" | "fresh" | "error";
   context_updated_at: string | null;
   context_error: string;
+  access_level?: "owner" | "edit" | "view";
+  shared_root_project_id?: string | null;
+  shared_via_group_id?: string | null;
+  shared_via_group_name?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectShare {
+  id: string;
+  project_id: string;
+  shared_with_group_id: string;
+  access_level: "view" | "edit";
+  created_at: string;
+  user_groups?: { name?: string } | null;
 }
 
 export function isLongTermMemoryItem(item: { updated_at: string; manually_archived?: boolean }) {

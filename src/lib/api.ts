@@ -1,4 +1,4 @@
-import type { CanvasCommit, CanvasPreviewCode, CanvasProject, DashboardCanvas, MeetingProcessingMetrics, ProjectAccent, SkillScope, SkillTriggerMode } from "../types";
+import type { CanvasCommit, CanvasPreviewCode, CanvasProject, DashboardCanvas, MeetingProcessingMetrics, ProjectAccent, ProjectShare, SkillScope, SkillTriggerMode } from "../types";
 
 const API_BASE = "/api";
 const PREVIEW_CODE_BATCH_SIZE = 100;
@@ -294,6 +294,40 @@ export async function apiDeleteProject(id: string) {
   const res = await apiFetch(`/projects/${id}`, { method: "DELETE" });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to delete project");
+  return data;
+}
+
+export async function apiListProjectShares(projectId: string): Promise<ProjectShare[]> {
+  const res = await apiFetch(`/projects/${projectId}/shares`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch project shares");
+  return data.shares;
+}
+
+export async function apiShareProject(projectId: string, groupId: string, accessLevel: "view" | "edit"): Promise<ProjectShare> {
+  const res = await apiFetch(`/projects/${projectId}/shares`, {
+    method: "POST",
+    body: JSON.stringify({ groupId, accessLevel }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to share project");
+  return data.share;
+}
+
+export async function apiUpdateProjectShare(projectId: string, shareId: string, accessLevel: "view" | "edit"): Promise<ProjectShare> {
+  const res = await apiFetch(`/projects/${projectId}/shares/${shareId}`, {
+    method: "PUT",
+    body: JSON.stringify({ accessLevel }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update project share");
+  return data.share;
+}
+
+export async function apiDeleteProjectShare(projectId: string, shareId: string) {
+  const res = await apiFetch(`/projects/${projectId}/shares/${shareId}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to remove project share");
   return data;
 }
 

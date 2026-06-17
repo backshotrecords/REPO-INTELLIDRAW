@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { ensureProjectContextFresh } from "../../lib/project-context.js";
+import { getProjectAccess } from "../../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -20,7 +21,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const force = Boolean(req.body?.force);
 
   try {
-    const result = await ensureProjectContextFresh(projectId, authPayload.userId, {
+    const access = await getProjectAccess(projectId, authPayload.userId);
+    if (!access) return res.status(404).json({ error: "Project not found" });
+
+    const result = await ensureProjectContextFresh(projectId, access.ownerUserId, {
       force,
       refreshAncestors: true,
     });

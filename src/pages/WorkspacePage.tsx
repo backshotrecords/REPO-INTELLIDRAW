@@ -36,7 +36,7 @@ import { isLongTermMemoryItem } from "../types";
 
 const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
 
-type DashboardReturnCanvas = Pick<DashboardCanvas, "project_id" | "updated_at" | "manually_archived">;
+type DashboardReturnCanvas = Pick<DashboardCanvas, "project_id" | "updated_at" | "manually_archived" | "access_level" | "shared_via_group_name">;
 type AgentLogView = "chat" | "tree";
 
 function getCanvasReturnContext(canvas: DashboardCanvas): DashboardReturnCanvas {
@@ -44,6 +44,8 @@ function getCanvasReturnContext(canvas: DashboardCanvas): DashboardReturnCanvas 
     project_id: canvas.project_id ?? null,
     updated_at: canvas.updated_at,
     manually_archived: Boolean(canvas.manually_archived),
+    access_level: canvas.access_level,
+    shared_via_group_name: canvas.shared_via_group_name,
   };
 }
 
@@ -298,6 +300,8 @@ export default function WorkspacePage() {
 
   const normalizedFilteredCode = filteredCode.trim();
   const isInitialWorkspaceLoading = !isInitialCanvasDataReady || !isInitialDiagramReady;
+  const isReadOnlyCollab = dashboardReturnCanvas?.access_level === "view";
+  const isSharedEditable = dashboardReturnCanvas?.access_level === "edit";
 
   useEffect(() => {
     if (isInitialCanvasDataReady && lastRenderedDiagramCode === normalizedFilteredCode) {
@@ -590,6 +594,7 @@ export default function WorkspacePage() {
 
   const applyCachedProjectContextToOpenCanvas = useCallback(async (targetCanvasId: string, projectId: string | null | undefined) => {
     if (!projectId) return;
+    if (dashboardReturnCanvas?.access_level === "view") return;
 
     try {
       const project = await apiGetProject(projectId);
@@ -755,6 +760,7 @@ export default function WorkspacePage() {
   // Auto-save with 2-second debounce
   const autoSave = useCallback(
     (code: string, history?: ChatMessage[]) => {
+      if (isReadOnlyCollab) return;
       if (!canvasId) return;
       if (previewModeRef.current) return; // Don't persist previewed state
       cacheCanvasSave(code, history);
@@ -777,7 +783,7 @@ export default function WorkspacePage() {
         }
       }, 2000);
     },
-    [cacheCanvasSave, canvasId, reportNetworkFailure]
+    [cacheCanvasSave, canvasId, reportNetworkFailure, isReadOnlyCollab]
   );
 
   // ── Create a commit (fire-and-forget, appends locally + to DB) ──
@@ -787,6 +793,7 @@ export default function WorkspacePage() {
     commitMessage: string
   ) => {
     if (!canvasId) return;
+    if (isReadOnlyCollab) return;
 
     // Track the latest committed code for preview-mode revert
     latestMermaidCodeRef.current = code;
@@ -808,7 +815,7 @@ export default function WorkspacePage() {
     } catch (err) {
       console.error("Failed to persist commit:", err);
     }
-  }, [canvasId]);
+  }, [canvasId, isReadOnlyCollab]);
 
   // ── Flush preview mode — creates anchor commit when user makes a real change ──
   const flushPreviewMode = useCallback(() => {
@@ -845,6 +852,7 @@ export default function WorkspacePage() {
   }, [createCommit, autoSave]);
 
   const handleSyntaxError = useCallback(async (_errorMsg: string, _brokenCode: string) => {
+    if (isReadOnlyCollab) return;
     if (isFixing || chatLoading) return;
     flushPreviewMode();
     setIsFixing(true);
@@ -916,9 +924,10 @@ export default function WorkspacePage() {
       setIsFixing(false);
       setChatLoading(false);
     }
-  }, [isFixing, chatLoading, chatHistory, autoSave, createCommit, flushPreviewMode]);
+  }, [isFixing, chatLoading, chatHistory, autoSave, createCommit, flushPreviewMode, isReadOnlyCollab]);
 
   const handleMermaidCodeChange = (newCode: string) => {
+    if (isReadOnlyCollab) return;
     setMermaidCode(newCode);
     autoSave(newCode);
   };
@@ -926,6 +935,7 @@ export default function WorkspacePage() {
   const handleTitleSave = async () => {
     setEditingTitle(false);
     if (!canvasId) return;
+    if (isReadOnlyCollab) return;
 
     // Treat an empty/whitespace-only title the same as unchanged — reset to default
     const trimmed = title.trim();
@@ -1013,7 +1023,7 @@ export default function WorkspacePage() {
   const handleViewSwitch = (view: "flowchart" | "code") => {
     if (view === "code" && activeView !== "code") {
       codeOnEnterRef.current = mermaidCode;
-    } else if (view === "flowchart" && activeView === "code") {
+    } else if (!isReadOnlyCollab && view === "flowchart" && activeView === "code") {
       if (mermaidCode !== codeOnEnterRef.current) {
         flushPreviewMode();
         const manualMsg: ChatMessage = {
@@ -1033,6 +1043,7 @@ export default function WorkspacePage() {
   // Publish toggle (extracted for header + sidebar)
   const handlePublishToggle = async () => {
     if (!canvasId || publishing) return;
+    if (dashboardReturnCanvas?.access_level === "view" || dashboardReturnCanvas?.access_level === "edit") return;
     setPublishing(true);
     try {
       await apiPublishCanvas(canvasId, !isPublic);
@@ -1052,7 +1063,7 @@ export default function WorkspacePage() {
     // ── Flush unsaved code-editor changes ──
     // If the user is in code view and edited the code, persist the changes
     // (same logic as switching code → flowchart in handleViewSwitch)
-    if (activeView === "code" && mermaidCode !== codeOnEnterRef.current) {
+    if (!isReadOnlyCollab && activeView === "code" && mermaidCode !== codeOnEnterRef.current) {
       flushPreviewMode();
       const manualMsg: ChatMessage = {
         role: "assistant",
@@ -1081,7 +1092,7 @@ export default function WorkspacePage() {
     const userMermaidCode = clearMermaidExternalContext(latestMermaidCodeRef.current).trim();
     const hasChanges = userMermaidCode !== DEFAULT_MERMAID_CODE.trim();
 
-    if (!hasChanges) {
+    if (!isReadOnlyCollab && !hasChanges) {
       // No edits — delete the blank canvas silently
       try {
         await apiDeleteCanvas(canvasId);
@@ -1093,7 +1104,7 @@ export default function WorkspacePage() {
     }
 
     // Canvas has changes — check if it still has the default name
-    if (title === "Untitled Canvas" || !title.trim()) {
+    if (!isReadOnlyCollab && (title === "Untitled Canvas" || !title.trim())) {
       setIsNaming(true);
       try {
         const suggestedName = await apiSuggestCanvasName(latestMermaidCodeRef.current);
@@ -1110,7 +1121,7 @@ export default function WorkspacePage() {
     }
 
     navigate(getDashboardReturnPath(dashboardReturnCanvas), { state: { closedCanvasId: canvasId } });
-  }, [canvasId, title, navigate, activeView, mermaidCode, autoSave, createCommit, flushPreviewMode, dashboardReturnCanvas]);
+  }, [canvasId, title, navigate, activeView, mermaidCode, autoSave, createCommit, flushPreviewMode, dashboardReturnCanvas, isReadOnlyCollab]);
 
   // History guard — intercept Android/browser back button
   const handleCanvasExitRef = useRef(handleCanvasExit);
@@ -1305,6 +1316,7 @@ export default function WorkspacePage() {
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || chatLoadingRef.current) return;
+    if (isReadOnlyCollab) return;
     flushPreviewMode();
 
     // Augment message with open group + selected node context
@@ -1414,13 +1426,14 @@ export default function WorkspacePage() {
     } finally {
       setChatLoading(false);
     }
-  }, [autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure]);
+  }, [autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure, isReadOnlyCollab]);
 
   const appendVoiceTranscript = useCallback((text: string) => {
+    if (isReadOnlyCollab) return;
     const transcript = text.trim();
     if (!transcript) return;
     setChatInput((prev) => prev ? `${prev}\n\n${transcript}` : transcript);
-  }, []);
+  }, [isReadOnlyCollab]);
 
   const resetMeetingSideChatterRun = useCallback(() => {
     meetingSideChatterRunCountRef.current = 0;
@@ -1457,6 +1470,7 @@ export default function WorkspacePage() {
   }, [resetMeetingSideChatterRun]);
 
   const processMeetingTranscriptChunk = useCallback(async (text: string, chunk: VoiceTranscriptChunk) => {
+    if (isReadOnlyCollab) return;
     const transcript = text.trim();
     if (!transcript) return;
 
@@ -1532,7 +1546,7 @@ ${transcript}
       chatHistoryRef.current = updatedHistory;
       setChatHistory(updatedHistory);
 
-      if (result.updatedMermaidCode) {
+      if (result.updatedMermaidCode && !isReadOnlyCollab) {
         mermaidCodeRef.current = result.updatedMermaidCode;
         setMermaidCode(result.updatedMermaidCode);
         playCanvasSound();
@@ -1563,7 +1577,7 @@ ${transcript}
     } finally {
       setChatLoading(false);
     }
-  }, [annotateMeetingMetrics, autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure, resetMeetingSideChatterRun]);
+  }, [annotateMeetingMetrics, autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure, resetMeetingSideChatterRun, isReadOnlyCollab]);
 
   const enqueueMeetingTranscriptChunk = useCallback((text: string, chunk: VoiceTranscriptChunk) => {
     const pending = meetingChunkQueueRef.current.then(() => processMeetingTranscriptChunk(text, chunk));
@@ -1572,12 +1586,13 @@ ${transcript}
   }, [processMeetingTranscriptChunk]);
 
   const handleAddSkillToContext = useCallback((skill: { title: string; instructionText: string }) => {
+    if (isReadOnlyCollab) return;
     const block = `Use this skill as context:\n\nSkill: ${skill.title}\n${skill.instructionText}`;
     setChatInput(prev => prev.trim() ? `${prev.trim()}\n\n${block}` : block);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
-  }, []);
+  }, [isReadOnlyCollab]);
 
   const processCanvasSaveOperation = useCallback(async (operation: OfflineOperation<CanvasSavePayload>) => {
     if (!operation.canvasId) return;
@@ -1736,6 +1751,10 @@ ${transcript}
 
   // File upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnlyCollab) {
+      e.target.value = "";
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -2107,7 +2126,7 @@ ${transcript}
             >
               arrow_back
             </button>
-            {editingTitle ? (
+            {editingTitle && !isReadOnlyCollab ? (
               <input
                 className="font-manrope font-extrabold text-lg tracking-tight text-primary bg-surface-container-high rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-secondary max-w-[50vw]"
                 value={title}
@@ -2119,8 +2138,10 @@ ${transcript}
               />
             ) : (
               <h1
-                onClick={() => setEditingTitle(true)}
-                className="font-manrope font-extrabold text-lg tracking-tight text-primary cursor-pointer hover:text-secondary transition-colors truncate max-w-[50vw]"
+                onClick={() => {
+                  if (!isReadOnlyCollab) setEditingTitle(true);
+                }}
+                className={`font-manrope font-extrabold text-lg tracking-tight text-primary transition-colors truncate max-w-[50vw] ${isReadOnlyCollab ? "" : "cursor-pointer hover:text-secondary"}`}
                 title={title}
               >
                 {title}
@@ -2129,11 +2150,17 @@ ${transcript}
           </div>
           <div className="flex items-center gap-3 relative">
             {saving && <span className="text-xs text-on-surface-variant animate-pulse">Saving...</span>}
+            {(isReadOnlyCollab || isSharedEditable) && (
+              <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-secondary-fixed/50 px-3 py-2 text-xs font-bold text-primary">
+                <span className="material-symbols-outlined text-base">groups</span>
+                {isReadOnlyCollab ? "View only" : "Shared edit"}
+              </span>
+            )}
 
             {/* Publish toggle */}
             <button
               onClick={handlePublishToggle}
-              disabled={publishing || !canvasId}
+              disabled={publishing || !canvasId || isReadOnlyCollab || isSharedEditable}
               className={`hidden sm:inline-flex items-center justify-center rounded-full text-xs font-bold transition-all duration-200 active:scale-95 disabled:opacity-40 bg-surface-container-high text-on-surface-variant border border-outline-variant/20 hover:bg-surface-container-low hover:text-on-surface ${isPublic ? "w-8 h-8 outline outline-2 outline-emerald-800 outline-offset-[3px]" : "gap-1.5 px-3.5 py-2"
                 }`}
               title={isPublic ? "Published" : "Publish"}
@@ -2148,7 +2175,7 @@ ${transcript}
             </button>
 
             {/* Share button */}
-            <div className="relative">
+            {!isReadOnlyCollab && !isSharedEditable && <div className="relative">
               <button
                 onClick={() => {
                   setShareExiting(false);
@@ -2192,7 +2219,7 @@ ${transcript}
                   )}
                 </div>
               )}
-            </div>
+            </div>}
 
             <ProfileMenu />
           </div>
@@ -2462,7 +2489,7 @@ ${transcript}
             {activeView === "flowchart" && !isInitialWorkspaceLoading && (
               <NodeActionOverlay
                 nodeRect={activeNode?.rect ?? null}
-                visible={!!activeNode}
+                visible={!!activeNode && !isReadOnlyCollab}
                 actions={nodeActions}
               />
             )}
@@ -2473,7 +2500,9 @@ ${transcript}
               <textarea
                 className="flex-1 w-full bg-surface-container-high rounded-xl p-6 font-mono text-sm text-on-surface outline-none focus:ring-2 focus:ring-secondary/20 resize-none"
                 value={"\n\n\n\n" + mermaidCode + "\n\n\n\n\n\n\n"}
+                readOnly={isReadOnlyCollab}
                 onChange={(e) => {
+                  if (isReadOnlyCollab) return;
                   let raw = e.target.value;
                   // Strip the 4 leading newlines we inject for visual padding
                   raw = raw.startsWith("\n\n\n\n") ? raw.slice(4) : raw.trimStart();
@@ -2582,7 +2611,7 @@ ${transcript}
                 </button>
 
                 {/* Paperclip — desktop inline (left side) */}
-                <label className="hidden md:flex cursor-pointer shrink-0 w-10 h-10 rounded-full items-center justify-center text-on-surface-variant/60 hover:text-primary hover:bg-surface-container-high/40 transition-all self-end">
+                <label className={`hidden md:flex shrink-0 w-10 h-10 rounded-full items-center justify-center text-on-surface-variant/60 transition-all self-end ${isReadOnlyCollab ? "opacity-30 pointer-events-none" : "cursor-pointer hover:text-primary hover:bg-surface-container-high/40"}`}>
                   <span className="material-symbols-outlined text-xl">attach_file</span>
                   <input
                     type="file"
@@ -2597,13 +2626,14 @@ ${transcript}
                   <textarea
                     ref={textareaRef}
                     className="w-full bg-transparent border-none rounded-xl px-3 py-2.5 text-sm font-medium placeholder:text-on-surface-variant/40 focus:ring-0 transition-all outline-none resize-none no-scrollbar"
-                    placeholder="Describe your flowchart..."
+                    placeholder={isReadOnlyCollab ? "View-only shared canvas" : "Describe your flowchart..."}
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
+                    disabled={isReadOnlyCollab}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
-                        if (isOffline) return;
+                        if (isOffline || isReadOnlyCollab) return;
                         sendMessage(chatInput);
                       }
                     }}
@@ -2625,14 +2655,14 @@ ${transcript}
                       meetingSilenceStopSeconds={meetingSilenceStopSeconds}
                       externalStopSignal={voiceExternalStopSignal}
                       inputBarHeight={inputBarHeight}
-                      disabled={chatLoading || isOffline}
+                      disabled={chatLoading || isOffline || isReadOnlyCollab}
                     />
                   </div>
 
                   {/* Send button */}
                   <button
                     onClick={() => sendMessage(chatInput)}
-                    disabled={chatLoading || isOffline || !chatInput.trim()}
+                    disabled={chatLoading || isOffline || isReadOnlyCollab || !chatInput.trim()}
                     className="h-10 w-10 bg-primary text-white rounded-xl flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-30"
                   >
                     {chatLoading ? (
@@ -2688,7 +2718,7 @@ ${transcript}
         </div>
 
         {/* Skills Panel — rendered at main level so mobile controls share the same stacking context */}
-        {activeView === "flowchart" && canvasId && (
+        {activeView === "flowchart" && canvasId && !isReadOnlyCollab && (
           <CanvasSkillsPanel
             canvasId={canvasId}
             isOpen={showSkillsPanel}
@@ -2714,7 +2744,7 @@ ${transcript}
         )}
 
         {/* Agent Manager panel (desktop sidebar / mobile bottom sheet) */}
-        {!isInitialWorkspaceLoading && (
+        {!isInitialWorkspaceLoading && !isReadOnlyCollab && (
         <div
           className={`absolute md:relative left-0 md:left-auto right-0 bottom-[var(--chat-bottom)] md:bottom-auto top-0 md:top-0 h-auto md:h-full w-full md:w-[380px] bg-white/95 backdrop-blur-2xl md:bg-white/90 md:backdrop-blur-xl border-t md:border-t-0 md:border-l md:border-l-[#c4c4c4] border-outline-variant/15 z-20 md:z-auto transition-all duration-300 flex flex-col shadow-[0_-10px_40px_rgb(0,0,0,0.08)] md:shadow-none ${showChat ? "translate-y-0 scale-100 opacity-100" : "translate-y-4 scale-[0.98] opacity-0 pointer-events-none md:translate-y-0 md:scale-100 md:opacity-100 md:pointer-events-auto"
             }`}
@@ -2729,7 +2759,7 @@ ${transcript}
             onRestore={handleRestoreVersion}
             isPublic={isPublic}
             canvasId={canvasId}
-            publishing={publishing}
+            publishing={publishing || isReadOnlyCollab || isSharedEditable}
             onPublishToggle={handlePublishToggle}
             previewMode={previewMode}
             previewVersionNumber={previewVersionNumber}
