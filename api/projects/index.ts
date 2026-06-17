@@ -2,12 +2,12 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import {
-  assertProjectOwned,
   normalizeProjectAccent,
   normalizeProjectId,
   PROJECT_SELECT,
   touchProjectAncestors,
 } from "../lib/canvas-projects.js";
+import { canEdit, getProjectAccess, withAccessMetadata } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -19,7 +19,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === "GET") {
     try {
-      const { data, error } = await supabase
+      const { data: ownedProjects, error } = await supabase
         .from("canvas_projects")
         .select(PROJECT_SELECT)
         .eq("user_id", userId)
@@ -30,7 +30,97 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: "Failed to fetch projects" });
       }
 
-      return res.status(200).json({ projects: data || [] });
+      const ownedWithAccess = ((ownedProjects || []) as Record<string, unknown>[]).map((project) => (
+        withAccessMetadata(project, { accessLevel: "owner" })
+      ));
+
+      const { data: memberships } = await supabase
+        .from("group_members")
+        .select("group_id")
+        .eq("user_id", userId);
+      const groupIds = ((memberships || []) as Array<{ group_id: string }>).map((membership) => membership.group_id);
+      const sharedProjects: Record<string, unknown>[] = [];
+
+      if (groupIds.length > 0) {
+        const { data: shares, error: shareError } = await supabase
+          .from("project_shares")
+          .select("project_id, shared_with_group_id, access_level, user_groups(name)")
+          .in("shared_with_group_id", groupIds);
+
+        if (shareError) {
+          console.error("List project shares error:", shareError);
+        } else {
+          const shareRows = (shares || []) as Array<{
+            project_id: string;
+            shared_with_group_id: string;
+            access_level: "view" | "edit";
+            user_groups?: { name?: string } | null;
+          }>;
+          const rootIds = [...new Set(shareRows.map((share) => share.project_id))];
+
+          if (rootIds.length > 0) {
+            const { data: rootRows } = await supabase
+              .from("canvas_projects")
+              .select(PROJECT_SELECT)
+              .in("id", rootIds);
+            const roots = ((rootRows || []) as Record<string, unknown>[]).filter((project) => project.user_id !== userId);
+            const ownerIds = [...new Set(roots.map((project) => String(project.user_id)))];
+            const { data: ownerProjectRows } = ownerIds.length > 0
+              ? await supabase
+                .from("canvas_projects")
+                .select(PROJECT_SELECT)
+                .in("user_id", ownerIds)
+              : { data: [] as Record<string, unknown>[] };
+            const projectsByParent = new Map<string, Record<string, unknown>[]>();
+
+            for (const project of (ownerProjectRows || []) as Record<string, unknown>[]) {
+              const parentId = project.parent_project_id ? String(project.parent_project_id) : "";
+              const children = projectsByParent.get(parentId) ?? [];
+              children.push(project);
+              projectsByParent.set(parentId, children);
+            }
+
+            const rootById = new Map(roots.map((project) => [String(project.id), project]));
+            const shareByRoot = new Map<string, typeof shareRows[number]>();
+            for (const share of shareRows) {
+              const current = shareByRoot.get(share.project_id);
+              if (!current || share.access_level === "edit") shareByRoot.set(share.project_id, share);
+            }
+
+            const addSharedSubtree = (project: Record<string, unknown>, share: typeof shareRows[number], isRoot: boolean) => {
+              const displayProject = {
+                ...project,
+                parent_project_id: isRoot ? null : project.parent_project_id,
+              };
+              sharedProjects.push(withAccessMetadata(displayProject, {
+                accessLevel: share.access_level,
+                sharedRootProjectId: share.project_id,
+                sharedViaGroupId: share.shared_with_group_id,
+                sharedViaGroupName: share.user_groups?.name || "",
+              }));
+
+              for (const child of projectsByParent.get(String(project.id)) ?? []) {
+                addSharedSubtree(child, share, false);
+              }
+            };
+
+            for (const [rootId, share] of shareByRoot.entries()) {
+              const root = rootById.get(rootId);
+              if (root) addSharedSubtree(root, share, true);
+            }
+          }
+        }
+      }
+
+      const seen = new Set<string>();
+      const projects = [...ownedWithAccess, ...sharedProjects].filter((project) => {
+        const key = `${project.access_level}:${project.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      return res.status(200).json({ projects });
     } catch (err) {
       console.error("List projects error:", err);
       return res.status(500).json({ error: "Internal server error" });
@@ -42,15 +132,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const parentId = normalizeProjectId(parentProjectId);
 
     try {
-      if (parentId && !(await assertProjectOwned(parentId, userId))) {
-        return res.status(400).json({ error: "Parent project not found" });
+      let ownerUserId = userId;
+      if (parentId) {
+        const parentAccess = await getProjectAccess(parentId, userId);
+        if (!parentAccess) return res.status(400).json({ error: "Parent project not found" });
+        if (!canEdit(parentAccess)) return res.status(403).json({ error: "You do not have permission to add folders here" });
+        ownerUserId = parentAccess.ownerUserId;
       }
 
       const now = new Date().toISOString();
       const { data, error } = await supabase
         .from("canvas_projects")
         .insert({
-          user_id: userId,
+          user_id: ownerUserId,
           parent_project_id: parentId ?? null,
           title: String(title || "Untitled Project").slice(0, 80),
           description: String(description || "").slice(0, 240),
@@ -66,9 +160,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: "Failed to create project" });
       }
 
-      if (parentId) await touchProjectAncestors(parentId, userId, now);
+      if (parentId) await touchProjectAncestors(parentId, ownerUserId, now);
 
-      return res.status(201).json({ project: data });
+      return res.status(201).json({
+        project: withAccessMetadata(data as Record<string, unknown>, {
+          accessLevel: ownerUserId === userId ? "owner" : "edit",
+        }),
+      });
     } catch (err) {
       console.error("Create project error:", err);
       return res.status(500).json({ error: "Internal server error" });

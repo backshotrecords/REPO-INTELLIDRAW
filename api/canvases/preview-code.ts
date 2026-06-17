@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
-import { supabase } from "../lib/db.js";
+import { getCanvasAccess, withAccessMetadata } from "../lib/project-access.js";
 
 const MAX_PREVIEW_CODE_IDS = 120;
 
@@ -36,18 +36,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { data, error } = await supabase
-      .from("canvases")
-      .select("id, title, mermaid_code, updated_at")
-      .eq("user_id", authPayload.userId)
-      .in("id", ids);
+    const canvases = await Promise.all(ids.map(async (id) => {
+      const access = await getCanvasAccess(id, authPayload.userId);
+      if (!access) return null;
+      return withAccessMetadata({
+        id: access.canvas.id,
+        title: access.canvas.title,
+        mermaid_code: access.canvas.mermaid_code,
+        updated_at: access.canvas.updated_at,
+      }, access.projectAccess ?? access);
+    }));
 
-    if (error) {
-      console.error("Preview code fetch error:", error);
-      return res.status(500).json({ error: "Failed to fetch canvas preview code" });
-    }
-
-    const byId = new Map((data || []).map((canvas) => [canvas.id, canvas]));
+    const byId = new Map(canvases.filter(Boolean).map((canvas) => [canvas!.id, canvas]));
     const ordered = ids.map((id) => byId.get(id)).filter(Boolean);
 
     return res.status(200).json({ canvases: ordered });

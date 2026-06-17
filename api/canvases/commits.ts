@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
+import { canEdit, getCanvasAccess } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -18,17 +19,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      // Verify the user owns this canvas
-      const { data: canvas, error: canvasError } = await supabase
-        .from("canvases")
-        .select("id")
-        .eq("id", canvasId)
-        .eq("user_id", userId)
-        .single();
-
-      if (canvasError || !canvas) {
-        return res.status(404).json({ error: "Canvas not found" });
-      }
+      const access = await getCanvasAccess(canvasId, userId);
+      if (!access) return res.status(404).json({ error: "Canvas not found" });
 
       // Fetch commits ordered by creation time
       const { data, error } = await supabase
@@ -58,17 +50,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      // Verify the user owns this canvas
-      const { data: canvas, error: canvasError } = await supabase
-        .from("canvases")
-        .select("id")
-        .eq("id", canvasId)
-        .eq("user_id", userId)
-        .single();
-
-      if (canvasError || !canvas) {
-        return res.status(404).json({ error: "Canvas not found" });
-      }
+      const access = await getCanvasAccess(canvasId, userId);
+      if (!access) return res.status(404).json({ error: "Canvas not found" });
+      if (!canEdit(access)) return res.status(403).json({ error: "You do not have permission to commit this canvas" });
 
       // Insert the commit
       const { data, error } = await supabase

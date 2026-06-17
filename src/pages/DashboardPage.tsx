@@ -9,17 +9,22 @@ import {
   apiCreateProject,
   apiDeleteCanvas,
   apiDeleteProject,
+  apiDeleteProjectShare,
   apiGetCanvasPreviewCodes,
   apiListCanvases,
+  apiListGroups,
+  apiListProjectShares,
   apiListProjects,
   apiRefreshProjectContext,
+  apiShareProject,
   apiUpdateCanvas,
   apiUpdateProject,
+  apiUpdateProjectShare,
 } from "../lib/api";
 import { exportAsImage, exportAsMarkdown, exportAsZip } from "../utils/export";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { useMermaidThumbnails } from "../hooks/useMermaidThumbnails";
-import type { CanvasProject, DashboardCanvas, ProjectAccent } from "../types";
+import type { CanvasProject, DashboardCanvas, ProjectAccent, ProjectShare, UserGroup } from "../types";
 import { isLongTermMemoryItem } from "../types";
 
 const THUMBNAIL_BATCH_SIZE = 9;
@@ -52,6 +57,7 @@ export default function DashboardPage() {
   const [archiveOnly, setArchiveOnly] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [projectWizard, setProjectWizard] = useState<{ mode: "create" } | { mode: "edit"; projectId: string } | null>(null);
+  const [collabProjectId, setCollabProjectId] = useState<string | null>(null);
   const [movingCanvasId, setMovingCanvasId] = useState<string | null>(null);
   const [movingProjectId, setMovingProjectId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -129,10 +135,13 @@ export default function DashboardPage() {
   const showCanvasTreeView = Boolean(activeProject && fileViewMode === "tree");
   const movingCanvas = movingCanvasId ? canvases.find((canvas) => canvas.id === movingCanvasId) ?? null : null;
   const movingProject = movingProjectId ? projects.find((project) => project.id === movingProjectId) ?? null : null;
+  const collabProject = collabProjectId ? projects.find((project) => project.id === collabProjectId) ?? null : null;
   const editingProject = projectWizard?.mode === "edit"
     ? projects.find((project) => project.id === projectWizard.projectId) ?? null
     : null;
   const isTreeWorkspace = Boolean(showCanvasTreeView && activeProject);
+  const activeProjectCanEdit = !activeProject || activeProject.access_level !== "view";
+  const activeProjectIsOwner = activeProject?.access_level !== "edit" && activeProject?.access_level !== "view";
 
   useEffect(() => {
     const cid = (location.state as Record<string, unknown> | null)?.closedCanvasId as string | undefined;
@@ -315,6 +324,10 @@ export default function DashboardPage() {
   }
 
   async function handleCreateCanvas() {
+    if (!activeProjectCanEdit) {
+      setError("You have view-only access to this shared project.");
+      return;
+    }
     try {
       const canvas = await apiCreateCanvas(undefined, undefined, activeProjectId);
       navigate(`/canvas/${canvas.id}`);
@@ -325,6 +338,10 @@ export default function DashboardPage() {
   }
 
   async function handleSaveProject(draft: ProjectDraft) {
+    if (!activeProjectCanEdit && projectWizard?.mode !== "edit") {
+      setError("You have view-only access to this shared project.");
+      return;
+    }
     try {
       if (projectWizard?.mode === "edit") {
         const project = await apiUpdateProject(projectWizard.projectId, draft);
@@ -512,15 +529,34 @@ export default function DashboardPage() {
                 {activeProject?.title ?? "My Canvases"}
               </h1>
               {activeProject && (
-                <button
-                  type="button"
-                  aria-label="Edit project details"
-                  title="Edit project details"
-                  onClick={() => setProjectWizard({ mode: "edit", projectId: activeProject.id })}
-                  className="w-10 h-10 rounded-full bg-surface-container-lowest border border-outline-variant/30 shadow-sm hover:bg-surface-container-low flex items-center justify-center text-primary transition-colors"
-                >
-                  <span className="material-symbols-outlined text-[22px]">edit</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    aria-label="Edit project details"
+                    title="Edit project details"
+                    disabled={!activeProjectCanEdit}
+                    onClick={() => setProjectWizard({ mode: "edit", projectId: activeProject.id })}
+                    className="w-10 h-10 rounded-full bg-surface-container-lowest border border-outline-variant/30 shadow-sm hover:bg-surface-container-low flex items-center justify-center text-primary transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                  >
+                    <span className="material-symbols-outlined text-[22px]">edit</span>
+                  </button>
+                  {activeProjectIsOwner ? (
+                    <button
+                      type="button"
+                      aria-label="Manage project collaboration"
+                      title="Manage project collaboration"
+                      onClick={() => setCollabProjectId(activeProject.id)}
+                      className="w-10 h-10 rounded-full bg-surface-container-lowest border border-outline-variant/30 shadow-sm hover:bg-surface-container-low flex items-center justify-center text-primary transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[22px]">groups</span>
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-secondary-fixed/50 px-3 py-2 text-xs font-bold text-primary">
+                      <span className="material-symbols-outlined text-base">groups</span>
+                      {activeProject.access_level === "edit" ? "Can edit" : "View only"}
+                    </span>
+                  )}
+                </>
               )}
             </div>
             <p className="text-on-surface-variant max-w-md">
@@ -620,6 +656,10 @@ export default function DashboardPage() {
                         onEdit={() => {
                           setMenuOpen(null);
                           setProjectWizard({ mode: "edit", projectId: project.id });
+                        }}
+                        onCollaborate={() => {
+                          setMenuOpen(null);
+                          setCollabProjectId(project.id);
                         }}
                         onMove={() => {
                           setMenuOpen(null);
@@ -737,9 +777,15 @@ export default function DashboardPage() {
 
       <button
         type="button"
-        onClick={() => setShowCreateDialog(true)}
-        className="fixed bottom-28 right-8 z-50 bg-gradient-to-br from-primary to-primary-container text-white w-16 h-16 rounded-2xl shadow-lg hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center group md:bottom-8"
-        aria-label="Create new"
+        onClick={() => {
+          if (!activeProjectCanEdit) {
+            setError("You have view-only access to this shared project.");
+            return;
+          }
+          setShowCreateDialog(true);
+        }}
+        className={`fixed bottom-28 right-8 z-50 bg-gradient-to-br from-primary to-primary-container text-white w-16 h-16 rounded-2xl shadow-lg hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center group md:bottom-8${activeProjectCanEdit ? "" : " opacity-50"}`}
+        aria-label={activeProjectCanEdit ? "Create new" : "View-only shared project"}
       >
         <span className="material-symbols-outlined text-3xl group-hover:rotate-90 transition-transform duration-300">add</span>
         <span className="absolute right-20 bg-primary text-white text-xs font-bold px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
@@ -794,6 +840,14 @@ export default function DashboardPage() {
           projectCanvasCounts={projectCanvasCounts}
           onClose={() => setMovingProjectId(null)}
           onMove={(projectId) => void handleMoveProject(projectId)}
+        />
+      )}
+
+      {collabProject && (
+        <ProjectCollabDialog
+          project={collabProject}
+          onClose={() => setCollabProjectId(null)}
+          onChanged={() => void loadDashboard()}
         />
       )}
 
@@ -893,6 +947,7 @@ function ProjectCard({
   onOpen,
   onToggleMenu,
   onEdit,
+  onCollaborate,
   onMove,
   onArchive,
   onDelete,
@@ -906,21 +961,41 @@ function ProjectCard({
   onOpen: () => void;
   onToggleMenu: (button: HTMLButtonElement) => void;
   onEdit: () => void;
+  onCollaborate: () => void;
   onMove: () => void;
   onArchive: () => void;
   onDelete: () => void;
 }) {
+  const isShared = project.access_level === "view" || project.access_level === "edit";
+  const isOwner = !isShared;
+
   return (
-    <article onClick={onOpen} className={`project-card-production project-${project.accent} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible`}>
+    <article onClick={onOpen} className={`project-card-production project-${project.accent}${isShared ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible`}>
       <div className={`project-folder-art-production project-${project.accent}`}>
         <span className="material-symbols-outlined fill">folder</span>
       </div>
       <div className="pl-28 pr-3">
-        <h3 className="text-lg font-extrabold text-primary truncate" title={project.title}>{project.title}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-lg font-extrabold text-primary truncate" title={project.title}>{project.title}</h3>
+          {isShared && (
+            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-secondary-fixed/55 px-2 py-0.5 text-[10px] font-black uppercase text-primary">
+              <span className="material-symbols-outlined text-[13px]">groups</span>
+              Collab
+            </span>
+          )}
+        </div>
         <p className="mt-2 text-sm text-on-surface-variant line-clamp-3">{project.description || "A project folder for related canvases."}</p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold text-on-surface-variant">
           <span className="rounded-full bg-surface-container-high px-2.5 py-1">{canvasCount} canvas{canvasCount === 1 ? "" : "es"}</span>
           <span className="rounded-full bg-surface-container-high px-2.5 py-1">Modified {timeAgo(project.updated_at)}</span>
+          {isShared && (
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-primary">
+              {project.access_level === "edit" ? "Can edit" : "View only"}
+            </span>
+          )}
+          {isShared && project.shared_via_group_name && (
+            <span className="rounded-full bg-surface-container-high px-2.5 py-1">via {project.shared_via_group_name}</span>
+          )}
         </div>
       </div>
       <div className="absolute left-5 bottom-4 z-40" ref={menuOpen ? menuRef : undefined}>
@@ -935,7 +1010,7 @@ function ProjectCard({
         >
           <span className="material-symbols-outlined">more_horiz</span>
         </button>
-        {menuOpen && <ProjectMenu menuAbove={menuAbove} menuClosing={menuClosing} onOpen={onOpen} onEdit={onEdit} onMove={onMove} onArchive={onArchive} onDelete={onDelete} />}
+        {menuOpen && <ProjectMenu menuAbove={menuAbove} menuClosing={menuClosing} isOwner={isOwner} canEdit={project.access_level !== "view"} onOpen={onOpen} onEdit={onEdit} onCollaborate={onCollaborate} onMove={onMove} onArchive={onArchive} onDelete={onDelete} />}
       </div>
     </article>
   );
@@ -984,6 +1059,10 @@ function CanvasCard({
   onArchive: () => void;
   onDelete: () => void;
 }) {
+  const isShared = canvas.access_level === "view" || canvas.access_level === "edit";
+  const canEdit = canvas.access_level !== "view";
+  const isOwner = !isShared;
+
   return (
     <article
       className={`group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20 cursor-pointer overflow-visible${isHighlighted ? " canvas-card-highlight" : ""}${menuOpen ? " z-40" : ""}`}
@@ -1007,6 +1086,12 @@ function CanvasCard({
         {canvas.is_public && (
           <div className="absolute top-3 left-3 z-20 inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500/90 backdrop-blur-sm shadow-sm" title="Public">
             <span className="material-symbols-outlined text-[13px] text-white fill">public</span>
+          </div>
+        )}
+        {isShared && (
+          <div className="absolute top-3 right-3 z-20 inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 text-[10px] font-black uppercase text-primary shadow-sm" title={canvas.access_level === "edit" ? "Shared editable canvas" : "View-only shared canvas"}>
+            <span className="material-symbols-outlined text-[13px]">groups</span>
+            {canvas.access_level === "edit" ? "Edit" : "View"}
           </div>
         )}
         <div className="w-full h-full flex items-center justify-center bg-surface-container-low canvas-grid">
@@ -1041,7 +1126,7 @@ function CanvasCard({
             >
               <span className="material-symbols-outlined">more_vert</span>
             </button>
-            {menuOpen && <CanvasMenu menuAbove={menuAbove} menuClosing={menuClosing} onEdit={onEdit} onMove={onMove} onExportMarkdown={onExportMarkdown} onExportPng={onExportPng} onArchive={onArchive} onDelete={onDelete} />}
+            {menuOpen && <CanvasMenu menuAbove={menuAbove} menuClosing={menuClosing} canEdit={canEdit} isOwner={isOwner} onEdit={onEdit} onMove={onMove} onExportMarkdown={onExportMarkdown} onExportPng={onExportPng} onArchive={onArchive} onDelete={onDelete} />}
           </div>
         </div>
       </div>
@@ -1052,6 +1137,8 @@ function CanvasCard({
 function CanvasMenu({
   menuAbove,
   menuClosing,
+  canEdit,
+  isOwner,
   onEdit,
   onMove,
   onExportMarkdown,
@@ -1061,6 +1148,8 @@ function CanvasMenu({
 }: {
   menuAbove: boolean;
   menuClosing: boolean;
+  canEdit: boolean;
+  isOwner: boolean;
   onEdit: () => void;
   onMove: () => void;
   onExportMarkdown: () => void;
@@ -1070,12 +1159,12 @@ function CanvasMenu({
 }) {
   return (
     <div className={`absolute right-0 ${menuAbove ? "bottom-full mb-1 card-menu-above" : "top-full mt-1"} bg-white rounded-xl shadow-ambient-lg border border-outline-variant/10 py-2 min-w-[190px] z-50 card-menu-panel${menuClosing ? " card-menu-closing" : ""}`} onClick={(event) => event.stopPropagation()}>
-      <MenuButton icon="edit" label="Edit" onClick={onEdit} />
-      <MenuButton icon="drive_file_move" label="Move to Project" onClick={onMove} />
+      <MenuButton icon={canEdit ? "edit" : "visibility"} label={canEdit ? "Edit" : "Open View Only"} onClick={onEdit} />
+      {canEdit && <MenuButton icon="drive_file_move" label="Move to Project" onClick={onMove} />}
       <MenuButton icon="description" label="Export .md" onClick={onExportMarkdown} />
       <MenuButton icon="image" label="Export .png" onClick={onExportPng} />
-      <MenuButton icon="archive" label="Archive" onClick={onArchive} />
-      <MenuButton icon="delete" label="Delete" danger onClick={onDelete} />
+      {isOwner && <MenuButton icon="archive" label="Archive" onClick={onArchive} />}
+      {isOwner && <MenuButton icon="delete" label="Delete" danger onClick={onDelete} />}
     </div>
   );
 }
@@ -1083,16 +1172,22 @@ function CanvasMenu({
 function ProjectMenu({
   menuAbove,
   menuClosing,
+  isOwner,
+  canEdit,
   onOpen,
   onEdit,
+  onCollaborate,
   onMove,
   onArchive,
   onDelete,
 }: {
   menuAbove: boolean;
   menuClosing: boolean;
+  isOwner: boolean;
+  canEdit: boolean;
   onOpen: () => void;
   onEdit: () => void;
+  onCollaborate: () => void;
   onMove: () => void;
   onArchive: () => void;
   onDelete: () => void;
@@ -1100,10 +1195,11 @@ function ProjectMenu({
   return (
     <div className={`absolute left-0 ${menuAbove ? "bottom-full mb-1 card-menu-above" : "top-full mt-1"} bg-white rounded-xl shadow-ambient-lg border border-outline-variant/10 py-2 min-w-[190px] z-50 card-menu-panel${menuClosing ? " card-menu-closing" : ""}`} onClick={(event) => event.stopPropagation()}>
       <MenuButton icon="folder_open" label="Open" onClick={onOpen} />
-      <MenuButton icon="edit" label="Edit" onClick={onEdit} />
-      <MenuButton icon="drive_file_move" label="Move to Project" onClick={onMove} />
-      <MenuButton icon="archive" label="Archive" onClick={onArchive} />
-      <MenuButton icon="delete" label="Delete" danger onClick={onDelete} />
+      {canEdit && <MenuButton icon="edit" label="Edit" onClick={onEdit} />}
+      {isOwner && <MenuButton icon="groups" label="Collaborate" onClick={onCollaborate} />}
+      {isOwner && <MenuButton icon="drive_file_move" label="Move to Project" onClick={onMove} />}
+      {isOwner && <MenuButton icon="archive" label="Archive" onClick={onArchive} />}
+      {isOwner && <MenuButton icon="delete" label="Delete" danger onClick={onDelete} />}
     </div>
   );
 }
@@ -1169,6 +1265,211 @@ function ChoiceButton({ icon, title, description, fill, onClick }: { icon: strin
       </span>
       <span className="material-symbols-outlined text-on-surface-variant">chevron_right</span>
     </button>
+  );
+}
+
+function ProjectCollabDialog({
+  project,
+  onClose,
+  onChanged,
+}: {
+  project: CanvasProject;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [groups, setGroups] = useState<UserGroup[]>([]);
+  const [shares, setShares] = useState<ProjectShare[]>([]);
+  const [groupId, setGroupId] = useState("");
+  const [accessLevel, setAccessLevel] = useState<"view" | "edit">("view");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadCollabState() {
+    setLoading(true);
+    setError("");
+    try {
+      const [groupData, shareData] = await Promise.all([
+        apiListGroups(),
+        apiListProjectShares(project.id),
+      ]);
+      setGroups((groupData as UserGroup[]).filter((group) => group.owner_id === project.user_id));
+      setShares(shareData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load collaboration settings");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadCollabState();
+  }, [project.id]);
+
+  async function handleShare() {
+    if (!groupId) return;
+    setSaving(true);
+    setError("");
+    try {
+      await apiShareProject(project.id, groupId, accessLevel);
+      setGroupId("");
+      setAccessLevel("view");
+      await loadCollabState();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to share project");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleUpdateShare(share: ProjectShare, nextAccess: "view" | "edit") {
+    setSaving(true);
+    setError("");
+    try {
+      await apiUpdateProjectShare(project.id, share.id, nextAccess);
+      await loadCollabState();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update share");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemoveShare(share: ProjectShare) {
+    setSaving(true);
+    setError("");
+    try {
+      await apiDeleteProjectShare(project.id, share.id);
+      await loadCollabState();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove share");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const sharedGroupIds = new Set(shares.map((share) => share.shared_with_group_id));
+  const availableGroups = groups.filter((group) => !sharedGroupIds.has(group.id));
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 md:pt-16">
+      <button type="button" className="absolute inset-0 bg-primary/30 backdrop-blur-sm" aria-label="Close collaboration settings" onClick={onClose} />
+      <section className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-ambient-lg">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-outline-variant/15 p-6">
+          <div>
+            <p className="text-xs uppercase tracking-widest font-bold text-on-surface-variant">Project Collaboration</p>
+            <h3 className="text-2xl font-extrabold text-primary">{project.title}</h3>
+          </div>
+          <button type="button" className="p-2 rounded-full hover:bg-surface-container-low" onClick={onClose} aria-label="Close">
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-5">
+          {error && (
+            <div className="rounded-xl border border-error/20 bg-error-container/30 px-4 py-3 text-sm font-semibold text-error">
+              {error}
+            </div>
+          )}
+
+          <div className="rounded-xl border border-outline-variant/15 bg-surface-container-lowest p-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+              <label className="block">
+                <span className="text-sm font-bold text-on-surface">Group</span>
+                <select
+                  value={groupId}
+                  onChange={(event) => setGroupId(event.target.value)}
+                  className="mt-2 w-full rounded-xl bg-white border border-outline-variant/30 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary"
+                  disabled={loading || saving || availableGroups.length === 0}
+                >
+                  <option value="">{availableGroups.length === 0 ? "No available groups" : "Select a group"}</option>
+                  {availableGroups.map((group) => (
+                    <option key={group.id} value={group.id}>{group.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  aria-pressed={accessLevel === "view"}
+                  onClick={() => setAccessLevel("view")}
+                  className={`rounded-xl px-4 py-3 text-sm font-bold ${accessLevel === "view" ? "bg-primary text-white" : "bg-white text-on-surface-variant border border-outline-variant/20"}`}
+                >
+                  View
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={accessLevel === "edit"}
+                  onClick={() => setAccessLevel("edit")}
+                  className={`rounded-xl px-4 py-3 text-sm font-bold ${accessLevel === "edit" ? "bg-primary text-white" : "bg-white text-on-surface-variant border border-outline-variant/20"}`}
+                >
+                  Edit
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void handleShare()}
+              disabled={!groupId || saving}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40"
+            >
+              <span className="material-symbols-outlined text-lg">group_add</span>
+              Share Project
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            <h4 className="text-sm font-extrabold text-primary">Current access</h4>
+            {loading ? (
+              <div className="flex justify-center rounded-xl border border-outline-variant/15 p-8">
+                <div className="spinner w-6 h-6" />
+              </div>
+            ) : shares.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-outline-variant/30 p-6 text-center text-sm text-on-surface-variant">
+                This project is not shared with any groups yet.
+              </div>
+            ) : (
+              shares.map((share) => (
+                <div key={share.id} className="flex flex-col gap-3 rounded-xl border border-outline-variant/15 bg-white p-4 md:flex-row md:items-center">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <span className="material-symbols-outlined">groups</span>
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-on-surface">{share.user_groups?.name || "Group"}</p>
+                      <p className="text-xs font-semibold text-on-surface-variant">{share.access_level === "edit" ? "Can edit project contents" : "Can inspect project contents"}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleUpdateShare(share, share.access_level === "edit" ? "view" : "edit")}
+                      disabled={saving}
+                      className="rounded-xl border border-outline-variant/20 px-3 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface-container-low disabled:opacity-40"
+                    >
+                      Make {share.access_level === "edit" ? "view" : "edit"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleRemoveShare(share)}
+                      disabled={saving}
+                      className="rounded-xl px-3 py-2 text-xs font-bold text-error hover:bg-error-container/20 disabled:opacity-40"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 

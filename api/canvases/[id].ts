@@ -1,8 +1,9 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
-import { assertProjectOwned, normalizeProjectId, touchProjectAncestors } from "../lib/canvas-projects.js";
+import { normalizeProjectId, touchProjectAncestors } from "../lib/canvas-projects.js";
 import { deleteCanvasForUser } from "../lib/canvas-lifecycle.js";
+import { canEdit, canOwn, getCanvasAccess, getProjectAccess, withAccessMetadata } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -20,18 +21,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // GET /api/canvases/[id] — Get a single canvas
   if (req.method === "GET") {
     try {
-      const { data, error } = await supabase
-        .from("canvases")
-        .select("*")
-        .eq("id", canvasId)
-        .eq("user_id", userId)
-        .single();
+      const access = await getCanvasAccess(canvasId, userId);
+      if (!access) return res.status(404).json({ error: "Canvas not found" });
 
-      if (error || !data) {
-        return res.status(404).json({ error: "Canvas not found" });
-      }
-
-      return res.status(200).json({ canvas: data });
+      return res.status(200).json({ canvas: withAccessMetadata(access.canvas, access.projectAccess ?? access) });
     } catch (err) {
       console.error("Get canvas error:", err);
       return res.status(500).json({ error: "Internal server error" });
@@ -43,20 +36,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { title, mermaidCode, chatHistory, isPublic, projectId, manuallyArchived } = req.body || {};
 
     try {
-      const { data: existingCanvas, error: existingError } = await supabase
-        .from("canvases")
-        .select("id, project_id")
-        .eq("id", canvasId)
-        .eq("user_id", userId)
-        .single();
-
-      if (existingError || !existingCanvas) {
-        return res.status(404).json({ error: "Canvas not found" });
+      const access = await getCanvasAccess(canvasId, userId);
+      if (!access) return res.status(404).json({ error: "Canvas not found" });
+      if (!canEdit(access)) return res.status(403).json({ error: "You do not have permission to edit this canvas" });
+      if ((isPublic !== undefined || manuallyArchived !== undefined) && !canOwn(access)) {
+        return res.status(403).json({ error: "Only the canvas owner can publish or archive this canvas" });
       }
 
       const nextProjectId = normalizeProjectId(projectId);
-      if (nextProjectId && !(await assertProjectOwned(nextProjectId, userId))) {
-        return res.status(400).json({ error: "Project not found" });
+      if (projectId !== undefined) {
+        if (!nextProjectId) {
+          if (!canOwn(access)) return res.status(403).json({ error: "Only the canvas owner can move it to the dashboard root" });
+        } else {
+          const targetAccess = await getProjectAccess(nextProjectId, userId);
+          if (!targetAccess || !canEdit(targetAccess) || targetAccess.ownerUserId !== access.ownerUserId) {
+            return res.status(400).json({ error: "Project not found" });
+          }
+        }
       }
 
       const hasRealChange =
@@ -89,7 +85,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from("canvases")
         .update(updateData)
         .eq("id", canvasId)
-        .eq("user_id", userId)
         .select("*")
         .single();
 
@@ -98,12 +93,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       if (hasRealChange) {
-        const previousProjectId = (existingCanvas as { project_id?: string | null }).project_id;
-        await touchProjectAncestors(previousProjectId, userId, now);
-        if (nextProjectId !== previousProjectId) await touchProjectAncestors(nextProjectId, userId, now);
+        const previousProjectId = access.canvas.project_id as string | null | undefined;
+        await touchProjectAncestors(previousProjectId, access.ownerUserId, now);
+        if (nextProjectId !== previousProjectId) await touchProjectAncestors(nextProjectId, access.ownerUserId, now);
       }
 
-      return res.status(200).json({ canvas: data });
+      return res.status(200).json({ canvas: withAccessMetadata(data as Record<string, unknown>, access.projectAccess ?? access) });
     } catch (err) {
       console.error("Update canvas error:", err);
       return res.status(500).json({ error: "Internal server error" });
@@ -113,6 +108,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // DELETE /api/canvases/[id] — Delete a canvas
   if (req.method === "DELETE") {
     try {
+      const access = await getCanvasAccess(canvasId, userId);
+      if (!access) return res.status(404).json({ error: "Canvas not found" });
+      if (!canOwn(access)) return res.status(403).json({ error: "Only the canvas owner can delete this canvas" });
       const result = await deleteCanvasForUser({ canvasId, userId });
       return res.status(200).json({ success: true, ...result });
     } catch (err) {
