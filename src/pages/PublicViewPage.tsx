@@ -16,6 +16,7 @@ export default function PublicViewPage() {
   const [notFound, setNotFound] = useState(false);
   const [copied, setCopied] = useState(false);
   const [collapsedSubgraphIds, setCollapsedSubgraphIds] = useState<Set<string>>(new Set());
+  const [lastRenderedDiagramCode, setLastRenderedDiagramCode] = useState<string | null>(null);
 
   // Pan/zoom state
   const [zoom, setZoom] = useState(1);
@@ -48,6 +49,8 @@ export default function PublicViewPage() {
     const result = getRootViewWithCollapseState(parsedAST, collapsedSubgraphIds);
     return { filteredCode: result.code, compoundNodeIds: result.compoundNodeIds };
   }, [collapsedSubgraphIds, mermaidCode, parsedAST]);
+  const normalizedFilteredCode = filteredCode.trim();
+  const isDiagramReady = lastRenderedDiagramCode === normalizedFilteredCode;
 
   const hasSubgraphs = Boolean(parsedAST && parsedAST.allSubgraphsFlat.size > 0);
   const allGroupsCollapsed = Boolean(
@@ -63,6 +66,10 @@ export default function PublicViewPage() {
 
   const expandAllSubgraphs = useCallback(() => {
     setCollapsedSubgraphIds(new Set());
+  }, []);
+
+  const handleDiagramRenderComplete = useCallback((renderedCode: string) => {
+    setLastRenderedDiagramCode(renderedCode);
   }, []);
 
   // Pinch distance helper
@@ -485,27 +492,30 @@ export default function PublicViewPage() {
               <MermaidRenderer
                 code={filteredCode}
                 className="min-h-[400px] min-w-[300px]"
+                onRenderComplete={handleDiagramRenderComplete}
                 compoundNodeIds={compoundNodeIds}
                 parsedAST={parsedAST}
               />
-              <SubgraphCollapseOverlay
-                diagramLayerRef={diagramLayerRef}
-                parsedAST={parsedAST}
-                collapsedSubgraphIds={collapsedSubgraphIds}
-                onCollapse={(subgraphId) => {
-                  setCollapsedSubgraphIds(prev => new Set([...prev, subgraphId]));
-                }}
-                onExpand={(subgraphId) => {
-                  setCollapsedSubgraphIds(prev => {
-                    const next = new Set(prev);
-                    next.delete(subgraphId);
-                    return next;
-                  });
-                }}
-                filteredCode={filteredCode}
-                zoom={zoom}
-                isCanvasInteracting={isPanningVisual || isWheeling}
-              />
+              {isDiagramReady && (
+                <SubgraphCollapseOverlay
+                  diagramLayerRef={diagramLayerRef}
+                  parsedAST={parsedAST}
+                  collapsedSubgraphIds={collapsedSubgraphIds}
+                  onCollapse={(subgraphId) => {
+                    setCollapsedSubgraphIds(prev => new Set([...prev, subgraphId]));
+                  }}
+                  onExpand={(subgraphId) => {
+                    setCollapsedSubgraphIds(prev => {
+                      const next = new Set(prev);
+                      next.delete(subgraphId);
+                      return next;
+                    });
+                  }}
+                  filteredCode={filteredCode}
+                  zoom={zoom}
+                  isCanvasInteracting={isPanningVisual || isWheeling}
+                />
+              )}
             </div>
           </div>
 
