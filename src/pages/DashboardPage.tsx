@@ -307,6 +307,10 @@ export default function DashboardPage() {
     navigate(projectId ? `/dashboard?project=${projectId}` : "/dashboard");
   }
 
+  function openUserManagement() {
+    navigate("/user-management");
+  }
+
   function refreshProjectContextInBackground(projectId: string) {
     if (projectContextRefreshesRef.current.has(projectId)) return;
     projectContextRefreshesRef.current.add(projectId);
@@ -526,7 +530,8 @@ export default function DashboardPage() {
         {projectPath.length > 0 && (
           <ProjectBreadcrumb
             path={projectPath}
-            audienceLabel={activeProjectAudienceLabel}
+            audienceLabel={isTreeWorkspace ? activeProjectAudienceLabel : ""}
+            onOpenUserManagement={openUserManagement}
             onNavigate={navigateToProject}
             action={<DashboardFileViewToggle mode={fileViewMode} onChange={setFileViewMode} />}
           />
@@ -574,7 +579,7 @@ export default function DashboardPage() {
             </p>
             {activeProjectAudienceLabel && (
               <div className="mt-4">
-                <CollabProjectAudience label={activeProjectAudienceLabel} />
+                <CollabProjectAudience label={activeProjectAudienceLabel} onOpenUserManagement={openUserManagement} />
               </div>
             )}
           </div>
@@ -667,6 +672,7 @@ export default function DashboardPage() {
                         menuClosing={menuClosing}
                         menuRef={menuOpen?.type === "project" && menuOpen.id === project.id ? menuRef : undefined}
                         onOpen={() => navigateToProject(project.id)}
+                        onOpenUserManagement={openUserManagement}
                         onToggleMenu={(button) => openMenu("project", project.id, button)}
                         onEdit={() => {
                           setMenuOpen(null);
@@ -960,6 +966,7 @@ function ProjectCard({
   menuClosing,
   menuRef,
   onOpen,
+  onOpenUserManagement,
   onToggleMenu,
   onEdit,
   onCollaborate,
@@ -974,6 +981,7 @@ function ProjectCard({
   menuClosing: boolean;
   menuRef?: RefObject<HTMLDivElement | null>;
   onOpen: () => void;
+  onOpenUserManagement: () => void;
   onToggleMenu: (button: HTMLButtonElement) => void;
   onEdit: () => void;
   onCollaborate: () => void;
@@ -1013,7 +1021,7 @@ function ProjectCard({
         </div>
         {projectAudienceLabel && (
           <div className="mt-auto pt-4">
-            <CollabProjectAudience label={projectAudienceLabel} />
+            <CollabProjectAudience label={projectAudienceLabel} onOpenUserManagement={onOpenUserManagement} />
           </div>
         )}
       </div>
@@ -1071,16 +1079,27 @@ function mergeProjectPreservingCollab(current: CanvasProject, incoming: CanvasPr
   };
 }
 
-function CollabProjectAudience({ label }: { label: string }) {
+function CollabProjectAudience({ label, onOpenUserManagement }: { label: string; onOpenUserManagement?: () => void }) {
+  function handleClick(event: React.MouseEvent<HTMLButtonElement>) {
+    event.stopPropagation();
+    onOpenUserManagement?.();
+  }
+
   return (
-    <div className="project-collab-audience" title={label}>
+    <button
+      type="button"
+      className="project-collab-audience"
+      title={`${label}. Open user management.`}
+      aria-label={`${label}. Open user management.`}
+      onClick={handleClick}
+    >
       <span className="project-collab-avatar-stack" aria-hidden="true">
         <span className="project-collab-avatar-dot" />
         <span className="project-collab-avatar-dot" />
         <span className="project-collab-avatar-dot" />
       </span>
       <span className="truncate">{label}</span>
-    </div>
+    </button>
   );
 }
 
@@ -1669,11 +1688,13 @@ function ProjectBreadcrumb({
   path,
   audienceLabel,
   action,
+  onOpenUserManagement,
   onNavigate,
 }: {
   path: CanvasProject[];
   audienceLabel?: string;
   action?: ReactNode;
+  onOpenUserManagement: () => void;
   onNavigate: (projectId: string | null) => void;
 }) {
   return (
@@ -1695,7 +1716,7 @@ function ProjectBreadcrumb({
       </nav>
       {audienceLabel && (
         <div className="hidden min-w-0 shrink md:block">
-          <CollabProjectAudience label={audienceLabel} />
+          <CollabProjectAudience label={audienceLabel} onOpenUserManagement={onOpenUserManagement} />
         </div>
       )}
       {action && <div className="shrink-0">{action}</div>}
