@@ -972,6 +972,57 @@
   margin: 0.75em 0;
 }
 
+.agent-markdown-table-scroll {
+  max-width: 100%;
+  margin: 0.65em 0;
+  overflow-x: auto;
+  border: 1px solid rgba(196, 198, 205, 0.55);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.agent-markdown-table-scroll:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.45);
+  outline-offset: 2px;
+}
+
+.agent-markdown table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86em;
+  line-height: 1.45;
+}
+
+.agent-markdown th,
+.agent-markdown td {
+  padding: 0.5rem 0.65rem;
+  border-right: 1px solid rgba(196, 198, 205, 0.45);
+  border-bottom: 1px solid rgba(196, 198, 205, 0.45);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.agent-markdown th:last-child,
+.agent-markdown td:last-child {
+  border-right: none;
+}
+
+.agent-markdown tr:last-child td {
+  border-bottom: none;
+}
+
+.agent-markdown th {
+  background: rgba(241, 245, 249, 0.86);
+  color: #1a1c1e;
+  font-weight: 700;
+}
+
+.agent-markdown td {
+  color: #334155;
+}
+
 /* ======================================
    Canvas Card Safe-Exit Highlight
    ====================================== */

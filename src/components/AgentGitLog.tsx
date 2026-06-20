@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ChatMessage, CanvasCommit, MeetingProcessingMetrics } from "../types";
 import ModelPicker from "./ModelPicker";
 
@@ -47,6 +48,17 @@ function cleanMessageContent(content: string): string {
   const cleaned = content.replace(/```mermaid\n[\s\S]*?```/g, "").trim();
   return cleaned || "Flowchart updated.";
 }
+
+const markdownComponents: Components = {
+  table({ node, ...props }) {
+    void node;
+    return (
+      <div className="agent-markdown-table-scroll" role="region" aria-label="Scrollable table" tabIndex={0}>
+        <table {...props} />
+      </div>
+    );
+  },
+};
 
 function meetingMetricsTitle(metrics: MeetingProcessingMetrics) {
   const score = Math.round(metrics.relevanceScore * 100);
@@ -488,7 +500,9 @@ export default function AgentGitLog({
                       <div className="text-on-surface text-sm leading-relaxed agent-markdown">
                         {interaction.assistantMessages.map((msg, mIdx) => (
                           <div key={mIdx} className={mIdx !== interaction.assistantMessages.length - 1 ? "mb-4" : ""}>
-                            <ReactMarkdown>{cleanMessageContent(msg.content)}</ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                              {cleanMessageContent(msg.content)}
+                            </ReactMarkdown>
                           </div>
                         ))}
                       </div>
