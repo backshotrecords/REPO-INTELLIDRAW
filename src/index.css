@@ -1038,6 +1038,67 @@
   animation: canvasSafeExit 2s ease-out 0.3s forwards;
 }
 
+.dashboard-grid-card.is-drag-source {
+  opacity: 0.58;
+}
+
+.dashboard-grid-card.is-drop-target {
+  border-color: #16a34a !important;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18), 0 18px 36px rgba(4, 22, 39, 0.14) !important;
+}
+
+.dashboard-grid-card.is-invalid-drop-target {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.16), 0 12px 28px rgba(4, 22, 39, 0.1) !important;
+}
+
+.dashboard-card-drag-handle {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 45;
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(123, 135, 148, 0.24);
+  border-radius: 0.65rem;
+  background: rgba(255, 255, 255, 0.9);
+  color: #627286;
+  cursor: grab;
+  box-shadow: 0 8px 18px rgba(4, 22, 39, 0.08);
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dashboard-card-drag-handle.is-inline {
+  position: static;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.55rem;
+  box-shadow: none;
+}
+
+.dashboard-card-drag-handle:hover {
+  border-color: rgba(4, 22, 39, 0.28);
+  color: #041627;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(4, 22, 39, 0.12);
+}
+
+.dashboard-card-drag-handle.is-inline:hover {
+  box-shadow: none;
+}
+
+.dashboard-card-drag-handle:active {
+  cursor: grabbing;
+  transform: translateY(0);
+}
+
+.dashboard-card-drag-handle .material-symbols-outlined {
+  font-size: 1.25rem;
+}
+
 /* ======================================
    Dashboard Card Menu Animation
    ====================================== */

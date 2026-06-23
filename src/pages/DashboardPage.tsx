@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode, type RefObject } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
@@ -40,6 +40,8 @@ const INITIAL_LEVELS = [
 
 type MenuState = { type: "canvas" | "project"; id: string } | null;
 type ProjectDraft = { title: string; description: string; accent: ProjectAccent };
+type DashboardDragItem = { kind: "canvas" | "project"; id: string; title: string };
+type DashboardDropState = "valid" | "invalid" | null;
 
 function hasItemCapability(
   item: { access_level?: string; capabilities?: CollaborationCapability[] } | null | undefined,
@@ -53,6 +55,27 @@ function hasItemCapability(
 function getAccessRoleLabel(item: { access_level?: string; access_role_name?: string | null } | null | undefined) {
   if (!item || item.access_level === "owner" || item.access_level === undefined) return "Owner";
   return item.access_role_name || (item.access_level === "edit" ? "Can edit" : "View only");
+}
+
+function canDropDashboardItemOnProject(
+  item: DashboardDragItem | null,
+  targetProject: CanvasProject,
+  projects: CanvasProject[],
+  canvases: DashboardCanvas[],
+) {
+  if (!item) return false;
+
+  if (item.kind === "canvas") {
+    const canvas = canvases.find((candidate) => candidate.id === item.id);
+    if (!canvas || canvas.project_id === targetProject.id) return false;
+    return hasItemCapability(canvas, "canvas.move") && hasItemCapability(targetProject, "canvas.create");
+  }
+
+  const project = projects.find((candidate) => candidate.id === item.id);
+  if (!project || project.id === targetProject.id || project.parent_project_id === targetProject.id) return false;
+  const blockedIds = getProjectAndDescendantIds(project.id, projects);
+  if (blockedIds.has(targetProject.id)) return false;
+  return hasItemCapability(project, "project.move") && hasItemCapability(targetProject, "project.create_folder");
 }
 
 export default function DashboardPage() {
@@ -75,6 +98,8 @@ export default function DashboardPage() {
   const [collabProjectId, setCollabProjectId] = useState<string | null>(null);
   const [movingCanvasId, setMovingCanvasId] = useState<string | null>(null);
   const [movingProjectId, setMovingProjectId] = useState<string | null>(null);
+  const [dragItem, setDragItem] = useState<DashboardDragItem | null>(null);
+  const [dragTargetProjectId, setDragTargetProjectId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [thumbnailLimit, setThumbnailLimit] = useState(THUMBNAIL_BATCH_SIZE);
   const [fileViewMode, setFileViewMode] = useState<DashboardFileViewMode>(() => {
@@ -454,11 +479,27 @@ export default function DashboardPage() {
     }
   }
 
+  async function moveDashboardItem(item: DashboardDragItem, targetProjectId: string | null) {
+    setError("");
+    if (item.kind === "canvas") {
+      const updated = await apiUpdateCanvas(item.id, { projectId: targetProjectId });
+      setCanvases((current) => [updated, ...current.filter((canvas) => canvas.id !== updated.id)]);
+      return;
+    }
+
+    const updated = await apiUpdateProject(item.id, { parentProjectId: targetProjectId });
+    setProjects((current) => {
+      const previous = current.find((project) => project.id === updated.id);
+      const merged = previous ? mergeProjectPreservingCollab(previous, updated) : updated;
+      return [merged, ...current.filter((project) => project.id !== updated.id)];
+    });
+    setArchiveOnly(false);
+  }
+
   async function handleMoveCanvas(targetProjectId: string | null) {
     if (!movingCanvas) return;
     try {
-      const updated = await apiUpdateCanvas(movingCanvas.id, { projectId: targetProjectId });
-      setCanvases((current) => [updated, ...current.filter((canvas) => canvas.id !== updated.id)]);
+      await moveDashboardItem({ kind: "canvas", id: movingCanvas.id, title: movingCanvas.title }, targetProjectId);
       setMovingCanvasId(null);
       setMenuOpen(null);
     } catch (err) {
@@ -470,19 +511,63 @@ export default function DashboardPage() {
   async function handleMoveProject(targetProjectId: string | null) {
     if (!movingProject) return;
     try {
-      const updated = await apiUpdateProject(movingProject.id, { parentProjectId: targetProjectId });
-      setProjects((current) => {
-        const previous = current.find((project) => project.id === updated.id);
-        const merged = previous ? mergeProjectPreservingCollab(previous, updated) : updated;
-        return [merged, ...current.filter((project) => project.id !== updated.id)];
-      });
+      await moveDashboardItem({ kind: "project", id: movingProject.id, title: movingProject.title }, targetProjectId);
       setMovingProjectId(null);
       setMenuOpen(null);
-      setArchiveOnly(false);
       navigateToProject(targetProjectId);
     } catch (err) {
       console.error("Failed to move project:", err);
       setError(err instanceof Error ? err.message : "Failed to move project");
+    }
+  }
+
+  function handleDashboardDragStart(event: DragEvent<HTMLElement>, item: DashboardDragItem) {
+    setDragItem(item);
+    setDragTargetProjectId(null);
+    setMenuOpen(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-intellidraw-dashboard-item", JSON.stringify(item));
+    event.dataTransfer.setData("text/plain", item.title);
+  }
+
+  function handleDashboardDragEnd() {
+    setDragItem(null);
+    setDragTargetProjectId(null);
+  }
+
+  function handleProjectDropTargetDragOver(event: DragEvent<HTMLElement>, project: CanvasProject) {
+    if (!dragItem) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = canDropDashboardItemOnProject(dragItem, project, projects, canvases) ? "move" : "none";
+    setDragTargetProjectId(project.id);
+  }
+
+  function handleProjectDropTargetDragLeave(event: DragEvent<HTMLElement>, project: CanvasProject) {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setDragTargetProjectId((current) => (current === project.id ? null : current));
+  }
+
+  async function handleProjectDropTargetDrop(event: DragEvent<HTMLElement>, project: CanvasProject) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const item = dragItem;
+    setDragItem(null);
+    setDragTargetProjectId(null);
+
+    if (!item) return;
+    if (!canDropDashboardItemOnProject(item, project, projects, canvases)) {
+      setError(`"${item.title}" cannot be moved to "${project.title}".`);
+      return;
+    }
+
+    try {
+      await moveDashboardItem(item, project.id);
+      setMenuOpen(null);
+    } catch (err) {
+      console.error("Failed to move item:", err);
+      setError(err instanceof Error ? err.message : `Failed to move ${item.kind}`);
     }
   }
 
@@ -689,6 +774,12 @@ export default function DashboardPage() {
                         key={project.id}
                         project={project}
                         canvasCount={projectCanvasCounts.get(project.id) ?? 0}
+                        isDragSource={dragItem?.kind === "project" && dragItem.id === project.id}
+                        dropState={
+                          dragTargetProjectId === project.id
+                            ? canDropDashboardItemOnProject(dragItem, project, projects, canvases) ? "valid" : "invalid"
+                            : null
+                        }
                         menuOpen={menuOpen?.type === "project" && menuOpen.id === project.id}
                         menuAbove={menuAbove}
                         menuClosing={menuClosing}
@@ -708,6 +799,11 @@ export default function DashboardPage() {
                           setMenuOpen(null);
                           setMovingProjectId(project.id);
                         }}
+                        onDragStart={(event) => handleDashboardDragStart(event, { kind: "project", id: project.id, title: project.title })}
+                        onDragEnd={handleDashboardDragEnd}
+                        onDropTargetDragOver={(event) => handleProjectDropTargetDragOver(event, project)}
+                        onDropTargetDragLeave={(event) => handleProjectDropTargetDragLeave(event, project)}
+                        onDropTargetDrop={(event) => void handleProjectDropTargetDrop(event, project)}
                         onArchive={() => void handleArchiveProject(project)}
                         onDelete={() => void handleDeleteProject(project)}
                       />
@@ -763,6 +859,7 @@ export default function DashboardPage() {
                       exportMode={exportMode}
                       isSelected={selectedForExport.has(canvas.id)}
                       isHighlighted={highlightId === canvas.id}
+                      isDragSource={dragItem?.kind === "canvas" && dragItem.id === canvas.id}
                       menuOpen={menuOpen?.type === "canvas" && menuOpen.id === canvas.id}
                       menuAbove={menuAbove}
                       menuClosing={menuClosing}
@@ -778,6 +875,8 @@ export default function DashboardPage() {
                         setMenuOpen(null);
                         setMovingCanvasId(canvas.id);
                       }}
+                      onDragStart={(event) => handleDashboardDragStart(event, { kind: "canvas", id: canvas.id, title: canvas.title })}
+                      onDragEnd={handleDashboardDragEnd}
                       onExportMarkdown={() => {
                         void loadCanvasExportData([canvas.id])
                           .then(([exportCanvas]) => exportAsMarkdown(exportCanvas))
@@ -985,6 +1084,8 @@ function SectionHeader({
 function ProjectCard({
   project,
   canvasCount,
+  isDragSource,
+  dropState,
   menuOpen,
   menuAbove,
   menuClosing,
@@ -995,11 +1096,18 @@ function ProjectCard({
   onEdit,
   onCollaborate,
   onMove,
+  onDragStart,
+  onDragEnd,
+  onDropTargetDragOver,
+  onDropTargetDragLeave,
+  onDropTargetDrop,
   onArchive,
   onDelete,
 }: {
   project: CanvasProject;
   canvasCount: number;
+  isDragSource: boolean;
+  dropState: DashboardDropState;
   menuOpen: boolean;
   menuAbove: boolean;
   menuClosing: boolean;
@@ -1010,6 +1118,11 @@ function ProjectCard({
   onEdit: () => void;
   onCollaborate: () => void;
   onMove: () => void;
+  onDragStart: (event: DragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+  onDropTargetDragOver: (event: DragEvent<HTMLElement>) => void;
+  onDropTargetDragLeave: (event: DragEvent<HTMLElement>) => void;
+  onDropTargetDrop: (event: DragEvent<HTMLElement>) => void;
   onArchive: () => void;
   onDelete: () => void;
 }) {
@@ -1023,7 +1136,30 @@ function ProjectCard({
   const canDelete = hasItemCapability(project, "project.delete");
 
   return (
-    <article onClick={onOpen} className={`project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible${menuOpen ? " z-40" : ""}`}>
+    <article
+      onClick={onOpen}
+      onDragOver={onDropTargetDragOver}
+      onDragLeave={onDropTargetDragLeave}
+      onDrop={onDropTargetDrop}
+      className={`dashboard-grid-card project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible${menuOpen ? " z-40" : ""}${canMove ? " is-draggable" : ""}${isDragSource ? " is-drag-source" : ""}${dropState === "valid" ? " is-drop-target" : ""}${dropState === "invalid" ? " is-invalid-drop-target" : ""}`}
+    >
+      {canMove && (
+        <button
+          type="button"
+          draggable
+          onClick={(event) => event.stopPropagation()}
+          onDragStart={(event) => {
+            event.stopPropagation();
+            onDragStart(event);
+          }}
+          onDragEnd={onDragEnd}
+          className="dashboard-card-drag-handle"
+          aria-label={`Move ${project.title}`}
+          title="Drag to move"
+        >
+          <span className="material-symbols-outlined">drag_indicator</span>
+        </button>
+      )}
       <div className={`project-folder-art-production project-${project.accent}`}>
         <span className="material-symbols-outlined fill">folder</span>
       </div>
@@ -1158,6 +1294,7 @@ function CanvasCard({
   exportMode,
   isSelected,
   isHighlighted,
+  isDragSource,
   menuOpen,
   menuAbove,
   menuClosing,
@@ -1167,6 +1304,8 @@ function CanvasCard({
   onToggleMenu,
   onEdit,
   onMove,
+  onDragStart,
+  onDragEnd,
   onExportMarkdown,
   onExportPng,
   onArchive,
@@ -1179,6 +1318,7 @@ function CanvasCard({
   exportMode: boolean;
   isSelected: boolean;
   isHighlighted: boolean;
+  isDragSource: boolean;
   menuOpen: boolean;
   menuAbove: boolean;
   menuClosing: boolean;
@@ -1188,6 +1328,8 @@ function CanvasCard({
   onToggleMenu: (button: HTMLButtonElement) => void;
   onEdit: () => void;
   onMove: () => void;
+  onDragStart: (event: DragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
   onExportMarkdown: () => void;
   onExportPng: () => void;
   onArchive: () => void;
@@ -1201,7 +1343,7 @@ function CanvasCard({
 
   return (
     <article
-      className={`group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20 cursor-pointer overflow-visible${isHighlighted ? " canvas-card-highlight" : ""}${menuOpen ? " z-40" : ""}`}
+      className={`dashboard-grid-card group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20 cursor-pointer overflow-visible${isHighlighted ? " canvas-card-highlight" : ""}${menuOpen ? " z-40" : ""}${canMove && !exportMode ? " is-draggable" : ""}${isDragSource ? " is-drag-source" : ""}`}
       onClick={onCardClick}
     >
       {exportMode && (
@@ -1251,17 +1393,36 @@ function CanvasCard({
             <p className="text-sm text-on-surface-variant">Modified {timeAgo(canvas.updated_at)}</p>
           </div>
           <div className="relative" ref={menuOpen ? menuRef : undefined}>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleMenu(event.currentTarget);
-              }}
-              className="text-on-surface-variant hover:text-primary p-2 hover:bg-surface-container-high rounded-lg transition-colors"
-              aria-label={`Open menu for ${canvas.title}`}
-            >
-              <span className="material-symbols-outlined">more_vert</span>
-            </button>
+            <div className="flex items-center gap-1">
+              {canMove && !exportMode && (
+                <button
+                  type="button"
+                  draggable
+                  onClick={(event) => event.stopPropagation()}
+                  onDragStart={(event) => {
+                    event.stopPropagation();
+                    onDragStart(event);
+                  }}
+                  onDragEnd={onDragEnd}
+                  className="dashboard-card-drag-handle is-inline"
+                  aria-label={`Move ${canvas.title}`}
+                  title="Drag to move"
+                >
+                  <span className="material-symbols-outlined">drag_indicator</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggleMenu(event.currentTarget);
+                }}
+                className="text-on-surface-variant hover:text-primary p-2 hover:bg-surface-container-high rounded-lg transition-colors"
+                aria-label={`Open menu for ${canvas.title}`}
+              >
+                <span className="material-symbols-outlined">more_vert</span>
+              </button>
+            </div>
             {menuOpen && (
               <CanvasMenu
                 menuAbove={menuAbove}
