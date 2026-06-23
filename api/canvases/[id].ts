@@ -3,7 +3,7 @@ import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { normalizeProjectId, touchProjectAncestors } from "../lib/canvas-projects.js";
 import { deleteCanvasForUser } from "../lib/canvas-lifecycle.js";
-import { canEdit, canOwn, getCanvasAccess, getProjectAccess, withAccessMetadata } from "../lib/project-access.js";
+import { canOwn, getCanvasAccess, getProjectAccess, hasCapability, withAccessMetadata } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -38,9 +38,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const access = await getCanvasAccess(canvasId, userId);
       if (!access) return res.status(404).json({ error: "Canvas not found" });
-      if (!canEdit(access)) return res.status(403).json({ error: "You do not have permission to edit this canvas" });
-      if ((isPublic !== undefined || manuallyArchived !== undefined) && !canOwn(access)) {
-        return res.status(403).json({ error: "Only the canvas owner can publish or archive this canvas" });
+
+      const hasContentChange = title !== undefined || mermaidCode !== undefined || chatHistory !== undefined;
+      const hasPublishChange = isPublic !== undefined;
+      const hasMoveChange = projectId !== undefined;
+      const hasArchiveChange = manuallyArchived !== undefined;
+
+      if (hasContentChange && !hasCapability(access, "canvas.update")) {
+        return res.status(403).json({ error: "You do not have permission to edit this canvas" });
+      }
+
+      if (hasPublishChange && !hasCapability(access, "canvas.publish")) {
+        return res.status(403).json({ error: "You do not have permission to publish this canvas" });
+      }
+
+      if (hasArchiveChange && !hasCapability(access, "canvas.archive")) {
+        return res.status(403).json({ error: "You do not have permission to archive this canvas" });
+      }
+
+      if (hasMoveChange && !hasCapability(access, "canvas.move")) {
+        return res.status(403).json({ error: "You do not have permission to move this canvas" });
       }
 
       const nextProjectId = normalizeProjectId(projectId);
@@ -49,7 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (!canOwn(access)) return res.status(403).json({ error: "Only the canvas owner can move it to the dashboard root" });
         } else {
           const targetAccess = await getProjectAccess(nextProjectId, userId);
-          if (!targetAccess || !canEdit(targetAccess) || targetAccess.ownerUserId !== access.ownerUserId) {
+          if (!targetAccess || !hasCapability(targetAccess, "canvas.create") || targetAccess.ownerUserId !== access.ownerUserId) {
             return res.status(400).json({ error: "Project not found" });
           }
         }
@@ -110,8 +127,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const access = await getCanvasAccess(canvasId, userId);
       if (!access) return res.status(404).json({ error: "Canvas not found" });
-      if (!canOwn(access)) return res.status(403).json({ error: "Only the canvas owner can delete this canvas" });
-      const result = await deleteCanvasForUser({ canvasId, userId });
+      if (!hasCapability(access, "canvas.delete")) {
+        return res.status(403).json({ error: "You do not have permission to delete this canvas" });
+      }
+      const result = await deleteCanvasForUser({ canvasId, userId: access.ownerUserId });
       return res.status(200).json({ success: true, ...result });
     } catch (err) {
       console.error("Delete canvas error:", err);

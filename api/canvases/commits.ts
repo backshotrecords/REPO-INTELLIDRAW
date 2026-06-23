@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
-import { canEdit, getCanvasAccess } from "../lib/project-access.js";
+import { getCanvasAccess, hasCapability } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -52,7 +52,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const access = await getCanvasAccess(canvasId, userId);
       if (!access) return res.status(404).json({ error: "Canvas not found" });
-      if (!canEdit(access)) return res.status(403).json({ error: "You do not have permission to commit this canvas" });
+      if (!hasCapability(access, "canvas.commit")) {
+        return res.status(403).json({ error: "You do not have permission to commit this canvas" });
+      }
 
       // Insert the commit
       const { data, error } = await supabase

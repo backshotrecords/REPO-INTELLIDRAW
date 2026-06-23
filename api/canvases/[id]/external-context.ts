@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
-import { canEdit, getCanvasAccess, withAccessMetadata } from "../../lib/project-access.js";
+import { getCanvasAccess, hasCapability, withAccessMetadata } from "../../lib/project-access.js";
 import {
   extractMermaidExternalContext,
   setMermaidExternalContext,
@@ -37,7 +37,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const access = await getCanvasAccess(canvasId, authPayload.userId);
     if (!access) return res.status(404).json({ error: "Canvas not found" });
-    if (!canEdit(access)) return res.status(403).json({ error: "You do not have permission to update this canvas" });
+    if (!hasCapability(access, "canvas.update")) {
+      return res.status(403).json({ error: "You do not have permission to update this canvas" });
+    }
 
     const currentCode = String(access.canvas.mermaid_code || "");
     const nextCode = setMermaidExternalContext(currentCode, String(externalContext));

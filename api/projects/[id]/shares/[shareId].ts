@@ -1,7 +1,13 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../../lib/auth.js";
 import { supabase } from "../../../lib/db.js";
-import { canOwn, getProjectAccess } from "../../../lib/project-access.js";
+import {
+  getCollaborationRole,
+  getDefaultRoleForAccess,
+  legacyAccessForCapabilities,
+  type LegacyShareAccessLevel,
+} from "../../../lib/collaboration-roles.js";
+import { getProjectAccess, hasCapability } from "../../../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -13,16 +19,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const access = await getProjectAccess(projectId, auth.userId);
   if (!access) return res.status(404).json({ error: "Project not found" });
-  if (!canOwn(access)) return res.status(403).json({ error: "Only the project owner can manage collaboration" });
+  if (!hasCapability(access, "project.manage_shares")) {
+    return res.status(403).json({ error: "You do not have permission to manage collaboration" });
+  }
 
   if (req.method === "PUT") {
-    const accessLevel = req.body?.accessLevel === "edit" ? "edit" : "view";
+    const normalizedAccess: LegacyShareAccessLevel = req.body?.accessLevel === "edit" ? "edit" : "view";
+    const roleId = req.body?.roleId;
+    let resolvedRoleId: string | null = null;
+    let accessLevel = normalizedAccess;
+
+    if (roleId) {
+      const role = await getCollaborationRole(String(roleId));
+      if (!role) return res.status(400).json({ error: "Role not found" });
+      resolvedRoleId = role.id;
+      accessLevel = legacyAccessForCapabilities(role.capabilities);
+    } else {
+      const role = await getDefaultRoleForAccess(normalizedAccess);
+      resolvedRoleId = role?.id ?? null;
+    }
+
     const { data, error } = await supabase
       .from("project_shares")
-      .update({ access_level: accessLevel })
+      .update({ access_level: accessLevel, role_id: resolvedRoleId })
       .eq("id", shareId)
       .eq("project_id", projectId)
-      .select("id, project_id, shared_with_group_id, access_level, created_at, user_groups(name)")
+      .select("id, project_id, shared_with_group_id, access_level, role_id, created_at, user_groups(name), collaboration_roles(id, name, description, is_system_role)")
       .single();
 
     if (error || !data) return res.status(404).json({ error: "Share not found" });
@@ -42,4 +64,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   return res.status(405).json({ error: "Method not allowed" });
 }
-

@@ -9,7 +9,7 @@ import {
   touchProjectAncestors,
 } from "../lib/canvas-projects.js";
 import { deleteCanvasesInProjectsForUser } from "../lib/canvas-lifecycle.js";
-import { canEdit, canOwn, getProjectAccess, withAccessMetadata } from "../lib/project-access.js";
+import { canOwn, getProjectAccess, hasCapability, withAccessMetadata } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -51,6 +51,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "PUT") {
     const { title, description, accent, parentProjectId, manuallyArchived } = req.body || {};
     const requestedParentId = normalizeProjectId(parentProjectId);
+    const hasDetailChange = title !== undefined || description !== undefined || accent !== undefined;
+    const hasMoveChange = parentProjectId !== undefined;
+    const hasArchiveChange = manuallyArchived !== undefined;
     const hasRealChange =
       title !== undefined ||
       description !== undefined ||
@@ -58,17 +61,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       parentProjectId !== undefined;
 
     try {
-      if (!canEdit(access)) {
+      if (hasDetailChange && !hasCapability(access, "project.update")) {
         return res.status(403).json({ error: "You do not have permission to edit this project" });
       }
 
-      if ((parentProjectId !== undefined || manuallyArchived !== undefined) && !canOwn(access)) {
-        return res.status(403).json({ error: "Only the project owner can move or archive this project" });
+      if (hasMoveChange && !hasCapability(access, "project.move")) {
+        return res.status(403).json({ error: "You do not have permission to move this project" });
+      }
+
+      if (hasArchiveChange && !hasCapability(access, "project.archive")) {
+        return res.status(403).json({ error: "You do not have permission to archive this project" });
+      }
+
+      if (hasMoveChange && !requestedParentId && !canOwn(access)) {
+        return res.status(403).json({ error: "Only the project owner can move a project to the dashboard root" });
       }
 
       if (requestedParentId) {
         const parentAccess = await getProjectAccess(requestedParentId, userId);
-        if (!parentAccess || !canOwn(parentAccess)) {
+        if (
+          !parentAccess ||
+          parentAccess.ownerUserId !== access.ownerUserId ||
+          !hasCapability(parentAccess, "project.create_folder")
+        ) {
           return res.status(400).json({ error: "Destination project not found" });
         }
 
@@ -125,28 +140,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === "DELETE") {
     try {
-      if (!canOwn(access)) {
-        return res.status(403).json({ error: "Only the project owner can delete this project" });
+      if (!hasCapability(access, "project.delete")) {
+        return res.status(403).json({ error: "You do not have permission to delete this project" });
       }
 
-      const projectIdsToDelete = await getProjectAndDescendantIds(projectId, userId);
+      const projectIdsToDelete = await getProjectAndDescendantIds(projectId, access.ownerUserId);
       const canvasDeletion = await deleteCanvasesInProjectsForUser({
         projectIds: [...projectIdsToDelete],
-        userId,
+        userId: access.ownerUserId,
       });
 
       const { error } = await supabase
         .from("canvas_projects")
         .delete()
         .eq("id", projectId)
-        .eq("user_id", userId);
+        .eq("user_id", access.ownerUserId);
 
       if (error) {
         console.error("Delete project error:", error);
         return res.status(500).json({ error: "Failed to delete project" });
       }
 
-      await touchProjectAncestors(access.project.parent_project_id as string | null, userId);
+      await touchProjectAncestors(access.project.parent_project_id as string | null, access.ownerUserId);
 
       return res.status(200).json({ success: true, deletedProjectIds: [...projectIdsToDelete], ...canvasDeletion });
     } catch (err) {

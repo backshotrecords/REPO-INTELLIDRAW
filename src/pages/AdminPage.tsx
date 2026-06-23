@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGetChatConfig, apiUpdateChatConfig, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel, apiGetOnboardingTutorials, apiCreateOnboardingTutorial, apiUpdateOnboardingTutorial, apiDeleteOnboardingTutorial, apiAdminListUsers, apiAdminDeleteUser, apiAdminBanUser, apiAdminSaveUserApiKey } from "../lib/api";
+import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGetChatConfig, apiUpdateChatConfig, apiAdminListCollaborationRoles, apiAdminCreateCollaborationRole, apiAdminUpdateCollaborationRole, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel, apiGetOnboardingTutorials, apiCreateOnboardingTutorial, apiUpdateOnboardingTutorial, apiDeleteOnboardingTutorial, apiAdminListUsers, apiAdminDeleteUser, apiAdminBanUser, apiAdminSaveUserApiKey } from "../lib/api";
+import type { CollaborationCapability, CollaborationCapabilityDefinition, CollaborationRole } from "../types";
 
 // ─── Config Module Registry ─────────────────────────────
 // Add new config modules here — the sidebar auto-populates from this array.
@@ -10,6 +11,7 @@ const CONFIG_MODULES: { key: string; label: string; icon: string }[] = [
   { key: "sound",  label: "Sound Effects",       icon: "volume_up" },
   { key: "canvas", label: "Canvas Mechanics",    icon: "zoom_in" },
   { key: "chat",   label: "Chat History",        icon: "forum" },
+  { key: "roles",  label: "Role Matrix",         icon: "admin_panel_settings" },
   { key: "rules",  label: "Sanitization Rules",  icon: "rule" },
   { key: "onboarding", label: "Onboarding Tutorials", icon: "school" },
   { key: "userreset", label: "User Account Reset", icon: "lock_reset" },
@@ -116,6 +118,17 @@ export default function AdminPage() {
   const meetingSilenceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const meetingSideChatterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Collaboration role matrix state
+  const [collabRoles, setCollabRoles] = useState<CollaborationRole[]>([]);
+  const [collabCapabilities, setCollabCapabilities] = useState<CollaborationCapabilityDefinition[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [rolesSavingId, setRolesSavingId] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState("");
+  const [newRoleName, setNewRoleName] = useState("");
+  const [newRoleDescription, setNewRoleDescription] = useState("");
+  const [newRoleCapabilities, setNewRoleCapabilities] = useState<CollaborationCapability[]>([]);
+  const [addingRole, setAddingRole] = useState(false);
+
   // User reset state
   const [resetEmail, setResetEmail] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -207,6 +220,7 @@ export default function AdminPage() {
     loadSoundConfig();
     loadCanvasConfig();
     loadChatConfig();
+    loadCollaborationRoles();
     loadAiModels();
     loadOnboardingTutorials();
     loadAdminUsers();
@@ -236,6 +250,72 @@ export default function AdminPage() {
       setMeetingSideChatterStopChunks(data.meetingSideChatterStopChunks ?? 3);
     } catch (err) {
       console.error("Failed to load chat config:", err);
+    }
+  };
+
+  const loadCollaborationRoles = async () => {
+    setRolesLoading(true);
+    setRoleError("");
+    try {
+      const data = await apiAdminListCollaborationRoles();
+      setCollabRoles(data.roles || []);
+      setCollabCapabilities(data.capabilities || []);
+    } catch (err) {
+      setRoleError(err instanceof Error ? err.message : "Failed to load collaboration roles");
+    } finally {
+      setRolesLoading(false);
+    }
+  };
+
+  const toggleNewRoleCapability = (capability: CollaborationCapability) => {
+    setNewRoleCapabilities((current) => (
+      current.includes(capability)
+        ? current.filter((item) => item !== capability)
+        : [...current, capability]
+    ));
+  };
+
+  const handleCreateCollaborationRole = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!newRoleName.trim()) return;
+    setAddingRole(true);
+    setRoleError("");
+    try {
+      const role = await apiAdminCreateCollaborationRole({
+        name: newRoleName.trim(),
+        description: newRoleDescription.trim(),
+        capabilities: newRoleCapabilities,
+      });
+      setCollabRoles((current) => [...current, role].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewRoleName("");
+      setNewRoleDescription("");
+      setNewRoleCapabilities([]);
+    } catch (err) {
+      setRoleError(err instanceof Error ? err.message : "Failed to create role");
+    } finally {
+      setAddingRole(false);
+    }
+  };
+
+  const handleToggleRoleCapability = async (role: CollaborationRole, capability: CollaborationCapability) => {
+    const nextCapabilities = role.capabilities.includes(capability)
+      ? role.capabilities.filter((item) => item !== capability)
+      : [...role.capabilities, capability];
+
+    setRolesSavingId(role.id);
+    setRoleError("");
+    setCollabRoles((current) => current.map((item) => (
+      item.id === role.id ? { ...item, capabilities: nextCapabilities } : item
+    )));
+
+    try {
+      const updated = await apiAdminUpdateCollaborationRole(role.id, { capabilities: nextCapabilities });
+      setCollabRoles((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch (err) {
+      setRoleError(err instanceof Error ? err.message : "Failed to update role");
+      setCollabRoles((current) => current.map((item) => item.id === role.id ? role : item));
+    } finally {
+      setRolesSavingId(null);
     }
   };
 
@@ -691,6 +771,12 @@ export default function AdminPage() {
       // Fallback: select the text
     }
   };
+
+  const capabilitiesByCategory = collabCapabilities.reduce<Record<string, CollaborationCapabilityDefinition[]>>((groups, capability) => {
+    const category = capability.category || "Other";
+    groups[category] = [...(groups[category] || []), capability];
+    return groups;
+  }, {});
 
   // ─── Sound card sub-component (used for both canvas & voice) ──
 
@@ -1300,6 +1386,143 @@ export default function AdminPage() {
                     The LLM always receives the current flowchart snapshot and user objectives summary regardless of chat history mode. This ensures continuity even when older messages are excluded from context.
                   </p>
                 </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ═══ Role Matrix (collapsible) ════════════════════════ */}
+          <section
+            id="roles"
+            ref={(el) => { sectionRefs.current["roles"] = el; }}
+            className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden scroll-mt-24"
+          >
+            {renderAccordionHeader("roles", "admin_panel_settings", "Role Matrix", `${collabRoles.length} role${collabRoles.length !== 1 ? "s" : ""} available for project sharing`)}
+
+            <div
+              className="transition-all duration-300 ease-in-out overflow-hidden"
+              style={{
+                maxHeight: expandedSection === "roles" ? "5200px" : "0",
+                opacity: expandedSection === "roles" ? 1 : 0,
+              }}
+            >
+              <div className="px-5 pb-5 space-y-5 border-t border-outline-variant/10">
+                {roleError && (
+                  <div className="mt-4 rounded-xl border border-error/20 bg-error-container/30 px-4 py-3 text-sm font-semibold text-error">
+                    {roleError}
+                  </div>
+                )}
+
+                <form onSubmit={handleCreateCollaborationRole} className="pt-4 rounded-2xl border border-outline-variant/15 bg-surface-container-lowest p-4 space-y-4">
+                  <div className="grid gap-3 md:grid-cols-[220px_1fr_auto] md:items-end">
+                    <label className="block">
+                      <span className="text-sm font-bold text-on-surface">Role name</span>
+                      <input
+                        type="text"
+                        value={newRoleName}
+                        onChange={(event) => setNewRoleName(event.target.value)}
+                        placeholder="Project Contributor"
+                        className="mt-2 w-full rounded-xl bg-white border border-outline-variant/30 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-bold text-on-surface">Description</span>
+                      <input
+                        type="text"
+                        value={newRoleDescription}
+                        onChange={(event) => setNewRoleDescription(event.target.value)}
+                        placeholder="Short label shown when assigning this role"
+                        className="mt-2 w-full rounded-xl bg-white border border-outline-variant/30 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary"
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={addingRole || !newRoleName.trim()}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white disabled:opacity-40"
+                    >
+                      <span className="material-symbols-outlined text-lg">add</span>
+                      Add Role
+                    </button>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {Object.entries(capabilitiesByCategory).map(([category, capabilities]) => (
+                      <div key={category} className="rounded-xl border border-outline-variant/15 bg-white p-3">
+                        <h4 className="mb-2 text-xs font-black uppercase tracking-wide text-primary">{category}</h4>
+                        <div className="grid gap-2">
+                          {capabilities.map((capability) => (
+                            <label key={capability.key} className="flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-container-low">
+                              <input
+                                type="checkbox"
+                                checked={newRoleCapabilities.includes(capability.key)}
+                                onChange={() => toggleNewRoleCapability(capability.key)}
+                                className="mt-1 accent-primary"
+                              />
+                              <span className="min-w-0">
+                                <span className="block text-sm font-bold text-on-surface">{capability.label}</span>
+                                <span className="block text-xs text-on-surface-variant">{capability.description}</span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </form>
+
+                {rolesLoading ? (
+                  <div className="flex justify-center p-12">
+                    <span className="material-symbols-outlined animate-spin text-3xl text-primary">progress_activity</span>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {collabRoles.map((role) => (
+                      <div key={role.id} className="rounded-2xl border border-outline-variant/15 bg-white p-4">
+                        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-lg font-extrabold text-primary">{role.name}</h3>
+                              <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-black uppercase text-on-surface-variant">
+                                {role.is_system_role ? "System" : "Custom"}
+                              </span>
+                              {rolesSavingId === role.id && (
+                                <span className="rounded-full bg-secondary-fixed px-2 py-0.5 text-[10px] font-black uppercase text-primary">Saving</span>
+                              )}
+                            </div>
+                            {role.description && <p className="mt-1 text-sm text-on-surface-variant">{role.description}</p>}
+                          </div>
+                          <span className="text-xs font-bold text-on-surface-variant">
+                            {role.capabilities.length} permission{role.capabilities.length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          {Object.entries(capabilitiesByCategory).map(([category, capabilities]) => (
+                            <div key={`${role.id}-${category}`} className="rounded-xl border border-outline-variant/10 bg-surface-container-lowest p-3">
+                              <h4 className="mb-2 text-xs font-black uppercase tracking-wide text-primary">{category}</h4>
+                              <div className="grid gap-2">
+                                {capabilities.map((capability) => (
+                                  <label key={`${role.id}-${capability.key}`} className="flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-white">
+                                    <input
+                                      type="checkbox"
+                                      checked={role.capabilities.includes(capability.key)}
+                                      disabled={rolesSavingId === role.id}
+                                      onChange={() => void handleToggleRoleCapability(role, capability.key)}
+                                      className="mt-1 accent-primary disabled:opacity-40"
+                                    />
+                                    <span className="min-w-0">
+                                      <span className="block text-sm font-bold text-on-surface">{capability.label}</span>
+                                      <span className="block text-xs text-on-surface-variant">{capability.description}</span>
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </section>

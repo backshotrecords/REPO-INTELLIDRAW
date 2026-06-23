@@ -2,7 +2,13 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { normalizeProjectId, touchProjectAncestors } from "../lib/canvas-projects.js";
-import { canEdit, getProjectAccess, withAccessMetadata } from "../lib/project-access.js";
+import {
+  capabilitiesForShareRow,
+  legacyAccessForCapabilities,
+  loadRoleCapabilityMap,
+  roleSummaryForShareRow,
+} from "../lib/collaboration-roles.js";
+import { getProjectAccess, hasCapability, withAccessMetadata } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -39,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (groupIds.length > 0) {
         const { data: shares, error: shareError } = await supabase
           .from("project_shares")
-          .select("project_id, shared_with_group_id, access_level, user_groups(name)")
+          .select("project_id, shared_with_group_id, access_level, role_id, user_groups(name), collaboration_roles(id, name, description, is_system_role)")
           .in("shared_with_group_id", groupIds);
 
         if (shareError) {
@@ -49,8 +55,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             project_id: string;
             shared_with_group_id: string;
             access_level: "view" | "edit";
+            role_id?: string | null;
             user_groups?: { name?: string } | null;
+            collaboration_roles?: { id?: string; name?: string; description?: string; is_system_role?: boolean } | null;
           }>;
+          const roleCapabilityMap = await loadRoleCapabilityMap(shareRows.map((share) => share.role_id || ""));
           const rootIds = [...new Set(shareRows.map((share) => share.project_id))];
           const { data: rootRows } = rootIds.length > 0
             ? await supabase.from("canvas_projects").select("id, user_id").in("id", rootIds)
@@ -72,7 +81,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const shareByProjectId = new Map<string, typeof shareRows[number]>();
           const collectProjectIds = (projectId: string, share: typeof shareRows[number]) => {
             const current = shareByProjectId.get(projectId);
-            if (!current || share.access_level === "edit") shareByProjectId.set(projectId, share);
+            const shareCapabilities = capabilitiesForShareRow(share, roleCapabilityMap);
+            const currentCapabilities = current ? capabilitiesForShareRow(current, roleCapabilityMap) : [];
+            const shareAccess = legacyAccessForCapabilities(shareCapabilities);
+            const currentAccess = legacyAccessForCapabilities(currentCapabilities);
+            if (
+              !current ||
+              (shareAccess === "edit" && currentAccess !== "edit") ||
+              (shareAccess === currentAccess && shareCapabilities.length > currentCapabilities.length)
+            ) {
+              shareByProjectId.set(projectId, share);
+            }
             for (const child of projectsByParent.get(projectId) ?? []) collectProjectIds(String(child.id), share);
           };
 
@@ -95,8 +114,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               for (const canvas of (sharedCanvasRows || []) as Record<string, unknown>[]) {
                 const share = shareByProjectId.get(String(canvas.project_id));
                 if (!share) continue;
+                const capabilities = capabilitiesForShareRow(share, roleCapabilityMap);
+                const role = roleSummaryForShareRow(share);
                 canvases.push(withAccessMetadata(canvas, {
-                  accessLevel: share.access_level,
+                  accessLevel: legacyAccessForCapabilities(capabilities),
+                  capabilities,
+                  accessRoleId: role?.id,
+                  accessRoleName: role?.name,
                   sharedRootProjectId: share.project_id,
                   sharedViaGroupId: share.shared_with_group_id,
                   sharedViaGroupName: share.user_groups?.name || "",
@@ -129,11 +153,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     try {
       let ownerUserId = userId;
+      let inheritedAccess = null as Awaited<ReturnType<typeof getProjectAccess>> | null;
       if (parentProjectId) {
         const projectAccess = await getProjectAccess(parentProjectId, userId);
         if (!projectAccess) return res.status(400).json({ error: "Project not found" });
-        if (!canEdit(projectAccess)) return res.status(403).json({ error: "You do not have permission to add canvases here" });
+        if (!hasCapability(projectAccess, "canvas.create")) {
+          return res.status(403).json({ error: "You do not have permission to add canvases here" });
+        }
         ownerUserId = projectAccess.ownerUserId;
+        inheritedAccess = projectAccess;
       }
 
       const now = new Date().toISOString();
@@ -159,9 +187,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (parentProjectId) await touchProjectAncestors(parentProjectId, ownerUserId, now);
 
       return res.status(201).json({
-        canvas: withAccessMetadata(data as Record<string, unknown>, {
-          accessLevel: ownerUserId === userId ? "owner" : "edit",
-        }),
+        canvas: withAccessMetadata(
+          data as Record<string, unknown>,
+          ownerUserId === userId ? { accessLevel: "owner" } : inheritedAccess ?? { accessLevel: "edit" },
+        ),
       });
     } catch (err) {
       console.error("Create canvas error:", err);
