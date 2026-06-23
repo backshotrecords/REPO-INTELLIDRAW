@@ -71,6 +71,13 @@ interface AdminUser {
   canvas_count: number;
   has_api_key: boolean;
   api_key_source: "user" | "admin";
+  api_key_request_status?: "none" | "requested" | "fulfilled" | "dismissed";
+  api_key_requested_at?: string | null;
+  api_key_request_channel?: string | null;
+}
+
+function hasPendingApiKeyRequest(u: AdminUser) {
+  return !u.has_api_key && u.api_key_request_status === "requested";
 }
 
 export default function AdminPage() {
@@ -686,7 +693,7 @@ export default function AdminPage() {
       setAdminUsers((prev) =>
         prev.map((u) =>
           u.id === apiKeyTargetUser.id
-            ? { ...u, has_api_key: true, api_key_source: "admin" }
+            ? { ...u, has_api_key: true, api_key_source: "admin", api_key_request_status: "fulfilled" }
             : u
         )
       );
@@ -729,14 +736,21 @@ export default function AdminPage() {
     setDeleteTargetUser(null);
   };
 
-  const filteredUsers = adminUsers.filter((u) => {
-    if (!userSearch.trim()) return true;
-    const q = userSearch.toLowerCase();
-    return (
-      u.email.toLowerCase().includes(q) ||
-      u.display_name.toLowerCase().includes(q)
-    );
-  });
+  const filteredUsers = adminUsers
+    .filter((u) => {
+      if (!userSearch.trim()) return true;
+      const q = userSearch.toLowerCase();
+      return (
+        u.email.toLowerCase().includes(q) ||
+        u.display_name.toLowerCase().includes(q)
+      );
+    })
+    .sort((a, b) => {
+      const aRequested = hasPendingApiKeyRequest(a);
+      const bRequested = hasPendingApiKeyRequest(b);
+      if (aRequested !== bRequested) return aRequested ? -1 : 1;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
 
   // ─── User Reset Handler ───────────────────────────────
 
@@ -2067,6 +2081,11 @@ export default function AdminPage() {
                                   {u.api_key_source === "admin" ? "Admin Key" : "Own Key"}
                                 </span>
                               )}
+                              {hasPendingApiKeyRequest(u) && (
+                                <span className="text-[10px] font-bold uppercase tracking-wide bg-[#effdf4] text-[#047a35] px-1.5 py-0.5 rounded">
+                                  Key Requested
+                                </span>
+                              )}
                               {isSelf && (
                                 <span className="text-[10px] font-bold uppercase tracking-wide bg-secondary-fixed text-on-secondary-fixed-variant px-1.5 py-0.5 rounded">
                                   You
@@ -2082,6 +2101,14 @@ export default function AdminPage() {
                               <span className="text-[11px] text-on-surface-variant/60">
                                 Joined {new Date(u.created_at).toLocaleDateString()}
                               </span>
+                              {hasPendingApiKeyRequest(u) && u.api_key_requested_at && (
+                                <>
+                                  <span className="text-[11px] text-on-surface-variant/40">•</span>
+                                  <span className="text-[11px] font-semibold text-[#047a35]">
+                                    Requested {new Date(u.api_key_requested_at).toLocaleDateString()}
+                                  </span>
+                                </>
+                              )}
                             </div>
                           </div>
 
@@ -2174,6 +2201,15 @@ export default function AdminPage() {
                         warning
                       </span>
                       Saving will replace this user's existing {apiKeyTargetUser.api_key_source === "admin" ? "admin-managed" : "user-owned"} API key.
+                    </div>
+                  )}
+
+                  {hasPendingApiKeyRequest(apiKeyTargetUser) && (
+                    <div className="flex items-center gap-2 rounded-xl border border-[#b8f1cc] bg-[#effdf4] px-4 py-3 text-sm text-[#047a35]">
+                      <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>
+                        verified
+                      </span>
+                      This user requested an access key through the WhatsApp community.
                     </div>
                   )}
 

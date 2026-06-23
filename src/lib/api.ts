@@ -478,6 +478,15 @@ export async function apiSaveApiKey(apiKey: string) {
   return data;
 }
 
+export async function apiRequestManagedApiKey() {
+  const res = await apiFetch("/settings/api-key-request", {
+    method: "POST",
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to request API key");
+  return data;
+}
+
 export async function apiGetApiKey() {
   const res = await apiFetch("/settings/apikey");
   const data = await res.json();

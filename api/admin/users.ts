@@ -3,6 +3,14 @@ import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { cascadeDeleteUser } from "../lib/delete-user.js";
 
+function isMissingApiKeyRequestColumns(error: { code?: string; message?: string } | null | undefined) {
+  return (
+    error?.code === "42703" ||
+    error?.code === "PGRST204" ||
+    error?.message?.includes("api_key_request_")
+  );
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     // Authenticate
@@ -24,10 +32,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // ── GET: List all users ─────────────────────────────────
     if (req.method === "GET") {
-      const { data: users, error } = await supabase
+      let { data: users, error } = await supabase
         .from("users")
-        .select("id, email, display_name, is_banned, is_global_admin, created_at, api_key_encrypted, api_key_source")
+        .select("id, email, display_name, is_banned, is_global_admin, created_at, api_key_encrypted, api_key_source, api_key_request_status, api_key_requested_at, api_key_request_channel")
         .order("created_at", { ascending: false });
+
+      if (isMissingApiKeyRequestColumns(error)) {
+        const fallback = await supabase
+          .from("users")
+          .select("id, email, display_name, is_banned, is_global_admin, created_at, api_key_encrypted, api_key_source")
+          .order("created_at", { ascending: false });
+        users = fallback.data?.map((u: Record<string, unknown>) => ({
+          ...u,
+          api_key_request_status: "none",
+          api_key_requested_at: null,
+          api_key_request_channel: null,
+        }));
+        error = fallback.error;
+      }
 
       if (error) {
         return res.status(500).json({ error: error.message || "Failed to fetch users" });
@@ -57,6 +79,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         is_global_admin: u.is_global_admin,
         created_at: u.created_at,
         api_key_source: u.api_key_source || "user",
+        api_key_request_status: u.api_key_request_status || "none",
+        api_key_requested_at: u.api_key_requested_at || null,
+        api_key_request_channel: u.api_key_request_channel || null,
         has_api_key: !!u.api_key_encrypted,
         canvas_count: canvasCounts[u.id as string] || 0,
       }));

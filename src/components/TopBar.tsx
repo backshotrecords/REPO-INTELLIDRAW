@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { useCommunityAccess } from "../contexts/CommunityAccessContext";
 import { apiCreateCanvas } from "../lib/api";
 import ProfileMenu from "./ProfileMenu";
 
@@ -13,6 +14,7 @@ interface TopBarProps {
 
 export default function TopBar({ showSearch, onSearchChange, searchPlaceholder = "Search canvases...", searchVisibility = "all" }: TopBarProps) {
   const { user, logout } = useAuth();
+  const { openCommunityAccess } = useCommunityAccess();
   const navigate = useNavigate();
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [creatingCanvas, setCreatingCanvas] = useState(false);
@@ -190,6 +192,30 @@ export default function TopBar({ showSearch, onSearchChange, searchPlaceholder =
                   Admin Rules
                 </button>
               )}
+              <button
+                onClick={() => {
+                  openCommunityAccess("contact");
+                  setShowMobileMenu(false);
+                }}
+                className="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-semibold text-on-surface hover:bg-surface-container-low transition-colors"
+              >
+                <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  contact_support
+                </span>
+                Contact
+              </button>
+              <button
+                onClick={() => {
+                  openCommunityAccess("help");
+                  setShowMobileMenu(false);
+                }}
+                className="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-semibold text-on-surface hover:bg-surface-container-low transition-colors"
+              >
+                <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  help
+                </span>
+                Help
+              </button>
             </nav>
 
             {/* Logout at bottom */}

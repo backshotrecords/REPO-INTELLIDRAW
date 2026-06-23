@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { useCommunityAccess } from "../contexts/CommunityAccessContext";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
 import {
@@ -17,6 +18,7 @@ import {
 
 export default function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
+  const { openCommunityAccess, requestStatus, reloadCommunityAccess } = useCommunityAccess();
   const navigate = useNavigate();
 
   // Profile state
@@ -187,6 +189,8 @@ export default function SettingsPage() {
       setApiKeyInput("");
       setRawApiKey(null);
       setShowKey(false);
+      await refreshUser();
+      await reloadCommunityAccess();
       setKeyMessage("API key saved and encrypted");
       setTimeout(() => setKeyMessage(""), 3000);
     } catch (err) {
@@ -615,6 +619,31 @@ export default function SettingsPage() {
                       <p className="text-xs text-on-surface-variant">
                         This key was added by an administrator. You can use it, but you cannot reveal or copy it.
                       </p>
+                    </div>
+                  )}
+                  {!hasKey && (
+                    <div className="flex flex-col gap-3 rounded-lg border border-[#b8f1cc] bg-[#effdf4] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-start gap-3">
+                        <span className="material-symbols-outlined text-[#04a246]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                          verified
+                        </span>
+                        <div>
+                          <p className="text-sm font-bold text-on-surface">
+                            {requestStatus === "requested" ? "Access key request sent" : "Need an access key?"}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-on-surface-variant">
+                            Join the IntelliDraw WhatsApp community to request a managed key from an admin.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openCommunityAccess("settings")}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#090f20] px-4 py-2 text-sm font-bold text-white transition-transform active:scale-95"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">groups</span>
+                        Join community
+                      </button>
                     </div>
                   )}
                   {copyMessage && (
