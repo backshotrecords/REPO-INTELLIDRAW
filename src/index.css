@@ -1079,6 +1079,13 @@
   box-shadow: none;
 }
 
+.dashboard-card-drag-handle.is-project-side {
+  top: 50%;
+  right: auto;
+  left: 1rem;
+  transform: translateY(-50%);
+}
+
 .dashboard-card-drag-handle:hover {
   border-color: rgba(4, 22, 39, 0.28);
   color: #041627;
@@ -1090,9 +1097,17 @@
   box-shadow: none;
 }
 
+.dashboard-card-drag-handle.is-project-side:hover {
+  transform: translateY(calc(-50% - 1px));
+}
+
 .dashboard-card-drag-handle:active {
   cursor: grabbing;
   transform: translateY(0);
+}
+
+.dashboard-card-drag-handle.is-project-side:active {
+  transform: translateY(-50%);
 }
 
 .dashboard-card-drag-handle .material-symbols-outlined {

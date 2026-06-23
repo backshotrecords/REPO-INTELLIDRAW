@@ -1153,7 +1153,7 @@ function ProjectCard({
             onDragStart(event);
           }}
           onDragEnd={onDragEnd}
-          className="dashboard-card-drag-handle"
+          className="dashboard-card-drag-handle is-project-side"
           aria-label={`Move ${project.title}`}
           title="Drag to move"
         >
@@ -1387,30 +1387,32 @@ function CanvasCard({
         <div className="absolute inset-0 bg-gradient-to-t from-primary/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
       <div className="p-6">
-        <div className="flex justify-between items-start mb-2">
-          <div className="min-w-0 flex-1">
-            <h3 className="text-lg font-bold text-on-surface truncate" title={canvas.title}>{canvas.title}</h3>
-            <p className="text-sm text-on-surface-variant">Modified {timeAgo(canvas.updated_at)}</p>
+        <div className="flex justify-between items-start gap-3 mb-2">
+          <div className="min-w-0 flex-1 flex items-start gap-3">
+            {canMove && !exportMode && (
+              <button
+                type="button"
+                draggable
+                onClick={(event) => event.stopPropagation()}
+                onDragStart={(event) => {
+                  event.stopPropagation();
+                  onDragStart(event);
+                }}
+                onDragEnd={onDragEnd}
+                className="dashboard-card-drag-handle is-inline"
+                aria-label={`Move ${canvas.title}`}
+                title="Drag to move"
+              >
+                <span className="material-symbols-outlined">drag_indicator</span>
+              </button>
+            )}
+            <div className="min-w-0 flex-1">
+              <h3 className="text-lg font-bold text-on-surface truncate" title={canvas.title}>{canvas.title}</h3>
+              <p className="text-sm text-on-surface-variant">Modified {timeAgo(canvas.updated_at)}</p>
+            </div>
           </div>
           <div className="relative" ref={menuOpen ? menuRef : undefined}>
             <div className="flex items-center gap-1">
-              {canMove && !exportMode && (
-                <button
-                  type="button"
-                  draggable
-                  onClick={(event) => event.stopPropagation()}
-                  onDragStart={(event) => {
-                    event.stopPropagation();
-                    onDragStart(event);
-                  }}
-                  onDragEnd={onDragEnd}
-                  className="dashboard-card-drag-handle is-inline"
-                  aria-label={`Move ${canvas.title}`}
-                  title="Drag to move"
-                >
-                  <span className="material-symbols-outlined">drag_indicator</span>
-                </button>
-              )}
               <button
                 type="button"
                 onClick={(event) => {
