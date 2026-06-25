@@ -525,6 +525,11 @@ export default function DashboardPage() {
     setDragItem(item);
     setDragTargetProjectId(null);
     setMenuOpen(null);
+    const card = event.currentTarget.closest<HTMLElement>(".dashboard-grid-card");
+    if (card) {
+      const rect = card.getBoundingClientRect();
+      event.dataTransfer.setDragImage(card, event.clientX - rect.left, event.clientY - rect.top);
+    }
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-intellidraw-dashboard-item", JSON.stringify(item));
     event.dataTransfer.setData("text/plain", item.title);
