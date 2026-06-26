@@ -1149,21 +1149,26 @@ function ProjectCard({
       className={`dashboard-grid-card project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible${menuOpen ? " z-40" : ""}${canMove ? " is-draggable" : ""}${isDragSource ? " is-drag-source" : ""}${dropState === "valid" ? " is-drop-target" : ""}${dropState === "invalid" ? " is-invalid-drop-target" : ""}`}
     >
       {canMove && (
-        <button
-          type="button"
-          draggable
-          onClick={(event) => event.stopPropagation()}
-          onDragStart={(event) => {
-            event.stopPropagation();
-            onDragStart(event);
-          }}
-          onDragEnd={onDragEnd}
-          className="dashboard-card-drag-handle is-project-side"
-          aria-label={`Move ${project.title}`}
-          title="Drag to move"
-        >
-          <span className="material-symbols-outlined">drag_indicator</span>
-        </button>
+        <>
+          <svg className="project-card-drag-backing" viewBox="0 0 118 124" aria-hidden="true" focusable="false">
+            <path d="M0 49C0 26 17 11 41 12C59 13 70 23 76 39C82 54 96 54 108 61C119 67 122 86 112 98C100 113 76 113 58 109C42 106 31 118 17 107C5 98 0 77 0 49Z" />
+          </svg>
+          <button
+            type="button"
+            draggable
+            onClick={(event) => event.stopPropagation()}
+            onDragStart={(event) => {
+              event.stopPropagation();
+              onDragStart(event);
+            }}
+            onDragEnd={onDragEnd}
+            className="dashboard-card-drag-handle is-project-side"
+            aria-label={`Move ${project.title}`}
+            title="Drag to move"
+          >
+            <span className="material-symbols-outlined">drag_indicator</span>
+          </button>
+        </>
       )}
       <div className={`project-folder-art-production project-${project.accent}`}>
         <span className="material-symbols-outlined fill">folder</span>
@@ -1201,7 +1206,7 @@ function ProjectCard({
             event.stopPropagation();
             onToggleMenu(event.currentTarget);
           }}
-          className="w-9 h-9 rounded-full bg-surface-container-high/80 text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors"
+          className="project-card-menu-trigger w-9 h-9 rounded-full bg-surface-container-high/80 text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors"
           aria-label={`Open menu for ${project.title}`}
         >
           <span className="material-symbols-outlined">more_horiz</span>
