@@ -104,20 +104,20 @@ export function CommunityAccessModal({
         ariaLabel: "Join WhatsApp community",
       };
     }
+    if (source === "help" || source === "contact") {
+      return {
+        headline: "Get Help From the Community",
+        body: "Join the WhatsApp community of creators, devs, and admins for help, setup questions, and updates.",
+        slideLabel: "Slide to join WhatsApp",
+        ariaLabel: "Join WhatsApp community for help",
+      };
+    }
     if (requestStatus === "requested") {
       return {
         headline: "API Key Request Sent",
         body: "Your request is in the admin queue. Join WhatsApp for updates and help while it gets handled.",
         slideLabel: "Slide to open WhatsApp",
         ariaLabel: "Open WhatsApp community",
-      };
-    }
-    if (source === "help") {
-      return {
-        headline: "Request Your API Key",
-        body: "Join the WhatsApp community to request access from an admin, get setup help, and ask questions.",
-        slideLabel: "Slide to request access",
-        ariaLabel: "Request API key access through WhatsApp",
       };
     }
     return {
