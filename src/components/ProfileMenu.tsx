@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { useCommunityAccess } from "../contexts/CommunityAccessContext";
 
 export default function ProfileMenu() {
   const { user, logout } = useAuth();
+  const { openCommunityAccess } = useCommunityAccess();
   const navigate = useNavigate();
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -77,6 +79,30 @@ export default function ProfileMenu() {
           >
             <span className="material-symbols-outlined text-lg">dashboard</span>
             My Canvases
+          </button>
+
+          <div className="h-px bg-outline-variant/10 my-1" />
+
+          <button
+            onClick={() => {
+              openCommunityAccess("contact");
+              setShowDropdown(false);
+            }}
+            className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3 text-on-surface"
+          >
+            <span className="material-symbols-outlined text-lg">contact_support</span>
+            Contact
+          </button>
+
+          <button
+            onClick={() => {
+              openCommunityAccess("help");
+              setShowDropdown(false);
+            }}
+            className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface-container-low flex items-center gap-3 text-on-surface"
+          >
+            <span className="material-symbols-outlined text-lg">help</span>
+            Help
           </button>
 
           <div className="h-px bg-outline-variant/10 my-1" />

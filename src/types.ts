@@ -26,6 +26,44 @@ export interface CanvasCommit {
 }
 
 export type ProjectAccent = "blue" | "cyan" | "green" | "violet" | "amber";
+export type ProjectAccessLevel = "owner" | "edit" | "view";
+
+export type CollaborationCapability =
+  | "project.view"
+  | "project.create_folder"
+  | "project.update"
+  | "project.move"
+  | "project.archive"
+  | "project.delete"
+  | "project.manage_shares"
+  | "canvas.view"
+  | "canvas.create"
+  | "canvas.update"
+  | "canvas.commit"
+  | "canvas.move"
+  | "canvas.archive"
+  | "canvas.delete"
+  | "canvas.publish";
+
+export interface CollaborationCapabilityDefinition {
+  key: CollaborationCapability;
+  label: string;
+  description: string;
+  category: string;
+}
+
+export interface CollaborationRoleSummary {
+  id: string;
+  name: string;
+  description: string;
+  is_system_role: boolean;
+}
+
+export interface CollaborationRole extends CollaborationRoleSummary {
+  capabilities: CollaborationCapability[];
+  created_at?: string;
+  updated_at?: string;
+}
 
 export interface DashboardCanvas {
   id: string;
@@ -34,7 +72,10 @@ export interface DashboardCanvas {
   is_public: boolean;
   project_id: string | null;
   manually_archived: boolean;
-  access_level?: "owner" | "edit" | "view";
+  access_level?: ProjectAccessLevel;
+  access_role_id?: string | null;
+  access_role_name?: string | null;
+  capabilities?: CollaborationCapability[];
   shared_root_project_id?: string | null;
   shared_via_group_id?: string | null;
   shared_via_group_name?: string | null;
@@ -64,7 +105,10 @@ export interface CanvasProject {
   context_status: "stale" | "refreshing" | "fresh" | "error";
   context_updated_at: string | null;
   context_error: string;
-  access_level?: "owner" | "edit" | "view";
+  access_level?: ProjectAccessLevel;
+  access_role_id?: string | null;
+  access_role_name?: string | null;
+  capabilities?: CollaborationCapability[];
   shared_root_project_id?: string | null;
   shared_via_group_id?: string | null;
   shared_via_group_name?: string | null;
@@ -79,8 +123,10 @@ export interface ProjectShare {
   project_id: string;
   shared_with_group_id: string;
   access_level: "view" | "edit";
+  role_id?: string | null;
   created_at: string;
   user_groups?: { name?: string } | null;
+  collaboration_roles?: CollaborationRoleSummary | null;
 }
 
 export function isLongTermMemoryItem(item: { updated_at: string; manually_archived?: boolean }) {

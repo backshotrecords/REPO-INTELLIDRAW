@@ -16,6 +16,7 @@ import GoodbyePage from "./pages/GoodbyePage";
 import OnboardingOverlay from "./components/OnboardingOverlay";
 import ConnectivityOverlay from "./components/ConnectivityOverlay";
 import { ConnectivityProvider } from "./contexts/ConnectivityContext";
+import { CommunityAccessProvider } from "./contexts/CommunityAccessContext";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -157,7 +158,9 @@ export default function App() {
       <AuthProvider>
         <ConnectivityProvider>
           <ConnectivityOverlay>
-            <AppRoutes />
+            <CommunityAccessProvider>
+              <AppRoutes />
+            </CommunityAccessProvider>
           </ConnectivityOverlay>
         </ConnectivityProvider>
       </AuthProvider>

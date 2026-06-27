@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode, type RefObject } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
@@ -12,6 +12,7 @@ import {
   apiDeleteProjectShare,
   apiGetCanvasPreviewCodes,
   apiListCanvases,
+  apiListCollaborationRoles,
   apiListGroups,
   apiListProjectShares,
   apiListProjects,
@@ -24,7 +25,7 @@ import {
 import { exportAsImage, exportAsMarkdown, exportAsZip } from "../utils/export";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { useMermaidThumbnails } from "../hooks/useMermaidThumbnails";
-import type { CanvasProject, DashboardCanvas, ProjectAccent, ProjectShare, UserGroup } from "../types";
+import type { CanvasProject, CollaborationCapability, CollaborationRoleSummary, DashboardCanvas, ProjectAccent, ProjectShare, UserGroup } from "../types";
 import { isLongTermMemoryItem } from "../types";
 
 const THUMBNAIL_BATCH_SIZE = 9;
@@ -39,6 +40,48 @@ const INITIAL_LEVELS = [
 
 type MenuState = { type: "canvas" | "project"; id: string } | null;
 type ProjectDraft = { title: string; description: string; accent: ProjectAccent };
+type DashboardDragItem = { kind: "canvas" | "project"; id: string; title: string };
+type DashboardDropState = "valid" | "invalid" | null;
+const ROOT_MOVE_TARGET_KEY = "__root__";
+
+function getMoveTargetKey(projectId: string | null) {
+  return projectId ?? ROOT_MOVE_TARGET_KEY;
+}
+
+function hasItemCapability(
+  item: { access_level?: string; capabilities?: CollaborationCapability[] } | null | undefined,
+  capability: CollaborationCapability,
+) {
+  if (!item) return false;
+  if (item.access_level === "owner" || item.access_level === undefined) return true;
+  return Boolean(item.capabilities?.includes(capability));
+}
+
+function getAccessRoleLabel(item: { access_level?: string; access_role_name?: string | null } | null | undefined) {
+  if (!item || item.access_level === "owner" || item.access_level === undefined) return "Owner";
+  return item.access_role_name || (item.access_level === "edit" ? "Can edit" : "View only");
+}
+
+function canDropDashboardItemOnProject(
+  item: DashboardDragItem | null,
+  targetProject: CanvasProject,
+  projects: CanvasProject[],
+  canvases: DashboardCanvas[],
+) {
+  if (!item) return false;
+
+  if (item.kind === "canvas") {
+    const canvas = canvases.find((candidate) => candidate.id === item.id);
+    if (!canvas || canvas.project_id === targetProject.id) return false;
+    return hasItemCapability(canvas, "canvas.move") && hasItemCapability(targetProject, "canvas.create");
+  }
+
+  const project = projects.find((candidate) => candidate.id === item.id);
+  if (!project || project.id === targetProject.id || project.parent_project_id === targetProject.id) return false;
+  const blockedIds = getProjectAndDescendantIds(project.id, projects);
+  if (blockedIds.has(targetProject.id)) return false;
+  return hasItemCapability(project, "project.move") && hasItemCapability(targetProject, "project.create_folder");
+}
 
 export default function DashboardPage() {
   const [canvases, setCanvases] = useState<DashboardCanvas[]>([]);
@@ -60,6 +103,9 @@ export default function DashboardPage() {
   const [collabProjectId, setCollabProjectId] = useState<string | null>(null);
   const [movingCanvasId, setMovingCanvasId] = useState<string | null>(null);
   const [movingProjectId, setMovingProjectId] = useState<string | null>(null);
+  const [movePendingTargetKey, setMovePendingTargetKey] = useState<string | null>(null);
+  const [dragItem, setDragItem] = useState<DashboardDragItem | null>(null);
+  const [dragTargetProjectId, setDragTargetProjectId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [thumbnailLimit, setThumbnailLimit] = useState(THUMBNAIL_BATCH_SIZE);
   const [fileViewMode, setFileViewMode] = useState<DashboardFileViewMode>(() => {
@@ -72,6 +118,7 @@ export default function DashboardPage() {
   const loadMoreThumbsRef = useRef<HTMLSpanElement>(null);
   const projectContextRefreshesRef = useRef<Set<string>>(new Set());
   const activeProjectContextRequestRef = useRef<string | null>(null);
+  const movePendingRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { registerReconnectHandler, setReconnectMessage } = useConnectivity();
@@ -140,8 +187,11 @@ export default function DashboardPage() {
     ? projects.find((project) => project.id === projectWizard.projectId) ?? null
     : null;
   const isTreeWorkspace = Boolean(showCanvasTreeView && activeProject);
-  const activeProjectCanEdit = !activeProject || activeProject.access_level !== "view";
-  const activeProjectIsOwner = activeProject?.access_level !== "edit" && activeProject?.access_level !== "view";
+  const activeProjectCanCreateCanvas = !activeProject || hasItemCapability(activeProject, "canvas.create");
+  const activeProjectCanCreateFolder = !activeProject || hasItemCapability(activeProject, "project.create_folder");
+  const activeProjectCanCreate = activeProjectCanCreateCanvas || activeProjectCanCreateFolder;
+  const activeProjectCanEditDetails = activeProject ? hasItemCapability(activeProject, "project.update") : true;
+  const activeProjectCanManageShares = activeProject ? hasItemCapability(activeProject, "project.manage_shares") : false;
   const activeProjectAudienceLabel = activeProject ? getProjectAudienceLabelForPath(projectPath) : "";
 
   useEffect(() => {
@@ -311,6 +361,13 @@ export default function DashboardPage() {
     navigate("/user-management");
   }
 
+  function closeMoveDialog(kind: "canvas" | "project") {
+    if (movePendingRef.current) return;
+    setMovePendingTargetKey(null);
+    if (kind === "canvas") setMovingCanvasId(null);
+    else setMovingProjectId(null);
+  }
+
   function refreshProjectContextInBackground(projectId: string) {
     if (projectContextRefreshesRef.current.has(projectId)) return;
     projectContextRefreshesRef.current.add(projectId);
@@ -329,8 +386,8 @@ export default function DashboardPage() {
   }
 
   async function handleCreateCanvas() {
-    if (!activeProjectCanEdit) {
-      setError("You have view-only access to this shared project.");
+    if (!activeProjectCanCreateCanvas) {
+      setError("You do not have permission to create canvases in this project.");
       return;
     }
     try {
@@ -343,8 +400,12 @@ export default function DashboardPage() {
   }
 
   async function handleSaveProject(draft: ProjectDraft) {
-    if (!activeProjectCanEdit && projectWizard?.mode !== "edit") {
-      setError("You have view-only access to this shared project.");
+    if (projectWizard?.mode === "edit" && editingProject && !hasItemCapability(editingProject, "project.update")) {
+      setError("You do not have permission to edit this project.");
+      return;
+    }
+    if (projectWizard?.mode !== "edit" && !activeProjectCanCreateFolder) {
+      setError("You do not have permission to create folders in this project.");
       return;
     }
     try {
@@ -432,35 +493,109 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleMoveCanvas(targetProjectId: string | null) {
-    if (!movingCanvas) return;
-    try {
-      const updated = await apiUpdateCanvas(movingCanvas.id, { projectId: targetProjectId });
+  async function moveDashboardItem(item: DashboardDragItem, targetProjectId: string | null) {
+    setError("");
+    if (item.kind === "canvas") {
+      const updated = await apiUpdateCanvas(item.id, { projectId: targetProjectId });
       setCanvases((current) => [updated, ...current.filter((canvas) => canvas.id !== updated.id)]);
+      return;
+    }
+
+    const updated = await apiUpdateProject(item.id, { parentProjectId: targetProjectId });
+    setProjects((current) => {
+      const previous = current.find((project) => project.id === updated.id);
+      const merged = previous ? mergeProjectPreservingCollab(previous, updated) : updated;
+      return [merged, ...current.filter((project) => project.id !== updated.id)];
+    });
+    setArchiveOnly(false);
+  }
+
+  async function handleMoveCanvas(targetProjectId: string | null) {
+    if (!movingCanvas || movePendingRef.current) return;
+    movePendingRef.current = true;
+    setMovePendingTargetKey(getMoveTargetKey(targetProjectId));
+    try {
+      await moveDashboardItem({ kind: "canvas", id: movingCanvas.id, title: movingCanvas.title }, targetProjectId);
       setMovingCanvasId(null);
       setMenuOpen(null);
     } catch (err) {
       console.error("Failed to move canvas:", err);
       setError(err instanceof Error ? err.message : "Failed to move canvas");
+    } finally {
+      movePendingRef.current = false;
+      setMovePendingTargetKey(null);
     }
   }
 
   async function handleMoveProject(targetProjectId: string | null) {
-    if (!movingProject) return;
+    if (!movingProject || movePendingRef.current) return;
+    movePendingRef.current = true;
+    setMovePendingTargetKey(getMoveTargetKey(targetProjectId));
     try {
-      const updated = await apiUpdateProject(movingProject.id, { parentProjectId: targetProjectId });
-      setProjects((current) => {
-        const previous = current.find((project) => project.id === updated.id);
-        const merged = previous ? mergeProjectPreservingCollab(previous, updated) : updated;
-        return [merged, ...current.filter((project) => project.id !== updated.id)];
-      });
+      await moveDashboardItem({ kind: "project", id: movingProject.id, title: movingProject.title }, targetProjectId);
       setMovingProjectId(null);
       setMenuOpen(null);
-      setArchiveOnly(false);
-      navigateToProject(targetProjectId);
     } catch (err) {
       console.error("Failed to move project:", err);
       setError(err instanceof Error ? err.message : "Failed to move project");
+    } finally {
+      movePendingRef.current = false;
+      setMovePendingTargetKey(null);
+    }
+  }
+
+  function handleDashboardDragStart(event: DragEvent<HTMLElement>, item: DashboardDragItem) {
+    setDragItem(item);
+    setDragTargetProjectId(null);
+    setMenuOpen(null);
+    const card = event.currentTarget.closest<HTMLElement>(".dashboard-grid-card");
+    if (card) {
+      const rect = card.getBoundingClientRect();
+      event.dataTransfer.setDragImage(card, event.clientX - rect.left, event.clientY - rect.top);
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-intellidraw-dashboard-item", JSON.stringify(item));
+    event.dataTransfer.setData("text/plain", item.title);
+  }
+
+  function handleDashboardDragEnd() {
+    setDragItem(null);
+    setDragTargetProjectId(null);
+  }
+
+  function handleProjectDropTargetDragOver(event: DragEvent<HTMLElement>, project: CanvasProject) {
+    if (!dragItem) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = canDropDashboardItemOnProject(dragItem, project, projects, canvases) ? "move" : "none";
+    setDragTargetProjectId(project.id);
+  }
+
+  function handleProjectDropTargetDragLeave(event: DragEvent<HTMLElement>, project: CanvasProject) {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setDragTargetProjectId((current) => (current === project.id ? null : current));
+  }
+
+  async function handleProjectDropTargetDrop(event: DragEvent<HTMLElement>, project: CanvasProject) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const item = dragItem;
+    setDragItem(null);
+    setDragTargetProjectId(null);
+
+    if (!item) return;
+    if (!canDropDashboardItemOnProject(item, project, projects, canvases)) {
+      setError(`"${item.title}" cannot be moved to "${project.title}".`);
+      return;
+    }
+
+    try {
+      await moveDashboardItem(item, project.id);
+      setMenuOpen(null);
+    } catch (err) {
+      console.error("Failed to move item:", err);
+      setError(err instanceof Error ? err.message : `Failed to move ${item.kind}`);
     }
   }
 
@@ -549,13 +684,13 @@ export default function DashboardPage() {
                     type="button"
                     aria-label="Edit project details"
                     title="Edit project details"
-                    disabled={!activeProjectCanEdit}
+                    disabled={!activeProjectCanEditDetails}
                     onClick={() => setProjectWizard({ mode: "edit", projectId: activeProject.id })}
                     className="w-10 h-10 rounded-full bg-surface-container-lowest border border-outline-variant/30 shadow-sm hover:bg-surface-container-low flex items-center justify-center text-primary transition-colors disabled:opacity-40 disabled:pointer-events-none"
                   >
                     <span className="material-symbols-outlined text-[22px]">edit</span>
                   </button>
-                  {activeProjectIsOwner ? (
+                  {activeProjectCanManageShares ? (
                     <button
                       type="button"
                       aria-label="Manage project collaboration"
@@ -568,7 +703,7 @@ export default function DashboardPage() {
                   ) : (
                     <span className="inline-flex items-center gap-1 rounded-full bg-secondary-fixed/50 px-3 py-2 text-xs font-bold text-primary">
                       <span className="material-symbols-outlined text-base">groups</span>
-                      {activeProject.access_level === "edit" ? "Can edit" : "View only"}
+                      {getAccessRoleLabel(activeProject)}
                     </span>
                   )}
                 </>
@@ -667,6 +802,12 @@ export default function DashboardPage() {
                         key={project.id}
                         project={project}
                         canvasCount={projectCanvasCounts.get(project.id) ?? 0}
+                        isDragSource={dragItem?.kind === "project" && dragItem.id === project.id}
+                        dropState={
+                          dragTargetProjectId === project.id
+                            ? canDropDashboardItemOnProject(dragItem, project, projects, canvases) ? "valid" : "invalid"
+                            : null
+                        }
                         menuOpen={menuOpen?.type === "project" && menuOpen.id === project.id}
                         menuAbove={menuAbove}
                         menuClosing={menuClosing}
@@ -686,6 +827,11 @@ export default function DashboardPage() {
                           setMenuOpen(null);
                           setMovingProjectId(project.id);
                         }}
+                        onDragStart={(event) => handleDashboardDragStart(event, { kind: "project", id: project.id, title: project.title })}
+                        onDragEnd={handleDashboardDragEnd}
+                        onDropTargetDragOver={(event) => handleProjectDropTargetDragOver(event, project)}
+                        onDropTargetDragLeave={(event) => handleProjectDropTargetDragLeave(event, project)}
+                        onDropTargetDrop={(event) => void handleProjectDropTargetDrop(event, project)}
                         onArchive={() => void handleArchiveProject(project)}
                         onDelete={() => void handleDeleteProject(project)}
                       />
@@ -741,6 +887,7 @@ export default function DashboardPage() {
                       exportMode={exportMode}
                       isSelected={selectedForExport.has(canvas.id)}
                       isHighlighted={highlightId === canvas.id}
+                      isDragSource={dragItem?.kind === "canvas" && dragItem.id === canvas.id}
                       menuOpen={menuOpen?.type === "canvas" && menuOpen.id === canvas.id}
                       menuAbove={menuAbove}
                       menuClosing={menuClosing}
@@ -756,6 +903,8 @@ export default function DashboardPage() {
                         setMenuOpen(null);
                         setMovingCanvasId(canvas.id);
                       }}
+                      onDragStart={(event) => handleDashboardDragStart(event, { kind: "canvas", id: canvas.id, title: canvas.title })}
+                      onDragEnd={handleDashboardDragEnd}
                       onExportMarkdown={() => {
                         void loadCanvasExportData([canvas.id])
                           .then(([exportCanvas]) => exportAsMarkdown(exportCanvas))
@@ -799,14 +948,14 @@ export default function DashboardPage() {
       <button
         type="button"
         onClick={() => {
-          if (!activeProjectCanEdit) {
-            setError("You have view-only access to this shared project.");
+          if (!activeProjectCanCreate) {
+            setError("You do not have permission to create items in this project.");
             return;
           }
           setShowCreateDialog(true);
         }}
-        className={`fixed bottom-28 right-8 z-50 bg-gradient-to-br from-primary to-primary-container text-white w-16 h-16 rounded-2xl shadow-lg hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center group md:bottom-8${activeProjectCanEdit ? "" : " opacity-50"}`}
-        aria-label={activeProjectCanEdit ? "Create new" : "View-only shared project"}
+        className={`fixed bottom-28 right-8 z-50 bg-gradient-to-br from-primary to-primary-container text-white w-16 h-16 rounded-2xl shadow-lg hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center group md:bottom-8${activeProjectCanCreate ? "" : " opacity-50"}`}
+        aria-label={activeProjectCanCreate ? "Create new" : "No create permission"}
       >
         <span className="material-symbols-outlined text-3xl group-hover:rotate-90 transition-transform duration-300">add</span>
         <span className="absolute right-20 bg-primary text-white text-xs font-bold px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
@@ -817,6 +966,8 @@ export default function DashboardPage() {
       {showCreateDialog && (
         <CreateChoiceDialog
           activeProject={activeProject}
+          canCreateCanvas={activeProjectCanCreateCanvas}
+          canCreateProject={activeProjectCanCreateFolder}
           onClose={() => setShowCreateDialog(false)}
           onCreateCanvas={() => {
             setShowCreateDialog(false);
@@ -844,9 +995,10 @@ export default function DashboardPage() {
           mode="canvas"
           projects={projects}
           blockedIds={new Set()}
-          showRootOption={Boolean(movingCanvas.project_id)}
+          showRootOption={Boolean(movingCanvas.project_id) && movingCanvas.access_level !== "edit" && movingCanvas.access_level !== "view"}
           projectCanvasCounts={projectCanvasCounts}
-          onClose={() => setMovingCanvasId(null)}
+          pendingTargetKey={movePendingTargetKey}
+          onClose={() => closeMoveDialog("canvas")}
           onMove={(projectId) => void handleMoveCanvas(projectId)}
         />
       )}
@@ -857,9 +1009,10 @@ export default function DashboardPage() {
           mode="project"
           projects={projects}
           blockedIds={getProjectAndDescendantIds(movingProject.id, projects)}
-          showRootOption={Boolean(movingProject.parent_project_id)}
+          showRootOption={Boolean(movingProject.parent_project_id) && movingProject.access_level !== "edit" && movingProject.access_level !== "view"}
           projectCanvasCounts={projectCanvasCounts}
-          onClose={() => setMovingProjectId(null)}
+          pendingTargetKey={movePendingTargetKey}
+          onClose={() => closeMoveDialog("project")}
           onMove={(projectId) => void handleMoveProject(projectId)}
         />
       )}
@@ -961,6 +1114,8 @@ function SectionHeader({
 function ProjectCard({
   project,
   canvasCount,
+  isDragSource,
+  dropState,
   menuOpen,
   menuAbove,
   menuClosing,
@@ -971,11 +1126,18 @@ function ProjectCard({
   onEdit,
   onCollaborate,
   onMove,
+  onDragStart,
+  onDragEnd,
+  onDropTargetDragOver,
+  onDropTargetDragLeave,
+  onDropTargetDrop,
   onArchive,
   onDelete,
 }: {
   project: CanvasProject;
   canvasCount: number;
+  isDragSource: boolean;
+  dropState: DashboardDropState;
   menuOpen: boolean;
   menuAbove: boolean;
   menuClosing: boolean;
@@ -986,16 +1148,53 @@ function ProjectCard({
   onEdit: () => void;
   onCollaborate: () => void;
   onMove: () => void;
+  onDragStart: (event: DragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+  onDropTargetDragOver: (event: DragEvent<HTMLElement>) => void;
+  onDropTargetDragLeave: (event: DragEvent<HTMLElement>) => void;
+  onDropTargetDrop: (event: DragEvent<HTMLElement>) => void;
   onArchive: () => void;
   onDelete: () => void;
 }) {
   const isShared = project.access_level === "view" || project.access_level === "edit";
-  const isOwner = !isShared;
   const projectAudienceLabel = getProjectAudienceLabel(project);
   const hasCollabSignal = isShared || Boolean(projectAudienceLabel);
+  const canEdit = hasItemCapability(project, "project.update");
+  const canManageShares = hasItemCapability(project, "project.manage_shares");
+  const canMove = hasItemCapability(project, "project.move");
+  const canArchive = hasItemCapability(project, "project.archive");
+  const canDelete = hasItemCapability(project, "project.delete");
 
   return (
-    <article onClick={onOpen} className={`project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible${menuOpen ? " z-40" : ""}`}>
+    <article
+      onClick={onOpen}
+      onDragOver={onDropTargetDragOver}
+      onDragLeave={onDropTargetDragLeave}
+      onDrop={onDropTargetDrop}
+      className={`dashboard-grid-card project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible${menuOpen ? " z-40" : ""}${canMove ? " is-draggable" : ""}${isDragSource ? " is-drag-source" : ""}${dropState === "valid" ? " is-drop-target" : ""}${dropState === "invalid" ? " is-invalid-drop-target" : ""}`}
+    >
+      {canMove && (
+        <>
+          <svg className="project-card-drag-backing" viewBox="0 0 120 200" aria-hidden="true" focusable="false">
+            <path d="M 0,0 L 0,23 C 0,100 104,40 104,100 C 104,160 0,100 0,177 L 0,200 Z" />
+          </svg>
+          <button
+            type="button"
+            draggable
+            onClick={(event) => event.stopPropagation()}
+            onDragStart={(event) => {
+              event.stopPropagation();
+              onDragStart(event);
+            }}
+            onDragEnd={onDragEnd}
+            className="dashboard-card-drag-handle is-project-side"
+            aria-label={`Move ${project.title}`}
+            title="Drag to move"
+          >
+            <span className="material-symbols-outlined">drag_indicator</span>
+          </button>
+        </>
+      )}
       <div className={`project-folder-art-production project-${project.accent}`}>
         <span className="material-symbols-outlined fill">folder</span>
       </div>
@@ -1015,7 +1214,7 @@ function ProjectCard({
           <span className="rounded-full bg-surface-container-high px-2.5 py-1">Modified {timeAgo(project.updated_at)}</span>
           {isShared && (
             <span className="rounded-full bg-primary/10 px-2.5 py-1 text-primary">
-              {project.access_level === "edit" ? "Can edit" : "View only"}
+              {getAccessRoleLabel(project)}
             </span>
           )}
         </div>
@@ -1025,19 +1224,35 @@ function ProjectCard({
           </div>
         )}
       </div>
-      <div className="absolute left-5 bottom-4 z-40" ref={menuOpen ? menuRef : undefined}>
+      <div className="project-card-menu-layer absolute left-5 bottom-4 z-40" ref={menuOpen ? menuRef : undefined}>
         <button
           type="button"
           onClick={(event) => {
             event.stopPropagation();
             onToggleMenu(event.currentTarget);
           }}
-          className="w-9 h-9 rounded-full bg-surface-container-high/80 text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors"
+          className="project-card-menu-trigger w-9 h-9 rounded-full bg-surface-container-high/80 text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors"
           aria-label={`Open menu for ${project.title}`}
         >
           <span className="material-symbols-outlined">more_horiz</span>
         </button>
-        {menuOpen && <ProjectMenu menuAbove={menuAbove} menuClosing={menuClosing} isOwner={isOwner} canEdit={project.access_level !== "view"} onOpen={onOpen} onEdit={onEdit} onCollaborate={onCollaborate} onMove={onMove} onArchive={onArchive} onDelete={onDelete} />}
+        {menuOpen && (
+          <ProjectMenu
+            menuAbove={menuAbove}
+            menuClosing={menuClosing}
+            canEdit={canEdit}
+            canManageShares={canManageShares}
+            canMove={canMove}
+            canArchive={canArchive}
+            canDelete={canDelete}
+            onOpen={onOpen}
+            onEdit={onEdit}
+            onCollaborate={onCollaborate}
+            onMove={onMove}
+            onArchive={onArchive}
+            onDelete={onDelete}
+          />
+        )}
       </div>
     </article>
   );
@@ -1071,6 +1286,9 @@ function mergeProjectPreservingCollab(current: CanvasProject, incoming: CanvasPr
     ...current,
     ...incoming,
     access_level: incoming.access_level ?? current.access_level,
+    access_role_id: incoming.access_role_id ?? current.access_role_id,
+    access_role_name: incoming.access_role_name ?? current.access_role_name,
+    capabilities: incoming.capabilities ?? current.capabilities,
     shared_root_project_id: incoming.shared_root_project_id ?? current.shared_root_project_id,
     shared_via_group_id: incoming.shared_via_group_id ?? current.shared_via_group_id,
     shared_via_group_name: incoming.shared_via_group_name ?? current.shared_via_group_name,
@@ -1111,6 +1329,7 @@ function CanvasCard({
   exportMode,
   isSelected,
   isHighlighted,
+  isDragSource,
   menuOpen,
   menuAbove,
   menuClosing,
@@ -1120,6 +1339,8 @@ function CanvasCard({
   onToggleMenu,
   onEdit,
   onMove,
+  onDragStart,
+  onDragEnd,
   onExportMarkdown,
   onExportPng,
   onArchive,
@@ -1132,6 +1353,7 @@ function CanvasCard({
   exportMode: boolean;
   isSelected: boolean;
   isHighlighted: boolean;
+  isDragSource: boolean;
   menuOpen: boolean;
   menuAbove: boolean;
   menuClosing: boolean;
@@ -1141,18 +1363,22 @@ function CanvasCard({
   onToggleMenu: (button: HTMLButtonElement) => void;
   onEdit: () => void;
   onMove: () => void;
+  onDragStart: (event: DragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
   onExportMarkdown: () => void;
   onExportPng: () => void;
   onArchive: () => void;
   onDelete: () => void;
 }) {
   const isShared = canvas.access_level === "view" || canvas.access_level === "edit";
-  const canEdit = canvas.access_level !== "view";
-  const isOwner = !isShared;
+  const canEdit = hasItemCapability(canvas, "canvas.update");
+  const canMove = hasItemCapability(canvas, "canvas.move");
+  const canArchive = hasItemCapability(canvas, "canvas.archive");
+  const canDelete = hasItemCapability(canvas, "canvas.delete");
 
   return (
     <article
-      className={`group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20 cursor-pointer overflow-visible${isHighlighted ? " canvas-card-highlight" : ""}${menuOpen ? " z-40" : ""}`}
+      className={`dashboard-grid-card group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-transparent hover:border-outline-variant/20 cursor-pointer overflow-visible${isHighlighted ? " canvas-card-highlight" : ""}${menuOpen ? " z-40" : ""}${canMove && !exportMode ? " is-draggable" : ""}${isDragSource ? " is-drag-source" : ""}`}
       onClick={onCardClick}
     >
       {exportMode && (
@@ -1176,9 +1402,9 @@ function CanvasCard({
           </div>
         )}
         {isShared && (
-          <div className="absolute top-3 right-3 z-20 inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 text-[10px] font-black uppercase text-primary shadow-sm" title={canvas.access_level === "edit" ? "Shared editable canvas" : "View-only shared canvas"}>
+          <div className="absolute top-3 right-3 z-20 inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 text-[10px] font-black uppercase text-primary shadow-sm" title={getAccessRoleLabel(canvas)}>
             <span className="material-symbols-outlined text-[13px]">groups</span>
-            {canvas.access_level === "edit" ? "Edit" : "View"}
+            {getAccessRoleLabel(canvas)}
           </div>
         )}
         <div className="w-full h-full flex items-center justify-center bg-surface-container-low canvas-grid">
@@ -1196,24 +1422,60 @@ function CanvasCard({
         <div className="absolute inset-0 bg-gradient-to-t from-primary/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
       <div className="p-6">
-        <div className="flex justify-between items-start mb-2">
-          <div className="min-w-0 flex-1">
-            <h3 className="text-lg font-bold text-on-surface truncate" title={canvas.title}>{canvas.title}</h3>
-            <p className="text-sm text-on-surface-variant">Modified {timeAgo(canvas.updated_at)}</p>
+        <div className="flex justify-between items-start gap-3 mb-2">
+          <div className="min-w-0 flex-1 flex items-start gap-3">
+            {canMove && !exportMode && (
+              <button
+                type="button"
+                draggable
+                onClick={(event) => event.stopPropagation()}
+                onDragStart={(event) => {
+                  event.stopPropagation();
+                  onDragStart(event);
+                }}
+                onDragEnd={onDragEnd}
+                className="dashboard-card-drag-handle is-inline"
+                aria-label={`Move ${canvas.title}`}
+                title="Drag to move"
+              >
+                <span className="material-symbols-outlined">drag_indicator</span>
+              </button>
+            )}
+            <div className="min-w-0 flex-1">
+              <h3 className="text-lg font-bold text-on-surface truncate" title={canvas.title}>{canvas.title}</h3>
+              <p className="text-sm text-on-surface-variant">Modified {timeAgo(canvas.updated_at)}</p>
+            </div>
           </div>
           <div className="relative" ref={menuOpen ? menuRef : undefined}>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleMenu(event.currentTarget);
-              }}
-              className="text-on-surface-variant hover:text-primary p-2 hover:bg-surface-container-high rounded-lg transition-colors"
-              aria-label={`Open menu for ${canvas.title}`}
-            >
-              <span className="material-symbols-outlined">more_vert</span>
-            </button>
-            {menuOpen && <CanvasMenu menuAbove={menuAbove} menuClosing={menuClosing} canEdit={canEdit} isOwner={isOwner} onEdit={onEdit} onMove={onMove} onExportMarkdown={onExportMarkdown} onExportPng={onExportPng} onArchive={onArchive} onDelete={onDelete} />}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggleMenu(event.currentTarget);
+                }}
+                className="text-on-surface-variant hover:text-primary p-2 hover:bg-surface-container-high rounded-lg transition-colors"
+                aria-label={`Open menu for ${canvas.title}`}
+              >
+                <span className="material-symbols-outlined">more_vert</span>
+              </button>
+            </div>
+            {menuOpen && (
+              <CanvasMenu
+                menuAbove={menuAbove}
+                menuClosing={menuClosing}
+                canEdit={canEdit}
+                canMove={canMove}
+                canArchive={canArchive}
+                canDelete={canDelete}
+                onEdit={onEdit}
+                onMove={onMove}
+                onExportMarkdown={onExportMarkdown}
+                onExportPng={onExportPng}
+                onArchive={onArchive}
+                onDelete={onDelete}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -1225,7 +1487,9 @@ function CanvasMenu({
   menuAbove,
   menuClosing,
   canEdit,
-  isOwner,
+  canMove,
+  canArchive,
+  canDelete,
   onEdit,
   onMove,
   onExportMarkdown,
@@ -1236,7 +1500,9 @@ function CanvasMenu({
   menuAbove: boolean;
   menuClosing: boolean;
   canEdit: boolean;
-  isOwner: boolean;
+  canMove: boolean;
+  canArchive: boolean;
+  canDelete: boolean;
   onEdit: () => void;
   onMove: () => void;
   onExportMarkdown: () => void;
@@ -1247,11 +1513,11 @@ function CanvasMenu({
   return (
     <div className={`absolute right-0 ${menuAbove ? "bottom-full mb-1 card-menu-above" : "top-full mt-1"} bg-white rounded-xl shadow-ambient-lg border border-outline-variant/10 py-2 min-w-[190px] z-50 card-menu-panel${menuClosing ? " card-menu-closing" : ""}`} onClick={(event) => event.stopPropagation()}>
       <MenuButton icon={canEdit ? "edit" : "visibility"} label={canEdit ? "Edit" : "Open View Only"} onClick={onEdit} />
-      {canEdit && <MenuButton icon="drive_file_move" label="Move to Project" onClick={onMove} />}
+      {canMove && <MenuButton icon="drive_file_move" label="Move to Project" onClick={onMove} />}
       <MenuButton icon="description" label="Export .md" onClick={onExportMarkdown} />
       <MenuButton icon="image" label="Export .png" onClick={onExportPng} />
-      {isOwner && <MenuButton icon="archive" label="Archive" onClick={onArchive} />}
-      {isOwner && <MenuButton icon="delete" label="Delete" danger onClick={onDelete} />}
+      {canArchive && <MenuButton icon="archive" label="Archive" onClick={onArchive} />}
+      {canDelete && <MenuButton icon="delete" label="Delete" danger onClick={onDelete} />}
     </div>
   );
 }
@@ -1259,8 +1525,11 @@ function CanvasMenu({
 function ProjectMenu({
   menuAbove,
   menuClosing,
-  isOwner,
   canEdit,
+  canManageShares,
+  canMove,
+  canArchive,
+  canDelete,
   onOpen,
   onEdit,
   onCollaborate,
@@ -1270,8 +1539,11 @@ function ProjectMenu({
 }: {
   menuAbove: boolean;
   menuClosing: boolean;
-  isOwner: boolean;
   canEdit: boolean;
+  canManageShares: boolean;
+  canMove: boolean;
+  canArchive: boolean;
+  canDelete: boolean;
   onOpen: () => void;
   onEdit: () => void;
   onCollaborate: () => void;
@@ -1283,10 +1555,10 @@ function ProjectMenu({
     <div className={`absolute left-0 ${menuAbove ? "bottom-full mb-1 card-menu-above" : "top-full mt-1"} bg-white rounded-xl shadow-ambient-lg border border-outline-variant/10 py-2 min-w-[190px] z-50 card-menu-panel${menuClosing ? " card-menu-closing" : ""}`} onClick={(event) => event.stopPropagation()}>
       <MenuButton icon="folder_open" label="Open" onClick={onOpen} />
       {canEdit && <MenuButton icon="edit" label="Edit" onClick={onEdit} />}
-      {isOwner && <MenuButton icon="groups" label="Collaborate" onClick={onCollaborate} />}
-      {isOwner && <MenuButton icon="drive_file_move" label="Move to Project" onClick={onMove} />}
-      {isOwner && <MenuButton icon="archive" label="Archive" onClick={onArchive} />}
-      {isOwner && <MenuButton icon="delete" label="Delete" danger onClick={onDelete} />}
+      {canManageShares && <MenuButton icon="groups" label="Collaborate" onClick={onCollaborate} />}
+      {canMove && <MenuButton icon="drive_file_move" label="Move to Project" onClick={onMove} />}
+      {canArchive && <MenuButton icon="archive" label="Archive" onClick={onArchive} />}
+      {canDelete && <MenuButton icon="delete" label="Delete" danger onClick={onDelete} />}
     </div>
   );
 }
@@ -1309,11 +1581,15 @@ function MenuButton({ icon, label, danger, onClick }: { icon: string; label: str
 
 function CreateChoiceDialog({
   activeProject,
+  canCreateCanvas,
+  canCreateProject,
   onClose,
   onCreateCanvas,
   onCreateProject,
 }: {
   activeProject: CanvasProject | null;
+  canCreateCanvas: boolean;
+  canCreateProject: boolean;
   onClose: () => void;
   onCreateCanvas: () => void;
   onCreateProject: () => void;
@@ -1332,17 +1608,43 @@ function CreateChoiceDialog({
           </button>
         </div>
         <div className="space-y-2">
-          <ChoiceButton icon="draw" title="New Canvas" description={activeProject ? `Create inside ${activeProject.title}` : "Create on the root dashboard"} onClick={onCreateCanvas} />
-          <ChoiceButton icon="folder" title="New Project" description={activeProject ? `Create inside ${activeProject.title}` : "Create a project folder for related canvases"} onClick={onCreateProject} fill />
+          {canCreateCanvas && (
+            <ChoiceButton icon="draw" title="New Canvas" description={activeProject ? `Create inside ${activeProject.title}` : "Create on the root dashboard"} onClick={onCreateCanvas} />
+          )}
+          {canCreateProject && (
+            <ChoiceButton icon="folder" title="New Project" description={activeProject ? `Create inside ${activeProject.title}` : "Create a project folder for related canvases"} onClick={onCreateProject} fill />
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function ChoiceButton({ icon, title, description, fill, onClick }: { icon: string; title: string; description: string; fill?: boolean; onClick: () => void }) {
+function ChoiceButton({
+  icon,
+  title,
+  description,
+  fill,
+  busy,
+  disabled,
+  onClick,
+}: {
+  icon: string;
+  title: string;
+  description: string;
+  fill?: boolean;
+  busy?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
   return (
-    <button type="button" onClick={onClick} className="w-full flex items-center gap-4 rounded-xl px-4 py-4 text-left hover:bg-surface-container-low transition-colors">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-busy={busy || undefined}
+      className={`w-full flex items-center gap-4 rounded-xl px-4 py-4 text-left transition-colors ${disabled ? busy ? "cursor-wait opacity-80" : "cursor-not-allowed opacity-50" : "hover:bg-surface-container-low"}`}
+    >
       <span className="w-12 h-12 rounded-xl bg-surface-container-high text-primary flex items-center justify-center">
         <span className={`material-symbols-outlined ${fill ? "fill" : ""}`}>{icon}</span>
       </span>
@@ -1350,7 +1652,9 @@ function ChoiceButton({ icon, title, description, fill, onClick }: { icon: strin
         <strong className="block text-on-surface">{title}</strong>
         <small className="block text-on-surface-variant">{description}</small>
       </span>
-      <span className="material-symbols-outlined text-on-surface-variant">chevron_right</span>
+      <span className={`material-symbols-outlined ${busy ? "text-primary animate-spin" : "text-on-surface-variant"}`}>
+        {busy ? "progress_activity" : "chevron_right"}
+      </span>
     </button>
   );
 }
@@ -1366,8 +1670,9 @@ function ProjectCollabDialog({
 }) {
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [shares, setShares] = useState<ProjectShare[]>([]);
+  const [roles, setRoles] = useState<CollaborationRoleSummary[]>([]);
   const [groupId, setGroupId] = useState("");
-  const [accessLevel, setAccessLevel] = useState<"view" | "edit">("view");
+  const [roleId, setRoleId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1376,12 +1681,15 @@ function ProjectCollabDialog({
     setLoading(true);
     setError("");
     try {
-      const [groupData, shareData] = await Promise.all([
+      const [groupData, shareData, roleData] = await Promise.all([
         apiListGroups(),
         apiListProjectShares(project.id),
+        apiListCollaborationRoles(),
       ]);
       setGroups((groupData as UserGroup[]).filter((group) => group.owner_id === project.user_id));
       setShares(shareData);
+      setRoles(roleData);
+      setRoleId((current) => current || roleData[0]?.id || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load collaboration settings");
     } finally {
@@ -1394,13 +1702,12 @@ function ProjectCollabDialog({
   }, [project.id]);
 
   async function handleShare() {
-    if (!groupId) return;
+    if (!groupId || !roleId) return;
     setSaving(true);
     setError("");
     try {
-      await apiShareProject(project.id, groupId, accessLevel);
+      await apiShareProject(project.id, groupId, roleId);
       setGroupId("");
-      setAccessLevel("view");
       await loadCollabState();
       onChanged();
     } catch (err) {
@@ -1410,11 +1717,12 @@ function ProjectCollabDialog({
     }
   }
 
-  async function handleUpdateShare(share: ProjectShare, nextAccess: "view" | "edit") {
+  async function handleUpdateShare(share: ProjectShare, nextRoleId: string) {
+    if (!nextRoleId || nextRoleId === share.role_id) return;
     setSaving(true);
     setError("");
     try {
-      await apiUpdateProjectShare(project.id, share.id, nextAccess);
+      await apiUpdateProjectShare(project.id, share.id, nextRoleId);
       await loadCollabState();
       onChanged();
     } catch (err) {
@@ -1440,6 +1748,12 @@ function ProjectCollabDialog({
 
   const sharedGroupIds = new Set(shares.map((share) => share.shared_with_group_id));
   const availableGroups = groups.filter((group) => !sharedGroupIds.has(group.id));
+  const roleById = new Map(roles.map((role) => [role.id, role]));
+  const describeShareRole = (share: ProjectShare) => {
+    const role = share.role_id ? roleById.get(share.role_id) ?? share.collaboration_roles : share.collaboration_roles;
+    if (role?.name) return role.name;
+    return share.access_level === "edit" ? "Editor" : "Viewer";
+  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 md:pt-16">
@@ -1463,7 +1777,7 @@ function ProjectCollabDialog({
           )}
 
           <div className="rounded-xl border border-outline-variant/15 bg-surface-container-lowest p-4">
-            <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+            <div className="grid gap-3 md:grid-cols-[1fr_220px] md:items-end">
               <label className="block">
                 <span className="text-sm font-bold text-on-surface">Group</span>
                 <select
@@ -1479,30 +1793,26 @@ function ProjectCollabDialog({
                 </select>
               </label>
 
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  aria-pressed={accessLevel === "view"}
-                  onClick={() => setAccessLevel("view")}
-                  className={`rounded-xl px-4 py-3 text-sm font-bold ${accessLevel === "view" ? "bg-primary text-white" : "bg-white text-on-surface-variant border border-outline-variant/20"}`}
+              <label className="block">
+                <span className="text-sm font-bold text-on-surface">Role</span>
+                <select
+                  value={roleId}
+                  onChange={(event) => setRoleId(event.target.value)}
+                  className="mt-2 w-full rounded-xl bg-white border border-outline-variant/30 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary"
+                  disabled={loading || saving || roles.length === 0}
                 >
-                  View
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={accessLevel === "edit"}
-                  onClick={() => setAccessLevel("edit")}
-                  className={`rounded-xl px-4 py-3 text-sm font-bold ${accessLevel === "edit" ? "bg-primary text-white" : "bg-white text-on-surface-variant border border-outline-variant/20"}`}
-                >
-                  Edit
-                </button>
-              </div>
+                  <option value="">{roles.length === 0 ? "No roles available" : "Select a role"}</option>
+                  {roles.map((role) => (
+                    <option key={role.id} value={role.id}>{role.name}</option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             <button
               type="button"
               onClick={() => void handleShare()}
-              disabled={!groupId || saving}
+              disabled={!groupId || !roleId || saving}
               className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40"
             >
               <span className="material-symbols-outlined text-lg">group_add</span>
@@ -1529,18 +1839,21 @@ function ProjectCollabDialog({
                     </span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-bold text-on-surface">{share.user_groups?.name || "Group"}</p>
-                      <p className="text-xs font-semibold text-on-surface-variant">{share.access_level === "edit" ? "Can edit project contents" : "Can inspect project contents"}</p>
+                      <p className="text-xs font-semibold text-on-surface-variant">{describeShareRole(share)}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void handleUpdateShare(share, share.access_level === "edit" ? "view" : "edit")}
+                    <select
+                      value={share.role_id || ""}
+                      onChange={(event) => void handleUpdateShare(share, event.target.value)}
                       disabled={saving}
-                      className="rounded-xl border border-outline-variant/20 px-3 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface-container-low disabled:opacity-40"
+                      className="rounded-xl border border-outline-variant/20 bg-white px-3 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface-container-low disabled:opacity-40"
                     >
-                      Make {share.access_level === "edit" ? "view" : "edit"}
-                    </button>
+                      <option value="">{describeShareRole(share)}</option>
+                      {roles.map((role) => (
+                        <option key={role.id} value={role.id}>{role.name}</option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       onClick={() => void handleRemoveShare(share)}
@@ -1639,6 +1952,7 @@ function MoveToProjectDialog({
   blockedIds,
   showRootOption,
   projectCanvasCounts,
+  pendingTargetKey,
   onClose,
   onMove,
 }: {
@@ -1648,13 +1962,21 @@ function MoveToProjectDialog({
   blockedIds: Set<string>;
   showRootOption: boolean;
   projectCanvasCounts: Map<string, number>;
+  pendingTargetKey: string | null;
   onClose: () => void;
   onMove: (projectId: string | null) => void;
 }) {
-  const destinations = projects.filter((project) => !blockedIds.has(project.id));
+  const isMoving = Boolean(pendingTargetKey);
+  const destinations = projects.filter((project) => {
+    if (blockedIds.has(project.id)) return false;
+    return mode === "canvas"
+      ? hasItemCapability(project, "canvas.create")
+      : hasItemCapability(project, "project.create_folder");
+  });
+  const rootBusy = pendingTargetKey === getMoveTargetKey(null);
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center pt-16 px-4">
-      <button type="button" className="absolute inset-0 bg-primary/30 backdrop-blur-sm" aria-label="Close move dialog" onClick={onClose} />
+      <button type="button" disabled={isMoving} className="absolute inset-0 bg-primary/30 backdrop-blur-sm disabled:cursor-wait" aria-label="Close move dialog" onClick={onClose} />
       <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-ambient-lg p-6">
         <div className="flex items-start justify-between gap-4 mb-5">
           <div>
@@ -1662,21 +1984,37 @@ function MoveToProjectDialog({
             <h3 className="text-2xl font-extrabold text-primary">Choose a destination</h3>
             <p className="text-sm text-on-surface-variant">{title}</p>
           </div>
-          <button type="button" className="p-2 rounded-full hover:bg-surface-container-low" onClick={onClose} aria-label="Close">
+          <button type="button" disabled={isMoving} className="p-2 rounded-full hover:bg-surface-container-low disabled:cursor-wait disabled:opacity-50" onClick={onClose} aria-label="Close">
             <span className="material-symbols-outlined">close</span>
           </button>
         </div>
         <div className="max-h-[55vh] overflow-y-auto space-y-2 pr-1">
-          {showRootOption && <ChoiceButton icon="dashboard" title="Back to Dashboard" description={`Move this ${mode} to the root dashboard`} onClick={() => onMove(null)} />}
-          {destinations.map((project) => (
+          {showRootOption && (
             <ChoiceButton
-              key={project.id}
-              icon="folder"
-              title={project.title}
-              description={`${projectCanvasCounts.get(project.id) ?? 0} canvas${(projectCanvasCounts.get(project.id) ?? 0) === 1 ? "" : "es"} · Modified ${timeAgo(project.updated_at)}`}
-              onClick={() => onMove(project.id)}
-              fill
+              icon="dashboard"
+              title="Back to Dashboard"
+              description={rootBusy ? `Moving this ${mode}...` : `Move this ${mode} to the root dashboard`}
+              busy={rootBusy}
+              disabled={isMoving}
+              onClick={() => onMove(null)}
             />
+          )}
+          {destinations.map((project) => (
+            (() => {
+              const projectBusy = pendingTargetKey === getMoveTargetKey(project.id);
+              return (
+                <ChoiceButton
+                  key={project.id}
+                  icon="folder"
+                  title={project.title}
+                  description={projectBusy ? `Moving this ${mode}...` : `${projectCanvasCounts.get(project.id) ?? 0} canvas${(projectCanvasCounts.get(project.id) ?? 0) === 1 ? "" : "es"} · Modified ${timeAgo(project.updated_at)}`}
+                  busy={projectBusy}
+                  disabled={isMoving}
+                  onClick={() => onMove(project.id)}
+                  fill
+                />
+              );
+            })()
           ))}
         </div>
       </div>

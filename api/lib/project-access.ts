@@ -1,5 +1,14 @@
 import { supabase } from "./db.js";
 import { PROJECT_SELECT } from "./canvas-projects.js";
+import {
+  capabilitiesForShareRow,
+  legacyAccessForCapabilities,
+  legacyCapabilitiesForAccess,
+  loadRoleCapabilityMap,
+  OWNER_CAPABILITIES,
+  roleSummaryForShareRow,
+  type CollaborationCapability,
+} from "./collaboration-roles.js";
 
 export type ProjectAccessLevel = "owner" | "edit" | "view";
 
@@ -8,6 +17,9 @@ export type ProjectAccess = {
   projectId: string;
   ownerUserId: string;
   accessLevel: ProjectAccessLevel;
+  capabilities: CollaborationCapability[];
+  accessRoleId?: string;
+  accessRoleName?: string;
   sharedRootProjectId?: string;
   sharedViaGroupId?: string;
   sharedViaGroupName?: string;
@@ -17,15 +29,39 @@ export type CanvasAccess = {
   canvas: Record<string, unknown>;
   ownerUserId: string;
   accessLevel: ProjectAccessLevel;
+  capabilities: CollaborationCapability[];
+  accessRoleId?: string;
+  accessRoleName?: string;
   projectAccess?: ProjectAccess;
 };
 
+type AccessMetadata = {
+  accessLevel: ProjectAccessLevel;
+  capabilities?: CollaborationCapability[];
+  accessRoleId?: string;
+  accessRoleName?: string;
+  sharedRootProjectId?: string;
+  sharedViaGroupId?: string;
+  sharedViaGroupName?: string;
+};
+
 export function canEdit(access: { accessLevel: ProjectAccessLevel } | null | undefined) {
-  return access?.accessLevel === "owner" || access?.accessLevel === "edit";
+  if (!access) return false;
+  if (access.accessLevel === "owner" || access.accessLevel === "edit") return true;
+  return false;
 }
 
 export function canOwn(access: { accessLevel: ProjectAccessLevel } | null | undefined) {
   return access?.accessLevel === "owner";
+}
+
+export function hasCapability(
+  access: { accessLevel: ProjectAccessLevel; capabilities?: CollaborationCapability[] } | null | undefined,
+  capability: CollaborationCapability,
+) {
+  if (!access) return false;
+  if (access.accessLevel === "owner") return true;
+  return Boolean(access.capabilities?.includes(capability));
 }
 
 function strongestAccess(current: ProjectAccessLevel | null, next: ProjectAccessLevel): ProjectAccessLevel {
@@ -36,11 +72,18 @@ function strongestAccess(current: ProjectAccessLevel | null, next: ProjectAccess
 
 export function withAccessMetadata<T extends Record<string, unknown>>(
   row: T,
-  access: Pick<ProjectAccess, "accessLevel" | "sharedRootProjectId" | "sharedViaGroupId" | "sharedViaGroupName">,
+  access: AccessMetadata,
 ) {
+  const capabilities = access.accessLevel === "owner"
+    ? OWNER_CAPABILITIES
+    : access.capabilities ?? legacyCapabilitiesForAccess(access.accessLevel === "edit" ? "edit" : "view");
+
   return {
     ...row,
     access_level: access.accessLevel,
+    access_role_id: access.accessRoleId ?? null,
+    access_role_name: access.accessRoleName ?? (access.accessLevel === "owner" ? "Owner" : null),
+    capabilities,
     shared_root_project_id: access.sharedRootProjectId ?? null,
     shared_via_group_id: access.sharedViaGroupId ?? null,
     shared_via_group_name: access.sharedViaGroupName ?? null,
@@ -102,6 +145,8 @@ export async function getProjectAccess(projectId: string, userId: string): Promi
       projectId,
       ownerUserId,
       accessLevel: "owner",
+      capabilities: OWNER_CAPABILITIES,
+      accessRoleName: "Owner",
     };
   }
 
@@ -111,7 +156,7 @@ export async function getProjectAccess(projectId: string, userId: string): Promi
   const ancestorIds = chain.map((item) => String(item.id));
   const { data, error } = await supabase
     .from("project_shares")
-    .select("project_id, shared_with_group_id, access_level, user_groups(name)")
+    .select("project_id, shared_with_group_id, access_level, role_id, user_groups(name), collaboration_roles(id, name, description, is_system_role)")
     .in("project_id", ancestorIds)
     .in("shared_with_group_id", groupIds);
 
@@ -124,25 +169,47 @@ export async function getProjectAccess(projectId: string, userId: string): Promi
     project_id: string;
     shared_with_group_id: string;
     access_level: "view" | "edit";
+    role_id?: string | null;
     user_groups?: { name?: string } | null;
+    collaboration_roles?: { id?: string; name?: string; description?: string; is_system_role?: boolean } | null;
   }>;
   if (shares.length === 0) return null;
 
   const byAncestorDistance = new Map(ancestorIds.map((id, index) => [id, index]));
   shares.sort((a, b) => (byAncestorDistance.get(a.project_id) ?? 999) - (byAncestorDistance.get(b.project_id) ?? 999));
 
+  const roleCapabilityMap = await loadRoleCapabilityMap(shares.map((share) => share.role_id || ""));
+  const combinedCapabilities = new Set<CollaborationCapability>();
   let accessLevel: ProjectAccessLevel | null = null;
   let selected = shares[0];
+  let selectedCapabilities = capabilitiesForShareRow(selected, roleCapabilityMap);
   for (const share of shares) {
-    accessLevel = strongestAccess(accessLevel, share.access_level);
-    if (share.access_level === "edit") selected = share;
+    const shareCapabilities = capabilitiesForShareRow(share, roleCapabilityMap);
+    for (const capability of shareCapabilities) combinedCapabilities.add(capability);
+
+    const shareAccessLevel = legacyAccessForCapabilities(shareCapabilities);
+    accessLevel = strongestAccess(accessLevel, shareAccessLevel);
+
+    const selectedAccessLevel = legacyAccessForCapabilities(selectedCapabilities);
+    const shouldSelect =
+      (shareAccessLevel === "edit" && selectedAccessLevel !== "edit") ||
+      (shareAccessLevel === selectedAccessLevel && shareCapabilities.length > selectedCapabilities.length);
+    if (shouldSelect) {
+      selected = share;
+      selectedCapabilities = shareCapabilities;
+    }
   }
+
+  const selectedRole = roleSummaryForShareRow(selected);
 
   return {
     project,
     projectId,
     ownerUserId,
     accessLevel: accessLevel ?? "view",
+    capabilities: [...combinedCapabilities],
+    accessRoleId: selectedRole?.id,
+    accessRoleName: selectedRole?.name,
     sharedRootProjectId: selected.project_id,
     sharedViaGroupId: selected.shared_with_group_id,
     sharedViaGroupName: selected.user_groups?.name || "",
@@ -161,7 +228,13 @@ export async function getCanvasAccess(canvasId: string, userId: string): Promise
   const canvas = data as Record<string, unknown>;
   const ownerUserId = String(canvas.user_id);
   if (ownerUserId === userId) {
-    return { canvas, ownerUserId, accessLevel: "owner" };
+    return {
+      canvas,
+      ownerUserId,
+      accessLevel: "owner",
+      capabilities: OWNER_CAPABILITIES,
+      accessRoleName: "Owner",
+    };
   }
 
   const projectId = canvas.project_id ? String(canvas.project_id) : "";
@@ -174,7 +247,9 @@ export async function getCanvasAccess(canvasId: string, userId: string): Promise
     canvas,
     ownerUserId,
     accessLevel: projectAccess.accessLevel,
+    capabilities: projectAccess.capabilities,
+    accessRoleId: projectAccess.accessRoleId,
+    accessRoleName: projectAccess.accessRoleName,
     projectAccess,
   };
 }
-

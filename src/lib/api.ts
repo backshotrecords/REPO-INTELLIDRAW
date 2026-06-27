@@ -1,4 +1,18 @@
-import type { CanvasCommit, CanvasPreviewCode, CanvasProject, DashboardCanvas, MeetingProcessingMetrics, ProjectAccent, ProjectShare, SkillScope, SkillTriggerMode } from "../types";
+import type {
+  CanvasCommit,
+  CanvasPreviewCode,
+  CanvasProject,
+  CollaborationCapability,
+  CollaborationCapabilityDefinition,
+  CollaborationRole,
+  CollaborationRoleSummary,
+  DashboardCanvas,
+  MeetingProcessingMetrics,
+  ProjectAccent,
+  ProjectShare,
+  SkillScope,
+  SkillTriggerMode,
+} from "../types";
 
 const API_BASE = "/api";
 const PREVIEW_CODE_BATCH_SIZE = 100;
@@ -304,20 +318,27 @@ export async function apiListProjectShares(projectId: string): Promise<ProjectSh
   return data.shares;
 }
 
-export async function apiShareProject(projectId: string, groupId: string, accessLevel: "view" | "edit"): Promise<ProjectShare> {
+export async function apiListCollaborationRoles(): Promise<CollaborationRoleSummary[]> {
+  const res = await apiFetch("/collaboration-roles");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch collaboration roles");
+  return data.roles;
+}
+
+export async function apiShareProject(projectId: string, groupId: string, roleId: string): Promise<ProjectShare> {
   const res = await apiFetch(`/projects/${projectId}/shares`, {
     method: "POST",
-    body: JSON.stringify({ groupId, accessLevel }),
+    body: JSON.stringify({ groupId, roleId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to share project");
   return data.share;
 }
 
-export async function apiUpdateProjectShare(projectId: string, shareId: string, accessLevel: "view" | "edit"): Promise<ProjectShare> {
+export async function apiUpdateProjectShare(projectId: string, shareId: string, roleId: string): Promise<ProjectShare> {
   const res = await apiFetch(`/projects/${projectId}/shares/${shareId}`, {
     method: "PUT",
-    body: JSON.stringify({ accessLevel }),
+    body: JSON.stringify({ roleId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to update project share");
@@ -454,6 +475,15 @@ export async function apiSaveApiKey(apiKey: string) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to save API key");
+  return data;
+}
+
+export async function apiRequestManagedApiKey() {
+  const res = await apiFetch("/settings/api-key-request", {
+    method: "POST",
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to request API key");
   return data;
 }
 
@@ -704,6 +734,49 @@ export async function apiUpdateChatConfig(opts: {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to update chat config");
   return data;
+}
+
+// ===== Admin Collaboration Roles =====
+
+export async function apiAdminListCollaborationRoles(): Promise<{
+  roles: CollaborationRole[];
+  capabilities: CollaborationCapabilityDefinition[];
+}> {
+  const res = await apiFetch("/admin/collaboration-roles");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch collaboration roles");
+  return data;
+}
+
+export async function apiAdminCreateCollaborationRole(opts: {
+  name: string;
+  description?: string;
+  capabilities: CollaborationCapability[];
+}): Promise<CollaborationRole> {
+  const res = await apiFetch("/admin/collaboration-roles", {
+    method: "POST",
+    body: JSON.stringify(opts),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to create collaboration role");
+  return data.role;
+}
+
+export async function apiAdminUpdateCollaborationRole(
+  id: string,
+  opts: {
+    name?: string;
+    description?: string;
+    capabilities?: CollaborationCapability[];
+  },
+): Promise<CollaborationRole> {
+  const res = await apiFetch("/admin/collaboration-roles", {
+    method: "PUT",
+    body: JSON.stringify({ id, ...opts }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update collaboration role");
+  return data.role;
 }
 
 // ===== Admin User Reset =====

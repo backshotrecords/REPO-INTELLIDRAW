@@ -3,6 +3,14 @@ import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { encrypt, decrypt } from "../lib/crypto.js";
 
+function isMissingApiKeyRequestColumns(error: { code?: string; message?: string } | null | undefined) {
+  return (
+    error?.code === "42703" ||
+    error?.code === "PGRST204" ||
+    error?.message?.includes("api_key_request_")
+  );
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
   if (!authPayload) {
@@ -22,15 +30,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const encryptedKey = encrypt(apiKey);
 
-      const { error } = await supabase
+      let { error } = await supabase
         .from("users")
         .update({
           api_key_encrypted: encryptedKey,
           api_key_source: "user",
           api_key_updated_at: new Date().toISOString(),
           api_key_managed_by: null,
+          api_key_request_status: "fulfilled",
         })
         .eq("id", userId);
+
+      if (isMissingApiKeyRequestColumns(error)) {
+        const fallback = await supabase
+          .from("users")
+          .update({
+            api_key_encrypted: encryptedKey,
+            api_key_source: "user",
+            api_key_updated_at: new Date().toISOString(),
+            api_key_managed_by: null,
+          })
+          .eq("id", userId);
+        error = fallback.error;
+      }
 
       if (error) {
         return res.status(500).json({ error: "Failed to save API key" });
@@ -74,15 +96,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // DELETE /api/settings/apikey — Remove the API key
   if (req.method === "DELETE") {
     try {
-      const { error } = await supabase
+      let { error } = await supabase
         .from("users")
         .update({
           api_key_encrypted: null,
           api_key_source: "user",
           api_key_updated_at: new Date().toISOString(),
           api_key_managed_by: null,
+          api_key_request_status: "none",
+          api_key_requested_at: null,
+          api_key_request_channel: null,
         })
         .eq("id", userId);
+
+      if (isMissingApiKeyRequestColumns(error)) {
+        const fallback = await supabase
+          .from("users")
+          .update({
+            api_key_encrypted: null,
+            api_key_source: "user",
+            api_key_updated_at: new Date().toISOString(),
+            api_key_managed_by: null,
+          })
+          .eq("id", userId);
+        error = fallback.error;
+      }
 
       if (error) {
         return res.status(500).json({ error: "Failed to delete API key" });
