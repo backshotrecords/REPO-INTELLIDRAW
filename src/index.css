@@ -1082,7 +1082,7 @@
 .dashboard-card-drag-handle.is-project-side {
   top: 50%;
   right: auto;
-  left: 1.75rem;
+  left: 2.15rem;
   transform: translateY(-50%);
   border: 1px solid rgba(169, 178, 191, 0.74);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.94));
