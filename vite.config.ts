@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: process.env.VITE_DEV_API_PROXY_TARGET || 'https://intellidraw.app',
         changeOrigin: true,
       },
     },

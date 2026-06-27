@@ -42,6 +42,11 @@ type MenuState = { type: "canvas" | "project"; id: string } | null;
 type ProjectDraft = { title: string; description: string; accent: ProjectAccent };
 type DashboardDragItem = { kind: "canvas" | "project"; id: string; title: string };
 type DashboardDropState = "valid" | "invalid" | null;
+const ROOT_MOVE_TARGET_KEY = "__root__";
+
+function getMoveTargetKey(projectId: string | null) {
+  return projectId ?? ROOT_MOVE_TARGET_KEY;
+}
 
 function hasItemCapability(
   item: { access_level?: string; capabilities?: CollaborationCapability[] } | null | undefined,
@@ -98,6 +103,7 @@ export default function DashboardPage() {
   const [collabProjectId, setCollabProjectId] = useState<string | null>(null);
   const [movingCanvasId, setMovingCanvasId] = useState<string | null>(null);
   const [movingProjectId, setMovingProjectId] = useState<string | null>(null);
+  const [movePendingTargetKey, setMovePendingTargetKey] = useState<string | null>(null);
   const [dragItem, setDragItem] = useState<DashboardDragItem | null>(null);
   const [dragTargetProjectId, setDragTargetProjectId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -112,6 +118,7 @@ export default function DashboardPage() {
   const loadMoreThumbsRef = useRef<HTMLSpanElement>(null);
   const projectContextRefreshesRef = useRef<Set<string>>(new Set());
   const activeProjectContextRequestRef = useRef<string | null>(null);
+  const movePendingRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { registerReconnectHandler, setReconnectMessage } = useConnectivity();
@@ -354,6 +361,13 @@ export default function DashboardPage() {
     navigate("/user-management");
   }
 
+  function closeMoveDialog(kind: "canvas" | "project") {
+    if (movePendingRef.current) return;
+    setMovePendingTargetKey(null);
+    if (kind === "canvas") setMovingCanvasId(null);
+    else setMovingProjectId(null);
+  }
+
   function refreshProjectContextInBackground(projectId: string) {
     if (projectContextRefreshesRef.current.has(projectId)) return;
     projectContextRefreshesRef.current.add(projectId);
@@ -497,7 +511,9 @@ export default function DashboardPage() {
   }
 
   async function handleMoveCanvas(targetProjectId: string | null) {
-    if (!movingCanvas) return;
+    if (!movingCanvas || movePendingRef.current) return;
+    movePendingRef.current = true;
+    setMovePendingTargetKey(getMoveTargetKey(targetProjectId));
     try {
       await moveDashboardItem({ kind: "canvas", id: movingCanvas.id, title: movingCanvas.title }, targetProjectId);
       setMovingCanvasId(null);
@@ -505,19 +521,26 @@ export default function DashboardPage() {
     } catch (err) {
       console.error("Failed to move canvas:", err);
       setError(err instanceof Error ? err.message : "Failed to move canvas");
+    } finally {
+      movePendingRef.current = false;
+      setMovePendingTargetKey(null);
     }
   }
 
   async function handleMoveProject(targetProjectId: string | null) {
-    if (!movingProject) return;
+    if (!movingProject || movePendingRef.current) return;
+    movePendingRef.current = true;
+    setMovePendingTargetKey(getMoveTargetKey(targetProjectId));
     try {
       await moveDashboardItem({ kind: "project", id: movingProject.id, title: movingProject.title }, targetProjectId);
       setMovingProjectId(null);
       setMenuOpen(null);
-      navigateToProject(targetProjectId);
     } catch (err) {
       console.error("Failed to move project:", err);
       setError(err instanceof Error ? err.message : "Failed to move project");
+    } finally {
+      movePendingRef.current = false;
+      setMovePendingTargetKey(null);
     }
   }
 
@@ -974,7 +997,8 @@ export default function DashboardPage() {
           blockedIds={new Set()}
           showRootOption={Boolean(movingCanvas.project_id) && movingCanvas.access_level !== "edit" && movingCanvas.access_level !== "view"}
           projectCanvasCounts={projectCanvasCounts}
-          onClose={() => setMovingCanvasId(null)}
+          pendingTargetKey={movePendingTargetKey}
+          onClose={() => closeMoveDialog("canvas")}
           onMove={(projectId) => void handleMoveCanvas(projectId)}
         />
       )}
@@ -987,7 +1011,8 @@ export default function DashboardPage() {
           blockedIds={getProjectAndDescendantIds(movingProject.id, projects)}
           showRootOption={Boolean(movingProject.parent_project_id) && movingProject.access_level !== "edit" && movingProject.access_level !== "view"}
           projectCanvasCounts={projectCanvasCounts}
-          onClose={() => setMovingProjectId(null)}
+          pendingTargetKey={movePendingTargetKey}
+          onClose={() => closeMoveDialog("project")}
           onMove={(projectId) => void handleMoveProject(projectId)}
         />
       )}
@@ -1151,7 +1176,7 @@ function ProjectCard({
       {canMove && (
         <>
           <svg className="project-card-drag-backing" viewBox="0 0 120 200" aria-hidden="true" focusable="false">
-            <path d="M 0,0 L 0,40 C 0,100 88,55 88,100 C 88,145 0,100 0,160 L 0,200 Z" />
+            <path d="M 0,0 L 0,23 C 0,100 104,40 104,100 C 104,160 0,100 0,177 L 0,200 Z" />
           </svg>
           <button
             type="button"
@@ -1199,7 +1224,7 @@ function ProjectCard({
           </div>
         )}
       </div>
-      <div className="absolute left-5 bottom-4 z-40" ref={menuOpen ? menuRef : undefined}>
+      <div className="project-card-menu-layer absolute left-5 bottom-4 z-40" ref={menuOpen ? menuRef : undefined}>
         <button
           type="button"
           onClick={(event) => {
@@ -1595,9 +1620,31 @@ function CreateChoiceDialog({
   );
 }
 
-function ChoiceButton({ icon, title, description, fill, onClick }: { icon: string; title: string; description: string; fill?: boolean; onClick: () => void }) {
+function ChoiceButton({
+  icon,
+  title,
+  description,
+  fill,
+  busy,
+  disabled,
+  onClick,
+}: {
+  icon: string;
+  title: string;
+  description: string;
+  fill?: boolean;
+  busy?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
   return (
-    <button type="button" onClick={onClick} className="w-full flex items-center gap-4 rounded-xl px-4 py-4 text-left hover:bg-surface-container-low transition-colors">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-busy={busy || undefined}
+      className={`w-full flex items-center gap-4 rounded-xl px-4 py-4 text-left transition-colors ${disabled ? busy ? "cursor-wait opacity-80" : "cursor-not-allowed opacity-50" : "hover:bg-surface-container-low"}`}
+    >
       <span className="w-12 h-12 rounded-xl bg-surface-container-high text-primary flex items-center justify-center">
         <span className={`material-symbols-outlined ${fill ? "fill" : ""}`}>{icon}</span>
       </span>
@@ -1605,7 +1652,9 @@ function ChoiceButton({ icon, title, description, fill, onClick }: { icon: strin
         <strong className="block text-on-surface">{title}</strong>
         <small className="block text-on-surface-variant">{description}</small>
       </span>
-      <span className="material-symbols-outlined text-on-surface-variant">chevron_right</span>
+      <span className={`material-symbols-outlined ${busy ? "text-primary animate-spin" : "text-on-surface-variant"}`}>
+        {busy ? "progress_activity" : "chevron_right"}
+      </span>
     </button>
   );
 }
@@ -1903,6 +1952,7 @@ function MoveToProjectDialog({
   blockedIds,
   showRootOption,
   projectCanvasCounts,
+  pendingTargetKey,
   onClose,
   onMove,
 }: {
@@ -1912,18 +1962,21 @@ function MoveToProjectDialog({
   blockedIds: Set<string>;
   showRootOption: boolean;
   projectCanvasCounts: Map<string, number>;
+  pendingTargetKey: string | null;
   onClose: () => void;
   onMove: (projectId: string | null) => void;
 }) {
+  const isMoving = Boolean(pendingTargetKey);
   const destinations = projects.filter((project) => {
     if (blockedIds.has(project.id)) return false;
     return mode === "canvas"
       ? hasItemCapability(project, "canvas.create")
       : hasItemCapability(project, "project.create_folder");
   });
+  const rootBusy = pendingTargetKey === getMoveTargetKey(null);
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center pt-16 px-4">
-      <button type="button" className="absolute inset-0 bg-primary/30 backdrop-blur-sm" aria-label="Close move dialog" onClick={onClose} />
+      <button type="button" disabled={isMoving} className="absolute inset-0 bg-primary/30 backdrop-blur-sm disabled:cursor-wait" aria-label="Close move dialog" onClick={onClose} />
       <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-ambient-lg p-6">
         <div className="flex items-start justify-between gap-4 mb-5">
           <div>
@@ -1931,21 +1984,37 @@ function MoveToProjectDialog({
             <h3 className="text-2xl font-extrabold text-primary">Choose a destination</h3>
             <p className="text-sm text-on-surface-variant">{title}</p>
           </div>
-          <button type="button" className="p-2 rounded-full hover:bg-surface-container-low" onClick={onClose} aria-label="Close">
+          <button type="button" disabled={isMoving} className="p-2 rounded-full hover:bg-surface-container-low disabled:cursor-wait disabled:opacity-50" onClick={onClose} aria-label="Close">
             <span className="material-symbols-outlined">close</span>
           </button>
         </div>
         <div className="max-h-[55vh] overflow-y-auto space-y-2 pr-1">
-          {showRootOption && <ChoiceButton icon="dashboard" title="Back to Dashboard" description={`Move this ${mode} to the root dashboard`} onClick={() => onMove(null)} />}
-          {destinations.map((project) => (
+          {showRootOption && (
             <ChoiceButton
-              key={project.id}
-              icon="folder"
-              title={project.title}
-              description={`${projectCanvasCounts.get(project.id) ?? 0} canvas${(projectCanvasCounts.get(project.id) ?? 0) === 1 ? "" : "es"} · Modified ${timeAgo(project.updated_at)}`}
-              onClick={() => onMove(project.id)}
-              fill
+              icon="dashboard"
+              title="Back to Dashboard"
+              description={rootBusy ? `Moving this ${mode}...` : `Move this ${mode} to the root dashboard`}
+              busy={rootBusy}
+              disabled={isMoving}
+              onClick={() => onMove(null)}
             />
+          )}
+          {destinations.map((project) => (
+            (() => {
+              const projectBusy = pendingTargetKey === getMoveTargetKey(project.id);
+              return (
+                <ChoiceButton
+                  key={project.id}
+                  icon="folder"
+                  title={project.title}
+                  description={projectBusy ? `Moving this ${mode}...` : `${projectCanvasCounts.get(project.id) ?? 0} canvas${(projectCanvasCounts.get(project.id) ?? 0) === 1 ? "" : "es"} · Modified ${timeAgo(project.updated_at)}`}
+                  busy={projectBusy}
+                  disabled={isMoving}
+                  onClick={() => onMove(project.id)}
+                  fill
+                />
+              );
+            })()
           ))}
         </div>
       </div>

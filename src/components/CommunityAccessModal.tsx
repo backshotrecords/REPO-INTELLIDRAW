@@ -95,17 +95,37 @@ export function CommunityAccessModal({
     await completeJoin();
   };
 
-  const requestCopy = useMemo(() => {
+  const cardCopy = useMemo(() => {
     if (hasApiKey) {
-      return "Join the IntelliDraw community for feature drops, support, and canvas ideas from other builders.";
+      return {
+        headline: "Get Help in the Community",
+        body: "Join WhatsApp for setup help, feature updates, and canvas ideas from other builders.",
+        slideLabel: "Slide to join WhatsApp",
+        ariaLabel: "Join WhatsApp community",
+      };
     }
     if (requestStatus === "requested") {
-      return "Your access key request is in the admin queue. Join the community for updates while it gets handled.";
+      return {
+        headline: "API Key Request Sent",
+        body: "Your request is in the admin queue. Join WhatsApp for updates and help while it gets handled.",
+        slideLabel: "Slide to open WhatsApp",
+        ariaLabel: "Open WhatsApp community",
+      };
     }
     if (source === "help") {
-      return "Join the IntelliDraw community to get help, access updates, and request a managed key.";
+      return {
+        headline: "Request Your API Key",
+        body: "Join the WhatsApp community to request access from an admin, get setup help, and ask questions.",
+        slideLabel: "Slide to request access",
+        ariaLabel: "Request API key access through WhatsApp",
+      };
     }
-    return "Join the IntelliDraw community to request your access key and connect with other canvas creators.";
+    return {
+      headline: "Get Your Access Key Now",
+      body: "Join WhatsApp to request access from an admin and get other help.",
+      slideLabel: "Slide to request access",
+      ariaLabel: "Request API key access through WhatsApp",
+    };
   }, [hasApiKey, requestStatus, source]);
 
   if (!open) return null;
@@ -133,11 +153,11 @@ export function CommunityAccessModal({
             Official Group
           </div>
 
-          <h2 className="mb-4 font-headline text-[34px] font-extrabold leading-tight tracking-normal text-[#090f20] sm:text-[40px]">
-            Canvas Community
+          <h2 className="mb-4 max-w-[460px] font-headline text-[42px] font-extrabold leading-[1.05] tracking-normal text-[#090f20] sm:text-[54px]">
+            {cardCopy.headline}
           </h2>
-          <p className="mx-auto mb-9 max-w-[430px] text-[17px] leading-8 tracking-normal text-on-surface-variant">
-            {requestCopy}
+          <p className="mx-auto mb-9 max-w-[430px] text-[16px] font-semibold leading-7 tracking-normal text-on-surface-variant sm:text-[18px]">
+            {cardCopy.body}
           </p>
 
           <div className="mb-5 flex items-center justify-center">
@@ -165,7 +185,7 @@ export function CommunityAccessModal({
             }`}
           >
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-24 text-base font-extrabold text-white sm:text-lg">
-              {completed ? "Opening WhatsApp..." : "Slide to join WhatsApp"}
+              {completed ? "Opening WhatsApp..." : cardCopy.slideLabel}
             </div>
             <button
               type="button"
@@ -176,7 +196,7 @@ export function CommunityAccessModal({
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerUp}
               onKeyDown={handleKeyDown}
-              aria-label="Join WhatsApp community"
+              aria-label={cardCopy.ariaLabel}
               disabled={requesting}
             >
               <span className="material-symbols-outlined text-[34px]">arrow_forward</span>
