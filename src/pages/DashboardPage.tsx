@@ -1151,7 +1151,7 @@ function ProjectCard({
       {canMove && (
         <>
           <svg className="project-card-drag-backing" viewBox="0 0 120 200" aria-hidden="true" focusable="false">
-            <path d="M 0,0 L 0,40 C 0,75 75,65 75,100 C 75,135 0,125 0,160 L 0,200 Z" />
+            <path d="M 0,0 L 0,40 C 0,75 95,65 95,100 C 95,135 0,125 0,160 L 0,200 Z" />
           </svg>
           <button
             type="button"
