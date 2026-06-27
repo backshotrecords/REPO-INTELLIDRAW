@@ -1771,13 +1771,13 @@
 
 .project-card-drag-backing {
   position: absolute !important;
-  left: -0.7rem;
-  top: 48%;
+  left: 0;
+  top: 54%;
   z-index: 42 !important;
-  width: 5.9rem;
-  height: 6.2rem;
-  color: rgba(222, 226, 233, 0.94);
-  filter: drop-shadow(0 12px 18px rgba(4, 22, 39, 0.08));
+  width: 4.6rem;
+  height: 9.2rem;
+  color: #e0e2e7;
+  filter: drop-shadow(0 12px 18px rgba(4, 22, 39, 0.07));
   pointer-events: none;
   transform: translateY(-50%);
 }
