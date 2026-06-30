@@ -268,6 +268,7 @@ type RuleRow = {
   feature_key: string;
   enabled: boolean;
   quota: number | null;
+  reset_period_days: number;
 };
 
 export type FeatureAccess = {
@@ -277,6 +278,7 @@ export type FeatureAccess = {
   category: string;
   enabled: boolean;
   quota: number | null;
+  resetPeriodDays: number;
   requiredPlan: string;
   defaultRequiredPlan: string;
 };
@@ -300,6 +302,10 @@ function defaultEnabledFor(planId: string, feature: FeatureDefinition) {
 
 function defaultQuotaFor(planId: string, feature: FeatureDefinition) {
   return feature.defaultQuotas?.[planId as SubscriptionPlanId] ?? null;
+}
+
+function defaultResetPeriodFor() {
+  return 0;
 }
 
 async function seedEntitlementData() {
@@ -329,9 +335,13 @@ async function seedEntitlementData() {
         feature_key TEXT NOT NULL REFERENCES feature_flags(key) ON DELETE CASCADE,
         enabled BOOLEAN NOT NULL DEFAULT FALSE,
         quota INTEGER,
+        reset_period_days INTEGER NOT NULL DEFAULT 0,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (plan_id, feature_key)
       );
+
+      ALTER TABLE plan_feature_rules
+        ADD COLUMN IF NOT EXISTS reset_period_days INTEGER NOT NULL DEFAULT 0;
 
       CREATE TABLE IF NOT EXISTS user_subscriptions (
         user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -341,6 +351,15 @@ async function seedEntitlementData() {
         updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS feature_usage_events (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        feature_key TEXT NOT NULL REFERENCES feature_flags(key) ON DELETE CASCADE,
+        amount INTEGER NOT NULL DEFAULT 1,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
       DO $$
@@ -353,10 +372,34 @@ async function seedEntitlementData() {
         END IF;
       END $$;
 
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'plan_feature_rules_reset_period_check'
+        ) THEN
+          ALTER TABLE plan_feature_rules ADD CONSTRAINT plan_feature_rules_reset_period_check
+          CHECK (reset_period_days BETWEEN 0 AND 30);
+        END IF;
+      END $$;
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'feature_usage_events_amount_check'
+        ) THEN
+          ALTER TABLE feature_usage_events ADD CONSTRAINT feature_usage_events_amount_check
+          CHECK (amount > 0);
+        END IF;
+      END $$;
+
       CREATE INDEX IF NOT EXISTS idx_user_subscriptions_plan
         ON user_subscriptions(plan_id, status);
       CREATE INDEX IF NOT EXISTS idx_plan_feature_rules_feature
         ON plan_feature_rules(feature_key);
+      CREATE INDEX IF NOT EXISTS idx_feature_usage_events_user_feature_created
+        ON feature_usage_events(user_id, feature_key, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_feature_usage_events_feature_created
+        ON feature_usage_events(feature_key, created_at DESC);
     `,
   });
 
@@ -401,6 +444,7 @@ async function seedEntitlementData() {
       feature_key: feature.key,
       enabled: defaultEnabledFor(plan.id, feature),
       quota: defaultQuotaFor(plan.id, feature),
+      reset_period_days: defaultResetPeriodFor(),
     }))
   )).filter((rule) => !existingRuleKeys.has(`${rule.plan_id}:${rule.feature_key}`));
 
@@ -436,6 +480,7 @@ function fallbackRule(planId: string, feature: FeatureRow | FeatureDefinition): 
     feature_key: feature.key,
     enabled: planRank(planId) >= planRank(defaultPlan),
     quota: definition ? defaultQuotaFor(planId, definition) : null,
+    reset_period_days: defaultResetPeriodFor(),
   };
 }
 
@@ -480,7 +525,7 @@ export async function getEntitlements(userId: string): Promise<EntitlementSnapsh
     .order("label", { ascending: true });
   const rulesResult = await supabase
     .from("plan_feature_rules")
-    .select("plan_id, feature_key, enabled, quota");
+    .select("plan_id, feature_key, enabled, quota, reset_period_days");
 
   const plans = ((plansResult.data || []) as PlanRow[]).length > 0
     ? (plansResult.data || []) as PlanRow[]
@@ -513,6 +558,7 @@ export async function getEntitlements(userId: string): Promise<EntitlementSnapsh
       category: feature.category || "General",
       enabled: Boolean(planRule.enabled),
       quota: planRule.quota ?? null,
+      resetPeriodDays: Math.max(0, Math.min(30, planRule.reset_period_days ?? 0)),
       requiredPlan: lowestEnabledPlan(feature.key, plans, featureRules),
       defaultRequiredPlan: feature.default_required_plan,
     };
@@ -531,8 +577,9 @@ export class EntitlementError extends Error {
   code: "FEATURE_NOT_INCLUDED" | "FEATURE_QUOTA_EXCEEDED";
   feature: FeatureAccess;
   plan: PlanRow;
+  usage: number | null;
 
-  constructor(code: "FEATURE_NOT_INCLUDED" | "FEATURE_QUOTA_EXCEEDED", feature: FeatureAccess, plan: PlanRow) {
+  constructor(code: "FEATURE_NOT_INCLUDED" | "FEATURE_QUOTA_EXCEEDED", feature: FeatureAccess, plan: PlanRow, usage: number | null = null) {
     const required = feature.requiredPlan === "free" ? "Free" : feature.requiredPlan.toUpperCase();
     super(code === "FEATURE_QUOTA_EXCEEDED"
       ? `${feature.label} limit reached for your ${plan.name} plan.`
@@ -540,6 +587,7 @@ export class EntitlementError extends Error {
     this.code = code;
     this.feature = feature;
     this.plan = plan;
+    this.usage = usage;
   }
 }
 
@@ -557,6 +605,7 @@ export async function getFeatureAccess(userId: string, key: FeatureKey) {
         category: definition.category,
         enabled: defaultEnabledFor(entitlements.plan.id, definition),
         quota: defaultQuotaFor(entitlements.plan.id, definition),
+        resetPeriodDays: defaultResetPeriodFor(),
         requiredPlan: definition.defaultPlan,
         defaultRequiredPlan: definition.defaultPlan,
       },
@@ -583,13 +632,62 @@ export async function isFeatureEnabled(userId: string, key: FeatureKey) {
   }
 }
 
-export async function requireFeatureQuota(userId: string, key: FeatureKey, usage: number) {
+export async function getFeatureUsageCount(userId: string, key: FeatureKey, resetPeriodDays: number) {
+  await ensureEntitlementSchema();
+  let query = supabase
+    .from("feature_usage_events")
+    .select("amount")
+    .eq("user_id", userId)
+    .eq("feature_key", key);
+
+  if (resetPeriodDays > 0) {
+    const windowStart = new Date(Date.now() - resetPeriodDays * 24 * 60 * 60 * 1000).toISOString();
+    query = query.gte("created_at", windowStart);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.error("Feature usage count failed:", error);
+    return 0;
+  }
+
+  return ((data || []) as Array<{ amount?: number | null }>).reduce(
+    (total, row) => total + Math.max(0, Number(row.amount || 0)),
+    0,
+  );
+}
+
+export async function requireFeatureQuota(userId: string, key: FeatureKey, usage?: number) {
   const access = await requireFeature(userId, key);
-  if (access.quota !== null && usage >= access.quota) {
-    const snapshot = await getEntitlements(userId);
-    throw new EntitlementError("FEATURE_QUOTA_EXCEEDED", access, snapshot.plan);
+  if (access.quota !== null) {
+    const effectiveUsage = access.resetPeriodDays > 0 || usage === undefined
+      ? await getFeatureUsageCount(userId, key, access.resetPeriodDays)
+      : usage;
+
+    if (effectiveUsage >= access.quota) {
+      const snapshot = await getEntitlements(userId);
+      throw new EntitlementError("FEATURE_QUOTA_EXCEEDED", access, snapshot.plan, effectiveUsage);
+    }
   }
   return access;
+}
+
+export async function recordFeatureUsage(userId: string, key: FeatureKey, amount = 1, metadata: Record<string, unknown> = {}) {
+  const normalizedAmount = Math.max(1, Math.floor(Number(amount) || 1));
+  try {
+    await ensureEntitlementSchema();
+    const { error } = await supabase
+      .from("feature_usage_events")
+      .insert({
+        user_id: userId,
+        feature_key: key,
+        amount: normalizedAmount,
+        metadata,
+      });
+    if (error) console.error("Feature usage record failed:", error);
+  } catch (err) {
+    console.error("Feature usage record failed:", err);
+  }
 }
 
 export function sendEntitlementError(res: VercelResponse, err: EntitlementError) {
@@ -601,6 +699,8 @@ export function sendEntitlementError(res: VercelResponse, err: EntitlementError)
     planId: err.plan.id,
     requiredPlan: err.feature.requiredPlan,
     quota: err.feature.quota,
+    resetPeriodDays: err.feature.resetPeriodDays,
+    usage: err.usage,
   });
 }
 

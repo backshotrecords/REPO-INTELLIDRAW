@@ -832,6 +832,7 @@ export async function apiAdminUpdateFeatureRule(opts: {
   featureKey: string;
   enabled: boolean;
   quota?: number | null;
+  resetPeriodDays?: number;
 }): Promise<AdminFeatureMatrix> {
   const res = await apiFetch("/admin/features", {
     method: "PUT",

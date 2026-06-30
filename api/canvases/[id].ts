@@ -3,7 +3,7 @@ import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { normalizeProjectId, touchProjectAncestors } from "../lib/canvas-projects.js";
 import { deleteCanvasForUser } from "../lib/canvas-lifecycle.js";
-import { isEntitlementError, requireFeature, sendEntitlementError } from "../lib/entitlements.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../lib/entitlements.js";
 import { canOwn, getCanvasAccess, getProjectAccess, hasCapability, withAccessMetadata } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -54,7 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       if (hasPublishChange && isPublic === true) {
-        await requireFeature(userId, "canvas.publish_public");
+        await requireFeatureQuota(userId, "canvas.publish_public");
       }
 
       if (hasArchiveChange && !hasCapability(access, "canvas.archive")) {
@@ -118,6 +118,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const previousProjectId = access.canvas.project_id as string | null | undefined;
         await touchProjectAncestors(previousProjectId, access.ownerUserId, now);
         if (nextProjectId !== previousProjectId) await touchProjectAncestors(nextProjectId, access.ownerUserId, now);
+      }
+
+      if (hasPublishChange && isPublic === true) {
+        await recordFeatureUsage(userId, "canvas.publish_public", 1, {
+          canvasId,
+        });
       }
 
       return res.status(200).json({ canvas: withAccessMetadata(data as Record<string, unknown>, access.projectAccess ?? access) });

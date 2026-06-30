@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { decrypt } from "../lib/crypto.js";
-import { isEntitlementError, requireFeature, sendEntitlementError } from "../lib/entitlements.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../lib/entitlements.js";
 import OpenAI from "openai";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -14,7 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!skill_note_id || !canvas_id) return res.status(400).json({ error: "skill_note_id and canvas_id required" });
 
   try {
-    await requireFeature(auth.userId, "skills.trigger_manual");
+    await requireFeatureQuota(auth.userId, "skills.trigger_manual");
   } catch (err) {
     if (isEntitlementError(err)) return sendEntitlementError(res, err);
     return res.status(500).json({ error: "Failed to check feature access" });
@@ -59,6 +59,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const aiResponse = completion.choices[0]?.message?.content || "";
   const mermaidMatch = aiResponse.match(/```mermaid\n([\s\S]*?)```/);
   const updatedMermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
+  await recordFeatureUsage(auth.userId, "skills.trigger_manual", 1, {
+    skillNoteId: skill_note_id,
+    canvasId: canvas_id,
+    model: modelId,
+  });
 
   return res.json({ response: aiResponse, updatedMermaidCode, skillTitle: skill.title });
 }

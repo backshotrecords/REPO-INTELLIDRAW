@@ -13,7 +13,7 @@ import {
   loadRoleCapabilityMap,
   roleSummaryForShareRow,
 } from "../lib/collaboration-roles.js";
-import { isEntitlementError, requireFeature, sendEntitlementError } from "../lib/entitlements.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../lib/entitlements.js";
 import { getProjectAccess, hasCapability, withAccessMetadata } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -205,7 +205,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const parentId = normalizeProjectId(parentProjectId);
 
     try {
-      await requireFeature(userId, "project.create");
+      const { count } = await supabase
+        .from("canvas_projects")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId);
+      await requireFeatureQuota(userId, "project.create", count || 0);
 
       let ownerUserId = userId;
       let inheritedAccess = null as Awaited<ReturnType<typeof getProjectAccess>> | null;
@@ -240,6 +244,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       if (parentId) await touchProjectAncestors(parentId, ownerUserId, now);
+      await recordFeatureUsage(userId, "project.create", 1, {
+        parentProjectId: parentId || null,
+      });
 
       return res.status(201).json({
         project: withAccessMetadata(

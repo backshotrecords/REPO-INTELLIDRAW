@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { decrypt } from "../lib/crypto.js";
-import { isEntitlementError, requireFeature, sendEntitlementError } from "../lib/entitlements.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../lib/entitlements.js";
 import OpenAI from "openai";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -22,7 +22,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    await requireFeature(authPayload.userId, "canvas.ai_chat");
+    await requireFeatureQuota(authPayload.userId, "canvas.ai_chat");
 
     // Get user's API key and active model
     const { data: user } = await supabase
@@ -72,6 +72,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const raw = completion.choices[0]?.message?.content || "Untitled Canvas";
     // Strip surrounding quotes / trailing punctuation the model may add
     const suggestedName = (raw.replace(/^["']+|["']+$/g, "").trim() || "Untitled Canvas").slice(0, 80);
+    await recordFeatureUsage(authPayload.userId, "canvas.ai_chat", 1, {
+      action: "suggest_name",
+      model: modelId,
+    });
 
     return res.status(200).json({ suggestedName });
   } catch (err: unknown) {

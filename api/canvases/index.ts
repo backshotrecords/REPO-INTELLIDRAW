@@ -10,6 +10,7 @@ import {
 } from "../lib/collaboration-roles.js";
 import {
   isEntitlementError,
+  recordFeatureUsage,
   requireFeatureQuota,
   sendEntitlementError,
 } from "../lib/entitlements.js";
@@ -196,6 +197,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       if (parentProjectId) await touchProjectAncestors(parentProjectId, ownerUserId, now);
+      await recordFeatureUsage(userId, "canvas.create", 1, {
+        projectId: parentProjectId || null,
+      });
 
       return res.status(201).json({
         canvas: withAccessMetadata(

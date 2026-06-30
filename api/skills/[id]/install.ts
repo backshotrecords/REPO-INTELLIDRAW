@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
-import { isEntitlementError, requireFeature, sendEntitlementError } from "../../lib/entitlements.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../../lib/entitlements.js";
 import { canInstallSkill, enrichSkillForUser, getActiveInstallation } from "../../lib/skill-marketplace.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -13,7 +13,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!id || typeof id !== "string") return res.status(400).json({ error: "Missing skill id" });
 
   try {
-    await requireFeature(auth.userId, "skills.install_marketplace");
+    const { count } = await supabase
+      .from("skill_installations")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", auth.userId)
+      .eq("status", "active");
+    await requireFeatureQuota(auth.userId, "skills.install_marketplace", count || 0);
   } catch (err) {
     if (isEntitlementError(err)) return sendEntitlementError(res, err);
     return res.status(500).json({ error: "Failed to check feature access" });
@@ -42,6 +47,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }).select("*").single();
 
   if (error) return res.status(500).json({ error: error.message || "Failed to install skill" });
+  await recordFeatureUsage(auth.userId, "skills.install_marketplace", 1, {
+    skillId: id,
+    installationId: installation.id,
+  });
   return res.status(201).json({
     installation,
     skill: await enrichSkillForUser(source as Record<string, unknown>, auth.userId),

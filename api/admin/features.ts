@@ -19,12 +19,16 @@ async function buildMatrix() {
   const snapshot = await getEntitlements("00000000-0000-0000-0000-000000000000");
   const { data: rules } = await supabase
     .from("plan_feature_rules")
-    .select("plan_id, feature_key, enabled, quota");
+    .select("plan_id, feature_key, enabled, quota, reset_period_days");
 
-  const rulesByFeature = new Map<string, Record<string, { enabled: boolean; quota: number | null }>>();
-  for (const rule of (rules || []) as Array<{ plan_id: string; feature_key: string; enabled: boolean; quota: number | null }>) {
+  const rulesByFeature = new Map<string, Record<string, { enabled: boolean; quota: number | null; resetPeriodDays: number }>>();
+  for (const rule of (rules || []) as Array<{ plan_id: string; feature_key: string; enabled: boolean; quota: number | null; reset_period_days?: number | null }>) {
     const featureRules = rulesByFeature.get(rule.feature_key) ?? {};
-    featureRules[rule.plan_id] = { enabled: Boolean(rule.enabled), quota: rule.quota ?? null };
+    featureRules[rule.plan_id] = {
+      enabled: Boolean(rule.enabled),
+      quota: rule.quota ?? null,
+      resetPeriodDays: Math.max(0, Math.min(30, Number(rule.reset_period_days ?? 0))),
+    };
     rulesByFeature.set(rule.feature_key, featureRules);
   }
 
@@ -57,7 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === "PUT") {
-    const { planId, featureKey, enabled, quota } = req.body || {};
+    const { planId, featureKey, enabled, quota, resetPeriodDays } = req.body || {};
     if (!planId || !featureKey || typeof enabled !== "boolean") {
       return res.status(400).json({ error: "planId, featureKey, and enabled are required" });
     }
@@ -65,6 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const normalizedQuota = quota === null || quota === undefined || quota === ""
       ? null
       : Math.max(0, parseInt(String(quota), 10));
+    const normalizedResetPeriodDays = Math.max(0, Math.min(30, parseInt(String(resetPeriodDays ?? 0), 10) || 0));
 
     try {
       await ensureEntitlementSchema();
@@ -75,6 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           feature_key: String(featureKey),
           enabled,
           quota: Number.isFinite(normalizedQuota) ? normalizedQuota : null,
+          reset_period_days: normalizedResetPeriodDays,
           updated_at: new Date().toISOString(),
         }, { onConflict: "plan_id,feature_key" });
 

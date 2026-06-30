@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "./lib/auth.js";
 import { supabase } from "./lib/db.js";
 import { decrypt } from "./lib/crypto.js";
-import { isEntitlementError, requireFeature, sendEntitlementError } from "./lib/entitlements.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "./lib/entitlements.js";
 import OpenAI from "openai";
 
 /**
@@ -85,7 +85,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    await requireFeature(authPayload.userId, "voice.dictation");
+    await requireFeatureQuota(authPayload.userId, "voice.dictation");
 
     // Parse the multipart body
     const rawBody = await getRawBody(req);
@@ -122,6 +122,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const transcription = await openai.audio.transcriptions.create({
       file: audioFile,
       model: "whisper-1",
+    });
+    await recordFeatureUsage(authPayload.userId, "voice.dictation", 1, {
+      inputBytes: filePart.data.byteLength,
+      mimeType: filePart.mimeType,
     });
 
     return res.status(200).json({ text: transcription.text });

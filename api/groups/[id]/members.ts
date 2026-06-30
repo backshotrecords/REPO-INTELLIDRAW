@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
-import { isEntitlementError, requireFeature, sendEntitlementError } from "../../lib/entitlements.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../../lib/entitlements.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -17,7 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // POST = add member, DELETE = remove member
   if (req.method === "POST") {
     try {
-      await requireFeature(auth.userId, "groups.manage_members");
+      await requireFeatureQuota(auth.userId, "groups.manage_members");
     } catch (err) {
       if (isEntitlementError(err)) return sendEntitlementError(res, err);
       console.error("Group entitlement check failed:", err);
@@ -38,12 +38,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: error.message || "Failed to add member" });
     }
 
+    await recordFeatureUsage(auth.userId, "groups.manage_members", 1, {
+      action: "add_member",
+      groupId: id,
+    });
+
     return res.status(201).json({ member: { ...data, display_name: targetUser.display_name, email: targetUser.email } });
   }
 
   if (req.method === "DELETE") {
     try {
-      await requireFeature(auth.userId, "groups.manage_members");
+      await requireFeatureQuota(auth.userId, "groups.manage_members");
     } catch (err) {
       if (isEntitlementError(err)) return sendEntitlementError(res, err);
       console.error("Group entitlement check failed:", err);
@@ -54,6 +59,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { error } = await supabase.from("group_members").delete()
       .eq("group_id", id).eq("user_id", userId);
     if (error) return res.status(500).json({ error: error.message || "Failed to remove member" });
+    await recordFeatureUsage(auth.userId, "groups.manage_members", 1, {
+      action: "remove_member",
+      groupId: id,
+    });
     return res.json({ success: true });
   }
 

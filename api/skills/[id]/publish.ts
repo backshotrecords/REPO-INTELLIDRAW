@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
-import { isEntitlementError, requireFeature, sendEntitlementError } from "../../lib/entitlements.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../../lib/entitlements.js";
 import { publishSkill } from "../../lib/skill-marketplace.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -16,7 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (is_published !== false && visibility !== "private") {
     try {
-      await requireFeature(auth.userId, "skills.publish_public");
+      await requireFeatureQuota(auth.userId, "skills.publish_public");
     } catch (err) {
       if (isEntitlementError(err)) return sendEntitlementError(res, err);
       return res.status(500).json({ error: "Failed to check feature access" });
@@ -42,5 +42,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const skill = await publishSkill(id, auth.userId, nextVisibility, release_notes || "");
 
   if (!skill) return res.status(404).json({ error: "Skill not found" });
+  await recordFeatureUsage(auth.userId, "skills.publish_public", 1, {
+    skillId: id,
+    visibility: nextVisibility,
+  });
   return res.json({ skill });
 }

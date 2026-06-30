@@ -256,6 +256,7 @@ export interface EntitlementFeature {
   category: string;
   enabled: boolean;
   quota: number | null;
+  resetPeriodDays: number;
   requiredPlan: SubscriptionPlanId;
   defaultRequiredPlan: SubscriptionPlanId;
 }
@@ -274,7 +275,7 @@ export interface AdminFeatureMatrixFeature {
   category: string;
   defaultRequiredPlan: SubscriptionPlanId;
   requiredPlan: SubscriptionPlanId;
-  rules: Record<string, { enabled: boolean; quota: number | null }>;
+  rules: Record<string, { enabled: boolean; quota: number | null; resetPeriodDays: number }>;
 }
 
 export interface AdminFeatureMatrix {

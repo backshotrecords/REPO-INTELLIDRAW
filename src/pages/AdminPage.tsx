@@ -298,12 +298,18 @@ export default function AdminPage() {
     }
   };
 
-  const handleToggleFeatureRule = async (featureKey: string, planId: SubscriptionPlanId, enabled: boolean, quota?: number | null) => {
+  const handleToggleFeatureRule = async (
+    featureKey: string,
+    planId: SubscriptionPlanId,
+    enabled: boolean,
+    quota?: number | null,
+    resetPeriodDays = 0,
+  ) => {
     const savingKey = `${featureKey}:${planId}`;
     setFeatureSavingKey(savingKey);
     setFeatureError("");
     try {
-      setFeatureMatrix(await apiAdminUpdateFeatureRule({ planId, featureKey, enabled, quota }));
+      setFeatureMatrix(await apiAdminUpdateFeatureRule({ planId, featureKey, enabled, quota, resetPeriodDays }));
     } catch (err) {
       setFeatureError(err instanceof Error ? err.message : "Failed to update feature rule");
     } finally {
@@ -311,9 +317,14 @@ export default function AdminPage() {
     }
   };
 
-  const handleQuotaChange = async (featureKey: string, planId: SubscriptionPlanId, rawValue: string, enabled: boolean) => {
+  const handleQuotaChange = async (featureKey: string, planId: SubscriptionPlanId, rawValue: string, enabled: boolean, resetPeriodDays: number) => {
     const quota = rawValue.trim() ? Math.max(0, parseInt(rawValue, 10)) : null;
-    await handleToggleFeatureRule(featureKey, planId, enabled, Number.isFinite(quota) ? quota : null);
+    await handleToggleFeatureRule(featureKey, planId, enabled, Number.isFinite(quota) ? quota : null, resetPeriodDays);
+  };
+
+  const handleResetPeriodChange = async (featureKey: string, planId: SubscriptionPlanId, rawValue: string, enabled: boolean, quota: number | null) => {
+    const resetPeriodDays = rawValue.trim() ? Math.max(0, Math.min(30, parseInt(rawValue, 10))) : 0;
+    await handleToggleFeatureRule(featureKey, planId, enabled, quota, Number.isFinite(resetPeriodDays) ? resetPeriodDays : 0);
   };
 
   const toggleNewRoleCapability = (capability: CollaborationCapability) => {
@@ -1170,7 +1181,7 @@ export default function AdminPage() {
                 <div className="flex items-start gap-3 pt-4 rounded-xl bg-surface-container-lowest px-4 py-3 border border-outline-variant/10">
                   <span className="material-symbols-outlined text-lg text-primary mt-0.5" style={{ fontVariationSettings: "'FILL' 1" }}>verified_user</span>
                   <p className="text-sm text-on-surface-variant leading-relaxed">
-                    Subscription gates are enforced in the production serverless APIs. The toggles here control which plan can use each feature; quotas are optional per-plan limits.
+                    Subscription gates are enforced in the production serverless APIs. Limits are optional per-plan caps; reset days can be 0 for no reset or 1-30 for rolling usage windows.
                   </p>
                 </div>
 
@@ -1194,7 +1205,7 @@ export default function AdminPage() {
                           <div className="h-px flex-1 bg-outline-variant/20" />
                         </div>
                         <div className="overflow-x-auto rounded-xl border border-outline-variant/15">
-                          <table className="w-full min-w-[760px] text-sm">
+                          <table className="w-full min-w-[920px] text-sm">
                             <thead className="bg-surface-container-lowest">
                               <tr>
                                 <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-on-surface-variant">Feature</th>
@@ -1214,7 +1225,7 @@ export default function AdminPage() {
                                     <code className="mt-1 inline-block text-[10px] text-on-surface-variant/60">{feature.key}</code>
                                   </td>
                                   {featureMatrix.plans.map((plan) => {
-                                    const rule = feature.rules[plan.id] ?? { enabled: false, quota: null };
+                                    const rule = feature.rules[plan.id] ?? { enabled: false, quota: null, resetPeriodDays: 0 };
                                     const savingKey = `${feature.key}:${plan.id}`;
                                     const isSaving = featureSavingKey === savingKey;
                                     return (
@@ -1222,7 +1233,7 @@ export default function AdminPage() {
                                         <div className="flex flex-col gap-2">
                                           <button
                                             type="button"
-                                            onClick={() => handleToggleFeatureRule(feature.key, plan.id, !rule.enabled, rule.quota)}
+                                            onClick={() => handleToggleFeatureRule(feature.key, plan.id, !rule.enabled, rule.quota, rule.resetPeriodDays)}
                                             disabled={isSaving}
                                             className={`relative h-7 w-12 rounded-full transition-colors ${rule.enabled ? "bg-primary" : "bg-outline-variant/40"} disabled:opacity-50`}
                                             aria-label={`${rule.enabled ? "Disable" : "Enable"} ${feature.label} for ${plan.name}`}
@@ -1230,14 +1241,25 @@ export default function AdminPage() {
                                             <span className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${rule.enabled ? "translate-x-5" : ""}`} />
                                           </button>
                                           <label className="flex items-center gap-2">
-                                            <span className="text-[10px] font-bold uppercase text-on-surface-variant/60">Quota</span>
+                                            <span className="text-[10px] font-bold uppercase text-on-surface-variant/60">Limit</span>
                                             <input
                                               type="number"
                                               min="0"
                                               defaultValue={rule.quota ?? ""}
                                               placeholder="none"
-                                              onBlur={(event) => handleQuotaChange(feature.key, plan.id, event.currentTarget.value, rule.enabled)}
+                                              onBlur={(event) => handleQuotaChange(feature.key, plan.id, event.currentTarget.value, rule.enabled, rule.resetPeriodDays)}
                                               className="w-20 rounded-lg border border-outline-variant/30 bg-surface-container-lowest px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-primary/20"
+                                            />
+                                          </label>
+                                          <label className="flex items-center gap-2">
+                                            <span className="text-[10px] font-bold uppercase text-on-surface-variant/60">Reset days</span>
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              max="30"
+                                              defaultValue={rule.resetPeriodDays}
+                                              onBlur={(event) => handleResetPeriodChange(feature.key, plan.id, event.currentTarget.value, rule.enabled, rule.quota)}
+                                              className="w-16 rounded-lg border border-outline-variant/30 bg-surface-container-lowest px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-primary/20"
                                             />
                                           </label>
                                         </div>
