@@ -41,7 +41,7 @@ async function validateSignupLink(req: VercelRequest, res: VercelResponse) {
     }
 
     const payload = openSignupPayload(sealedPayload);
-    if (payload.tokenHash !== tokenHash || payload.expiresAt !== record.expires_at) {
+    if (payload.tokenHash !== tokenHash) {
       return res.status(400).json({ error: "Verification link is invalid or expired" });
     }
 
@@ -76,11 +76,7 @@ async function completeSignup(req: VercelRequest, res: VercelResponse) {
     }
 
     const payload = openSignupPayload(sealedPayload);
-    if (payload.tokenHash !== tokenHash || payload.expiresAt !== record.expires_at) {
-      return res.status(400).json({ error: "Verification link is invalid or expired" });
-    }
-
-    if (isSignupTokenExpired(payload.expiresAt)) {
+    if (payload.tokenHash !== tokenHash) {
       return res.status(400).json({ error: "Verification link is invalid or expired" });
     }
 
