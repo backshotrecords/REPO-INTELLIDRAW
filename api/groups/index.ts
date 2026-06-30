@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../lib/entitlements.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -48,6 +49,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "POST") {
     const { name } = req.body || {};
     if (!name) return res.status(400).json({ error: "Group name is required" });
+    try {
+      await requireFeature(auth.userId, "groups.create");
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      console.error("Group entitlement check failed:", err);
+      return res.status(500).json({ error: "Failed to check feature access" });
+    }
     const { data, error } = await supabase.from("user_groups").insert({ name, owner_id: auth.userId }).select("*").single();
     if (error) return res.status(500).json({ error: error.message || "Failed to create group" });
     return res.status(201).json({ group: { ...data, members: [], member_count: 0 } });

@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { decrypt } from "../lib/crypto.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../lib/entitlements.js";
 import OpenAI from "openai";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -11,6 +12,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { skill_note_id, canvas_id, attached_version_id } = req.body || {};
   if (!skill_note_id || !canvas_id) return res.status(400).json({ error: "skill_note_id and canvas_id required" });
+
+  try {
+    await requireFeature(auth.userId, "skills.trigger_manual");
+  } catch (err) {
+    if (isEntitlementError(err)) return sendEntitlementError(res, err);
+    return res.status(500).json({ error: "Failed to check feature access" });
+  }
 
   let skill: Record<string, unknown> | null = null;
   if (attached_version_id) {

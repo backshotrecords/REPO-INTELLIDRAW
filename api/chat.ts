@@ -2,6 +2,12 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "./lib/auth.js";
 import { supabase } from "./lib/db.js";
 import { decrypt } from "./lib/crypto.js";
+import {
+  isEntitlementError,
+  isFeatureEnabled,
+  requireFeature,
+  sendEntitlementError,
+} from "./lib/entitlements.js";
 import OpenAI from "openai";
 
 interface MeetingProcessingMetrics {
@@ -121,6 +127,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    await requireFeature(authPayload.userId, isMeetingTranscript ? "voice.meeting_mode" : "canvas.ai_chat");
+
     // Get user's API key and active model
     const { data: user } = await supabase
       .from("users")
@@ -153,7 +161,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let skillInstructions = "";
     if (canvasId) {
       try {
-        skillInstructions = await loadActiveSkillInstructions(authPayload.userId, canvasId);
+        if (await isFeatureEnabled(authPayload.userId, "skills.trigger_automatic")) {
+          skillInstructions = await loadActiveSkillInstructions(authPayload.userId, canvasId);
+        }
       } catch { /* non-fatal */ }
     }
 
@@ -244,6 +254,7 @@ INSTRUCTIONS:
       ...(meetingMetrics ? { meetingMetrics } : {}),
     });
   } catch (err: unknown) {
+    if (isEntitlementError(err)) return sendEntitlementError(res, err);
     console.error("Chat error:", err);
     const errorMessage = err instanceof Error ? err.message : "Failed to get AI response";
     return res.status(500).json({ error: errorMessage });

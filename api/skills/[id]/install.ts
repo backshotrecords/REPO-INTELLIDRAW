@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../../lib/entitlements.js";
 import { canInstallSkill, enrichSkillForUser, getActiveInstallation } from "../../lib/skill-marketplace.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -10,6 +11,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { id } = req.query;
   if (!id || typeof id !== "string") return res.status(400).json({ error: "Missing skill id" });
+
+  try {
+    await requireFeature(auth.userId, "skills.install_marketplace");
+  } catch (err) {
+    if (isEntitlementError(err)) return sendEntitlementError(res, err);
+    return res.status(500).json({ error: "Failed to check feature access" });
+  }
 
   const { data: source, error: srcErr } = await supabase.from("skill_notes").select("*").eq("id", id).single();
   if (srcErr || !source) return res.status(404).json({ error: "Skill not found" });

@@ -1,10 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import bcrypt from "bcryptjs";
 import { decodeJwt } from "jose";
 import { supabase } from "../lib/db.js";
 import { createToken } from "../lib/auth.js";
-import { DEFAULT_CANVAS_TITLE, DEFAULT_MERMAID_CODE } from "../lib/defaultCanvas.js";
-import crypto from "crypto";
 
 const GOOGLE_CLIENT_ID = process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
@@ -46,8 +43,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     //    (safe to decode without verification since we got it directly from Google's token endpoint)
     const claims = decodeJwt(tokenData.id_token);
     const email = (claims.email as string)?.toLowerCase();
-    const name = (claims.name as string) || (claims.given_name as string) || "User";
-    const googleSub = claims.sub as string;
 
     if (!email) {
       return res.status(400).json({ error: "Could not retrieve email from Google account" });
@@ -81,43 +76,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // 4. New user — create account with a random unguessable password hash
-    const randomPassword = crypto.randomUUID() + crypto.randomUUID();
-    const passwordHash = await bcrypt.hash(randomPassword, 12);
-
-    const { data: newUser, error: insertError } = await supabase
-      .from("users")
-      .insert({
-        email,
-        password_hash: passwordHash,
-        display_name: name,
-      })
-      .select("id, email, display_name")
-      .single();
-
-    if (insertError || !newUser) {
-      console.error("Google register error:", insertError);
-      return res.status(500).json({ error: "Failed to create account" });
-    }
-
-    // Create default canvas
-    await supabase.from("canvases").insert({
-      user_id: newUser.id,
-      title: DEFAULT_CANVAS_TITLE,
-      mermaid_code: DEFAULT_MERMAID_CODE,
-      chat_history: [],
-    });
-
-    // 5. Create JWT
-    const token = await createToken({ userId: newUser.id, email: newUser.email });
-
-    return res.status(201).json({
-      token,
-      user: {
-        id: newUser.id,
-        email: newUser.email,
-        displayName: newUser.display_name,
-      },
+    return res.status(404).json({
+      error: "No account exists for this Google email. Please create an account with email verification first.",
     });
   } catch (err) {
     console.error("Google auth error:", err);

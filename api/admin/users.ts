@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { cascadeDeleteUser } from "../lib/delete-user.js";
+import { ensureEntitlementSchema } from "../lib/entitlements.js";
 
 function isMissingApiKeyRequestColumns(error: { code?: string; message?: string } | null | undefined) {
   return (
@@ -58,6 +59,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Fetch canvas counts per user
       const userIds = (users || []).map((u: Record<string, unknown>) => u.id as string);
       let canvasCounts: Record<string, number> = {};
+      const subscriptionByUserId = new Map<string, { plan_id: string; status: string }>();
+      const planNameById = new Map<string, string>([["free", "Free"]]);
 
       if (userIds.length > 0) {
         const { data: canvases } = await supabase
@@ -69,9 +72,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             canvasCounts[c.user_id] = (canvasCounts[c.user_id] || 0) + 1;
           }
         }
+
+        try {
+          await ensureEntitlementSchema();
+          const { data: plans } = await supabase
+            .from("subscription_plans")
+            .select("id, name");
+          for (const plan of (plans || []) as Array<{ id: string; name: string }>) {
+            planNameById.set(plan.id, plan.name);
+          }
+
+          const { data: subscriptions } = await supabase
+            .from("user_subscriptions")
+            .select("user_id, plan_id, status")
+            .in("user_id", userIds);
+          for (const subscription of (subscriptions || []) as Array<{ user_id: string; plan_id: string; status: string }>) {
+            subscriptionByUserId.set(subscription.user_id, subscription);
+          }
+        } catch (entitlementErr) {
+          console.error("Failed to load user subscription plans:", entitlementErr);
+        }
       }
 
       const usersWithCounts = (users || []).map((u: Record<string, unknown>) => ({
+        subscription_plan_id: subscriptionByUserId.get(u.id as string)?.plan_id || "free",
+        subscription_plan_name: planNameById.get(subscriptionByUserId.get(u.id as string)?.plan_id || "free") || "Free",
+        subscription_status: subscriptionByUserId.get(u.id as string)?.status || "active",
         id: u.id,
         email: u.email,
         display_name: u.display_name,

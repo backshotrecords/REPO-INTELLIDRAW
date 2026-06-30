@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, type CSSProperties } from "react";
+import { useState, useRef, useEffect, useCallback, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { apiTranscribeAudio } from "../lib/api";
 import { getSoundSettings } from "../lib/soundSettings";
@@ -30,6 +30,8 @@ interface VoiceMicButtonProps {
   externalStopSignal?: number;
   inputBarHeight?: number;
   onChunkQueueChange?: (chunks: VoiceQueueChunk[]) => void;
+  allowMeetingMode?: boolean;
+  meetingModeBadge?: ReactNode;
 }
 
 type VoiceState = "idle" | "recording" | "processing" | "success" | "cancelled";
@@ -77,6 +79,8 @@ export default function VoiceMicButton({
   externalStopSignal = 0,
   inputBarHeight = 60,
   onChunkQueueChange,
+  allowMeetingMode = true,
+  meetingModeBadge,
 }: VoiceMicButtonProps) {
   const [mode, setMode] = useState<VoiceMode>("normal");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -126,6 +130,9 @@ export default function VoiceMicButton({
 
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => {
+    if (!allowMeetingMode && mode === "meeting") setMode("normal");
+  }, [allowMeetingMode, mode]);
   useEffect(() => { chunkLengthRef.current = clampChunkLength(chunkLengthMinutes); }, [chunkLengthMinutes]);
   useEffect(() => {
     silenceStopSecondsRef.current = clampSilenceStopSeconds(meetingSilenceStopSeconds);
@@ -634,7 +641,8 @@ export default function VoiceMicButton({
             <button
               key={item}
               type="button"
-              className={`voice-mode-option ${mode === item ? "is-selected" : ""}`}
+              disabled={item === "meeting" && !allowMeetingMode}
+              className={`voice-mode-option ${mode === item ? "is-selected" : ""} ${item === "meeting" && !allowMeetingMode ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => {
                 setMode(item);
                 setMenuOpen(false);
@@ -642,6 +650,7 @@ export default function VoiceMicButton({
             >
               <span className="material-symbols-outlined">{item === "meeting" ? "groups" : "keyboard_voice"}</span>
               <span>{modeLabel(item)}</span>
+              {item === "meeting" && !allowMeetingMode && meetingModeBadge}
               {mode === item && <span className="material-symbols-outlined voice-mode-check">check</span>}
             </button>
           ))}

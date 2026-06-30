@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../../lib/entitlements.js";
 import { publishSkill } from "../../lib/skill-marketplace.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -12,6 +13,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!id || typeof id !== "string") return res.status(400).json({ error: "Missing skill id" });
 
   const { is_published, visibility, release_notes } = req.body || {};
+
+  if (is_published !== false && visibility !== "private") {
+    try {
+      await requireFeature(auth.userId, "skills.publish_public");
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      return res.status(500).json({ error: "Failed to check feature access" });
+    }
+  }
 
   if (is_published === false || visibility === "private") {
     const { data, error } = await supabase.from("skill_notes")

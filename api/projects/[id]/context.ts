@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../../lib/entitlements.js";
 import { ensureProjectContextFresh } from "../../lib/project-context.js";
 import { getProjectAccess } from "../../lib/project-access.js";
 
@@ -21,6 +22,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const force = Boolean(req.body?.force);
 
   try {
+    await requireFeature(authPayload.userId, "project.context");
+
     const access = await getProjectAccess(projectId, authPayload.userId);
     if (!access) return res.status(404).json({ error: "Project not found" });
 
@@ -37,6 +40,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       sourceHash: result.sourceHash,
     });
   } catch (err) {
+    if (isEntitlementError(err)) return sendEntitlementError(res, err);
     const project = typeof err === "object" && err && "project" in err
       ? (err as { project?: unknown }).project
       : null;

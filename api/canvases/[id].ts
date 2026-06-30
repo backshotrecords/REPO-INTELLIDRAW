@@ -3,6 +3,7 @@ import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { normalizeProjectId, touchProjectAncestors } from "../lib/canvas-projects.js";
 import { deleteCanvasForUser } from "../lib/canvas-lifecycle.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../lib/entitlements.js";
 import { canOwn, getCanvasAccess, getProjectAccess, hasCapability, withAccessMetadata } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -50,6 +51,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (hasPublishChange && !hasCapability(access, "canvas.publish")) {
         return res.status(403).json({ error: "You do not have permission to publish this canvas" });
+      }
+
+      if (hasPublishChange && isPublic === true) {
+        await requireFeature(userId, "canvas.publish_public");
       }
 
       if (hasArchiveChange && !hasCapability(access, "canvas.archive")) {
@@ -117,6 +122,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       return res.status(200).json({ canvas: withAccessMetadata(data as Record<string, unknown>, access.projectAccess ?? access) });
     } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
       console.error("Update canvas error:", err);
       return res.status(500).json({ error: "Internal server error" });
     }

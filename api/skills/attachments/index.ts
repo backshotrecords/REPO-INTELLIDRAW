@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../../lib/entitlements.js";
 
 const VALID_SCOPES = new Set(["local", "global"]);
 const VALID_TRIGGER_MODES = new Set(["automatic", "manual", "contextual"]);
@@ -74,6 +75,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (!VALID_SCOPES.has(scope) || !VALID_TRIGGER_MODES.has(trigger_mode)) {
       return res.status(400).json({ error: "Invalid scope or trigger_mode" });
+    }
+
+    try {
+      await requireFeature(auth.userId, scope === "global" ? "skills.attach_global" : "skills.attach_canvas");
+      if (trigger_mode === "automatic") await requireFeature(auth.userId, "skills.trigger_automatic");
+      if (trigger_mode === "manual") await requireFeature(auth.userId, "skills.trigger_manual");
+      if (trigger_mode === "contextual") await requireFeature(auth.userId, "skills.trigger_contextual");
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      return res.status(500).json({ error: "Failed to check feature access" });
     }
 
     const row: Record<string, unknown> = { skill_note_id, skill_installation_id, user_id: auth.userId, scope, trigger_mode, is_active: true };

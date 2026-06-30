@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../../lib/entitlements.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -15,6 +16,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // POST = add member, DELETE = remove member
   if (req.method === "POST") {
+    try {
+      await requireFeature(auth.userId, "groups.manage_members");
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      console.error("Group entitlement check failed:", err);
+      return res.status(500).json({ error: "Failed to check feature access" });
+    }
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ error: "Email is required" });
 
@@ -34,6 +42,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === "DELETE") {
+    try {
+      await requireFeature(auth.userId, "groups.manage_members");
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      console.error("Group entitlement check failed:", err);
+      return res.status(500).json({ error: "Failed to check feature access" });
+    }
     const { userId } = req.body || {};
     if (!userId) return res.status(400).json({ error: "userId is required" });
     const { error } = await supabase.from("group_members").delete()

@@ -7,11 +7,14 @@ import type {
   CollaborationRole,
   CollaborationRoleSummary,
   DashboardCanvas,
+  AdminFeatureMatrix,
+  EntitlementsSnapshot,
   MeetingProcessingMetrics,
   ProjectAccent,
   ProjectShare,
   SkillScope,
   SkillTriggerMode,
+  SubscriptionPlanId,
 } from "../types";
 
 const API_BASE = "/api";
@@ -104,7 +107,6 @@ export async function apiRegister(
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Registration failed");
-  setToken(data.token);
   return data;
 }
 
@@ -126,6 +128,13 @@ export async function apiGetMe() {
   return data;
 }
 
+export async function apiGetEntitlements(): Promise<EntitlementsSnapshot> {
+  const res = await apiFetch("/entitlements");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch entitlements");
+  return data;
+}
+
 export function apiLogout() {
   removeToken();
 }
@@ -137,6 +146,36 @@ export async function apiGoogleLogin(code: string, redirectUri: string) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Google login failed");
+  setToken(data.token);
+  return data;
+}
+
+export async function apiCheckSignupVerification(token: string, payload: string) {
+  const params = new URLSearchParams({ token, payload });
+  const res = await fetch(`${API_BASE}/auth/verify-signup?${params.toString()}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Verification link is invalid or expired");
+  return data;
+}
+
+export async function apiCompleteSignupVerification(
+  token: string,
+  payload: string,
+  password: string
+) {
+  const res = await fetch(`${API_BASE}/auth/verify-signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, payload, password }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const error = new Error(data.error || "Failed to verify signup");
+    if (typeof data.attemptsRemaining === "number") {
+      (error as Error & { attemptsRemaining?: number }).attemptsRemaining = data.attemptsRemaining;
+    }
+    throw error;
+  }
   setToken(data.token);
   return data;
 }
@@ -779,6 +818,30 @@ export async function apiAdminUpdateCollaborationRole(
   return data.role;
 }
 
+// ===== Admin Subscription Features =====
+
+export async function apiAdminGetFeatureMatrix(): Promise<AdminFeatureMatrix> {
+  const res = await apiFetch("/admin/features");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch feature matrix");
+  return data;
+}
+
+export async function apiAdminUpdateFeatureRule(opts: {
+  planId: SubscriptionPlanId;
+  featureKey: string;
+  enabled: boolean;
+  quota?: number | null;
+}): Promise<AdminFeatureMatrix> {
+  const res = await apiFetch("/admin/features", {
+    method: "PUT",
+    body: JSON.stringify(opts),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update feature rule");
+  return data;
+}
+
 // ===== Admin User Reset =====
 
 export async function apiGenerateResetLink(email: string) {
@@ -1273,6 +1336,16 @@ export async function apiAdminSaveUserApiKey(userId: string, apiKey: string) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to save user API key");
+  return data;
+}
+
+export async function apiAdminSetUserPlan(userId: string, planId: SubscriptionPlanId) {
+  const res = await apiFetch(`/admin/users/${userId}/plan`, {
+    method: "PUT",
+    body: JSON.stringify({ planId }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update user plan");
   return data;
 }
 

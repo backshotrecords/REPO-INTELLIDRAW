@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../lib/entitlements.js";
 import { enrichSkillForUser } from "../lib/skill-marketplace.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -21,6 +22,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "POST") {
     const { title, description, instruction_text, category } = req.body || {};
     if (!title || !instruction_text) return res.status(400).json({ error: "Title and instruction_text are required" });
+    try {
+      await requireFeature(auth.userId, "skills.create");
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      return res.status(500).json({ error: "Failed to check feature access" });
+    }
     const { data, error } = await supabase.from("skill_notes")
       .insert({
         owner_id: auth.userId,

@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../../lib/entitlements.js";
 
 const VALID_SCOPES = new Set(["local", "global"]);
 const VALID_TRIGGER_MODES = new Set(["automatic", "manual", "contextual"]);
@@ -69,6 +70,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: "No updates provided" });
+
+    try {
+      if (scope !== undefined) {
+        await requireFeature(auth.userId, scope === "global" ? "skills.attach_global" : "skills.attach_canvas");
+      }
+      if (trigger_mode === "automatic") await requireFeature(auth.userId, "skills.trigger_automatic");
+      if (trigger_mode === "manual") await requireFeature(auth.userId, "skills.trigger_manual");
+      if (trigger_mode === "contextual") await requireFeature(auth.userId, "skills.trigger_contextual");
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      return res.status(500).json({ error: "Failed to check feature access" });
+    }
 
     const { data, error } = await supabase.from("skill_note_attachments")
       .update(updates).eq("id", id).eq("user_id", auth.userId).select("*, skill_notes(*)").single();
