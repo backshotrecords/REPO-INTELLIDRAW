@@ -5,6 +5,7 @@ import BottomNav from "../components/BottomNav";
 import PlanBadge from "../components/PlanBadge";
 import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { useUpgradePrompt } from "../contexts/UpgradePromptContext";
 import {
   apiListSkills, apiCreateSkill, apiUpdateSkill, apiDeleteSkill, apiArchiveSkill,
   apiGetMarketplace, apiInstallSkill, apiPublishSkill,
@@ -476,6 +477,7 @@ function SkillCard({
 export default function SkillsMarketplacePage() {
   const { user } = useAuth();
   const { hasFeature, getRequiredPlan, getPlanName } = useEntitlements();
+  const { openUpgradePrompt } = useUpgradePrompt();
   const [activeTab, setActiveTab] = useState<"drafts" | "published" | "marketplace" | "shared" | "installed">("marketplace");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -501,6 +503,13 @@ export default function SkillsMarketplacePage() {
     const plan = getRequiredPlan(featureKey);
     return plan && plan !== "free" ? `${label} requires ${getPlanName(plan)}.` : `${label} is not available on your current plan.`;
   }, [getPlanName, getRequiredPlan]);
+  const openUpgradeFor = useCallback((featureKey: string, featureLabel: string) => {
+    openUpgradePrompt({
+      featureKey,
+      featureLabel,
+      requiredPlan: getRequiredPlan(featureKey),
+    });
+  }, [getRequiredPlan, openUpgradePrompt]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -548,6 +557,7 @@ export default function SkillsMarketplacePage() {
 
   const handleSave = async (data: { title: string; description: string; instruction_text: string; category: string }) => {
     if (!editorSkill && !hasFeature("skills.create")) {
+      openUpgradeFor("skills.create", "Creating skills");
       setMessage(requiredPlanMessage("skills.create", "Creating skills"));
       return;
     }
@@ -607,6 +617,7 @@ export default function SkillsMarketplacePage() {
   const handlePublishRelease = async (opts: { visibility: "public" | "shared"; releaseNotes: string; email?: string; groupId?: string }) => {
     if (!publishTarget) return;
     if (!hasFeature("skills.publish_public")) {
+      openUpgradeFor("skills.publish_public", "Publishing skills");
       setMessage(requiredPlanMessage("skills.publish_public", "Publishing skills"));
       return;
     }
@@ -664,6 +675,7 @@ export default function SkillsMarketplacePage() {
   const handleInstallConfirmed = async () => {
     if (!disclaimerTarget) return;
     if (!hasFeature("skills.install_marketplace")) {
+      openUpgradeFor("skills.install_marketplace", "Installing skills");
       setMessage(requiredPlanMessage("skills.install_marketplace", "Installing skills"));
       setDisclaimerTarget(null);
       return;
@@ -699,6 +711,7 @@ export default function SkillsMarketplacePage() {
   const handleRemix = async (skill: SkillNote) => {
     if (!skill.installation_id) return;
     if (!hasFeature("skills.remix")) {
+      openUpgradeFor("skills.remix", "Remixing skills");
       setMessage(requiredPlanMessage("skills.remix", "Remixing skills"));
       return;
     }
@@ -749,6 +762,7 @@ export default function SkillsMarketplacePage() {
           </div>
           <button onClick={() => {
             if (!hasFeature("skills.create")) {
+              openUpgradeFor("skills.create", "Creating skills");
               setMessage(requiredPlanMessage("skills.create", "Creating skills"));
               return;
             }
@@ -823,6 +837,7 @@ export default function SkillsMarketplacePage() {
                 showInstall={(activeTab === "marketplace" || activeTab === "shared") && skill.owner_id !== user?.id}
                 onInstall={() => {
                   if (!hasFeature("skills.install_marketplace")) {
+                    openUpgradeFor("skills.install_marketplace", "Installing skills");
                     setMessage(requiredPlanMessage("skills.install_marketplace", "Installing skills"));
                     return;
                   }
@@ -836,6 +851,7 @@ export default function SkillsMarketplacePage() {
                 onDelete={skill.owner_id === user?.id ? () => handleDelete(skill.id) : undefined}
                 onPublish={skill.owner_id === user?.id ? () => {
                   if (!hasFeature("skills.publish_public")) {
+                    openUpgradeFor("skills.publish_public", "Publishing skills");
                     setMessage(requiredPlanMessage("skills.publish_public", "Publishing skills"));
                     return;
                   }
@@ -843,6 +859,7 @@ export default function SkillsMarketplacePage() {
                 } : undefined}
                 onShare={skill.owner_id === user?.id ? () => {
                   if (!hasFeature("skills.share_private")) {
+                    openUpgradeFor("skills.share_private", "Sharing skills");
                     setMessage(requiredPlanMessage("skills.share_private", "Sharing skills"));
                     return;
                   }

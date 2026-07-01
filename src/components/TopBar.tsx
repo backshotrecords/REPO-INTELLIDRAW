@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useCommunityAccess } from "../contexts/CommunityAccessContext";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { useUpgradePrompt } from "../contexts/UpgradePromptContext";
 import { apiCreateCanvas } from "../lib/api";
 import PlanBadge from "./PlanBadge";
 import ProfileMenu from "./ProfileMenu";
@@ -17,7 +18,8 @@ interface TopBarProps {
 export default function TopBar({ showSearch, onSearchChange, searchPlaceholder = "Search canvases...", searchVisibility = "all" }: TopBarProps) {
   const { user, logout } = useAuth();
   const { openCommunityAccess } = useCommunityAccess();
-  const { hasFeature, getRequiredPlan, getPlanName } = useEntitlements();
+  const { hasFeature, getRequiredPlan } = useEntitlements();
+  const { openUpgradePrompt } = useUpgradePrompt();
   const navigate = useNavigate();
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [creatingCanvas, setCreatingCanvas] = useState(false);
@@ -33,8 +35,12 @@ export default function TopBar({ showSearch, onSearchChange, searchPlaceholder =
   const handleCreateCanvas = async () => {
     if (creatingCanvas) return;
     if (!hasFeature("canvas.create")) {
-      const plan = getRequiredPlan("canvas.create");
-      setMenuMessage(plan && plan !== "free" ? `New Canvas requires ${getPlanName(plan)}.` : "New Canvas is not available on your plan.");
+      openUpgradePrompt({
+        featureKey: "canvas.create",
+        featureLabel: "New Canvas",
+        requiredPlan: getRequiredPlan("canvas.create"),
+      });
+      setMenuMessage("");
       return;
     }
     setCreatingCanvas(true);

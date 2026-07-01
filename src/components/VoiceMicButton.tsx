@@ -32,6 +32,7 @@ interface VoiceMicButtonProps {
   onChunkQueueChange?: (chunks: VoiceQueueChunk[]) => void;
   allowMeetingMode?: boolean;
   meetingModeBadge?: ReactNode;
+  onLockedMeetingModeClick?: () => void;
 }
 
 type VoiceState = "idle" | "recording" | "processing" | "success" | "cancelled";
@@ -81,6 +82,7 @@ export default function VoiceMicButton({
   onChunkQueueChange,
   allowMeetingMode = true,
   meetingModeBadge,
+  onLockedMeetingModeClick,
 }: VoiceMicButtonProps) {
   const [mode, setMode] = useState<VoiceMode>("normal");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -641,9 +643,13 @@ export default function VoiceMicButton({
             <button
               key={item}
               type="button"
-              disabled={item === "meeting" && !allowMeetingMode}
-              className={`voice-mode-option ${mode === item ? "is-selected" : ""} ${item === "meeting" && !allowMeetingMode ? "opacity-50 cursor-not-allowed" : ""}`}
+              className={`voice-mode-option ${mode === item ? "is-selected" : ""} ${item === "meeting" && !allowMeetingMode ? "opacity-50" : ""}`}
               onClick={() => {
+                if (item === "meeting" && !allowMeetingMode) {
+                  onLockedMeetingModeClick?.();
+                  setMenuOpen(false);
+                  return;
+                }
                 setMode(item);
                 setMenuOpen(false);
               }}

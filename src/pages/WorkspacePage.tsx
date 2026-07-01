@@ -16,6 +16,7 @@ import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { fetchChatSettings } from "../lib/chatSettings";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { useUpgradePrompt } from "../contexts/UpgradePromptContext";
 import {
   type CanvasSavePayload,
   type ChatSendPayload,
@@ -188,19 +189,25 @@ export default function WorkspacePage() {
   const canPublishCanvas = hasFeature("canvas.publish_public");
   const canUseSkills = hasFeature("skills.attach_canvas");
   const canUseContextualSkills = hasFeature("skills.trigger_contextual");
+  const { openUpgradePrompt } = useUpgradePrompt();
 
   const requiredPlanMessage = useCallback((featureKey: string, label: string) => {
     const plan = getRequiredPlan(featureKey);
     return plan && plan !== "free" ? `${label} requires ${getPlanName(plan)}.` : `${label} is not available on your current plan.`;
   }, [getPlanName, getRequiredPlan]);
   const addPlanNotice = useCallback((featureKey: string, label: string) => {
+    openUpgradePrompt({
+      featureKey,
+      featureLabel: label,
+      requiredPlan: getRequiredPlan(featureKey),
+    });
     const notice: ChatMessage = {
       role: "assistant",
       content: `Locked: ${requiredPlanMessage(featureKey, label)}`,
       timestamp: new Date().toISOString(),
     };
     setChatHistory((prev) => [...prev, notice]);
-  }, [requiredPlanMessage]);
+  }, [getRequiredPlan, openUpgradePrompt, requiredPlanMessage]);
 
   // Ref mirrors — sendMessage reads these instead of closures (closure-proof)
   const chatHistoryRef = useRef<ChatMessage[]>([]);
@@ -1347,12 +1354,12 @@ export default function WorkspacePage() {
   }, [activeScopeId, scopePath, mermaidCode]);
 
   const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || chatLoadingRef.current) return;
-    if (isReadOnlyCollab) return;
     if (!canUseChat) {
       addPlanNotice("canvas.ai_chat", "AI canvas chat");
       return;
     }
+    if (!text.trim() || chatLoadingRef.current) return;
+    if (isReadOnlyCollab) return;
     flushPreviewMode();
 
     // Augment message with open group + selected node context
@@ -2210,7 +2217,7 @@ ${transcript}
             {/* Publish toggle */}
             <button
               onClick={handlePublishToggle}
-              disabled={publishing || !canvasId || isReadOnlyCollab || isSharedEditable || (!isPublic && !canPublishCanvas)}
+              disabled={publishing || !canvasId || isReadOnlyCollab || isSharedEditable}
               className={`hidden sm:inline-flex items-center justify-center rounded-full text-xs font-bold transition-all duration-200 active:scale-95 disabled:opacity-40 bg-surface-container-high text-on-surface-variant border border-outline-variant/20 hover:bg-surface-container-low hover:text-on-surface ${isPublic ? "w-8 h-8 outline outline-2 outline-emerald-800 outline-offset-[3px]" : "gap-1.5 px-3.5 py-2"
                 }`}
               title={!isPublic && !canPublishCanvas ? requiredPlanMessage("canvas.publish_public", "Publishing") : isPublic ? "Published" : "Publish"}
@@ -2670,7 +2677,13 @@ ${transcript}
 
                 {/* Paperclip — desktop inline (left side) */}
                 <label
-                  className={`hidden md:flex shrink-0 h-10 rounded-full items-center justify-center text-on-surface-variant/60 transition-all self-end ${isReadOnlyCollab || !canUploadFile ? "opacity-50 pointer-events-none px-2" : "w-10 cursor-pointer hover:text-primary hover:bg-surface-container-high/40"}`}
+                  onClick={(event) => {
+                    if (!canUploadFile) {
+                      event.preventDefault();
+                      addPlanNotice("canvas.upload_file", "File upload");
+                    }
+                  }}
+                  className={`hidden md:flex shrink-0 h-10 rounded-full items-center justify-center text-on-surface-variant/60 transition-all self-end ${isReadOnlyCollab ? "opacity-50 pointer-events-none px-2" : !canUploadFile ? "opacity-70 px-2 cursor-pointer hover:bg-surface-container-high/40" : "w-10 cursor-pointer hover:text-primary hover:bg-surface-container-high/40"}`}
                   title={!canUploadFile ? requiredPlanMessage("canvas.upload_file", "File upload") : "Attach file"}
                 >
                   <span className="material-symbols-outlined text-xl">attach_file</span>
@@ -2684,15 +2697,31 @@ ${transcript}
                 </label>
 
                 {/* Auto-growing textarea */}
-                <div className="flex-1 min-w-0">
+                <div
+                  className="flex-1 min-w-0"
+                  onClickCapture={(event) => {
+                    if (!canUseChat) {
+                      event.preventDefault();
+                      addPlanNotice("canvas.ai_chat", "AI canvas chat");
+                    }
+                  }}
+                >
                   <textarea
                     ref={textareaRef}
                     className="w-full bg-transparent border-none rounded-xl px-3 py-2.5 text-sm font-medium placeholder:text-on-surface-variant/40 focus:ring-0 transition-all outline-none resize-none no-scrollbar"
                     placeholder={isReadOnlyCollab ? "View-only shared canvas" : canUseChat ? "Describe your flowchart..." : requiredPlanMessage("canvas.ai_chat", "AI canvas chat")}
                     value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    disabled={isReadOnlyCollab || !canUseChat}
+                    onChange={(e) => {
+                      if (canUseChat) setChatInput(e.target.value);
+                    }}
+                    readOnly={!canUseChat}
+                    disabled={isReadOnlyCollab}
                     onKeyDown={(e) => {
+                      if (!canUseChat) {
+                        e.preventDefault();
+                        addPlanNotice("canvas.ai_chat", "AI canvas chat");
+                        return;
+                      }
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         if (isOffline || isReadOnlyCollab) return;
@@ -2707,7 +2736,16 @@ ${transcript}
                 <div className="shrink-0 flex items-end gap-1.5">
 
                   {/* Desktop-only: mic inline */}
-                  <div className="hidden md:block">
+                  <div
+                    className="hidden md:block"
+                    onClickCapture={(event) => {
+                      if (!canUseVoice) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        addPlanNotice("voice.dictation", "Voice input");
+                      }
+                    }}
+                  >
                     <VoiceMicButton
                       onTranscript={(text) => appendVoiceTranscript(text)}
                       onMeetingTranscript={enqueueMeetingTranscriptChunk}
@@ -2719,7 +2757,8 @@ ${transcript}
                       inputBarHeight={inputBarHeight}
                       allowMeetingMode={canUseMeetingMode}
                       meetingModeBadge={<PlanBadge planId={getRequiredPlan("voice.meeting_mode")} />}
-                      disabled={chatLoading || isOffline || isReadOnlyCollab || !canUseVoice}
+                      onLockedMeetingModeClick={() => addPlanNotice("voice.meeting_mode", "Meeting Mode")}
+                      disabled={chatLoading || isOffline || isReadOnlyCollab}
                     />
                     {!canUseVoice && <PlanBadge planId={getRequiredPlan("voice.dictation")} className="ml-1" />}
                   </div>
@@ -2727,7 +2766,7 @@ ${transcript}
                   {/* Send button */}
                   <button
                     onClick={() => sendMessage(chatInput)}
-                    disabled={chatLoading || isOffline || isReadOnlyCollab || !canUseChat || !chatInput.trim()}
+                    disabled={chatLoading || isOffline || isReadOnlyCollab || (canUseChat && !chatInput.trim())}
                     className="h-10 w-10 bg-primary text-white rounded-xl flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-30"
                     title={!canUseChat ? requiredPlanMessage("canvas.ai_chat", "AI canvas chat") : "Send"}
                   >
@@ -2848,7 +2887,13 @@ ${transcript}
           style={{ bottom: `${inputBarHeight + 16}px` }}
         >
           <label
-            className={`shrink-0 rounded-full flex items-center justify-center text-on-surface-variant transition-all bg-white shadow-xl border border-outline-variant/30 shadow-[0_8px_32px_rgba(0,0,0,0.15)] ${canUploadFile ? "w-11 h-11 cursor-pointer hover:text-primary" : "min-h-11 px-2 opacity-70 pointer-events-none"}`}
+            onClick={(event) => {
+              if (!canUploadFile) {
+                event.preventDefault();
+                addPlanNotice("canvas.upload_file", "File upload");
+              }
+            }}
+            className={`shrink-0 rounded-full flex items-center justify-center text-on-surface-variant transition-all bg-white shadow-xl border border-outline-variant/30 shadow-[0_8px_32px_rgba(0,0,0,0.15)] ${canUploadFile ? "w-11 h-11 cursor-pointer hover:text-primary" : "min-h-11 px-2 opacity-70 cursor-pointer"}`}
             title={!canUploadFile ? requiredPlanMessage("canvas.upload_file", "File upload") : "Attach file"}
           >
             <span className="material-symbols-outlined text-xl">attach_file</span>
@@ -2860,7 +2905,16 @@ ${transcript}
               onChange={handleFileUpload}
             />
           </label>
-          <div className="voice-mic-mobile-float shadow-[0_8px_32px_rgba(0,0,0,0.15)] rounded-full">
+          <div
+            className="voice-mic-mobile-float shadow-[0_8px_32px_rgba(0,0,0,0.15)] rounded-full"
+            onClickCapture={(event) => {
+              if (!canUseVoice) {
+                event.preventDefault();
+                event.stopPropagation();
+                addPlanNotice("voice.dictation", "Voice input");
+              }
+            }}
+          >
             <VoiceMicButton
               onTranscript={(text) => appendVoiceTranscript(text)}
               onMeetingTranscript={enqueueMeetingTranscriptChunk}
@@ -2872,7 +2926,8 @@ ${transcript}
               inputBarHeight={inputBarHeight}
               allowMeetingMode={canUseMeetingMode}
               meetingModeBadge={<PlanBadge planId={getRequiredPlan("voice.meeting_mode")} />}
-              disabled={chatLoading || isOffline || !canUseVoice}
+              onLockedMeetingModeClick={() => addPlanNotice("voice.meeting_mode", "Meeting Mode")}
+              disabled={chatLoading || isOffline}
             />
             {!canUseVoice && <PlanBadge planId={getRequiredPlan("voice.dictation")} className="mt-1" />}
           </div>

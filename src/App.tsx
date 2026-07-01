@@ -19,6 +19,7 @@ import ConnectivityOverlay from "./components/ConnectivityOverlay";
 import { ConnectivityProvider } from "./contexts/ConnectivityContext";
 import { CommunityAccessProvider } from "./contexts/CommunityAccessContext";
 import { EntitlementsProvider } from "./contexts/EntitlementsContext";
+import { UpgradePromptProvider } from "./contexts/UpgradePromptContext";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -163,7 +164,9 @@ export default function App() {
           <ConnectivityOverlay>
             <CommunityAccessProvider>
               <EntitlementsProvider>
-                <AppRoutes />
+                <UpgradePromptProvider>
+                  <AppRoutes />
+                </UpgradePromptProvider>
               </EntitlementsProvider>
             </CommunityAccessProvider>
           </ConnectivityOverlay>

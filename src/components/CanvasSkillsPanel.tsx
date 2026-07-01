@@ -7,6 +7,7 @@ import {
 } from "../lib/api";
 import PlanBadge from "./PlanBadge";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { useUpgradePrompt } from "../contexts/UpgradePromptContext";
 import type { SkillInstallation, SkillNoteAttachment, SkillNote, SkillScope, SkillTriggerMode } from "../types";
 
 interface CanvasSkillsPanelProps {
@@ -51,6 +52,7 @@ export default function CanvasSkillsPanel({
   const [updatesMap, setUpdatesMap] = useState<Record<string, boolean>>({});
   const [panelMessage, setPanelMessage] = useState("");
   const { hasFeature, getRequiredPlan, getPlanName } = useEntitlements();
+  const { openUpgradePrompt } = useUpgradePrompt();
 
   const [addSkillId, setAddSkillId] = useState("");
   const [addScope, setAddScope] = useState<SkillScope>("local");
@@ -66,6 +68,13 @@ export default function CanvasSkillsPanel({
     const plan = getRequiredPlan(featureKey);
     return plan && plan !== "free" ? `${label} requires ${getPlanName(plan)}.` : `${label} is not available on your current plan.`;
   }, [getPlanName, getRequiredPlan]);
+  const openUpgradeFor = useCallback((featureKey: string, featureLabel: string) => {
+    openUpgradePrompt({
+      featureKey,
+      featureLabel,
+      requiredPlan: getRequiredPlan(featureKey),
+    });
+  }, [getRequiredPlan, openUpgradePrompt]);
 
   const loadAttachments = useCallback(async () => {
     if (!canvasId) return;
@@ -131,10 +140,12 @@ export default function CanvasSkillsPanel({
     updates: { scope?: SkillScope; trigger_mode?: SkillTriggerMode },
   ) => {
     if (updates.scope && !hasFeature(scopeFeature(updates.scope))) {
+      openUpgradeFor(scopeFeature(updates.scope), `${scopeLabel[updates.scope]} skills`);
       setPanelMessage(requiredPlanMessage(scopeFeature(updates.scope), `${scopeLabel[updates.scope]} skills`));
       return;
     }
     if (updates.trigger_mode && !hasFeature(modeFeature(updates.trigger_mode))) {
+      openUpgradeFor(modeFeature(updates.trigger_mode), modeDisplayLabel[updates.trigger_mode]);
       setPanelMessage(requiredPlanMessage(modeFeature(updates.trigger_mode), modeDisplayLabel[updates.trigger_mode]));
       return;
     }
@@ -175,6 +186,7 @@ export default function CanvasSkillsPanel({
 
   const handleTrigger = async (attachmentId: string) => {
     if (!hasFeature("skills.trigger_manual")) {
+      openUpgradeFor("skills.trigger_manual", "Manual skill triggers");
       setPanelMessage(requiredPlanMessage("skills.trigger_manual", "Manual skill triggers"));
       return;
     }
@@ -190,6 +202,7 @@ export default function CanvasSkillsPanel({
 
   const handleAddToContext = (attachmentId: string) => {
     if (!hasFeature("skills.trigger_contextual")) {
+      openUpgradeFor("skills.trigger_contextual", "Contextual skills");
       setPanelMessage(requiredPlanMessage("skills.trigger_contextual", "Contextual skills"));
       return;
     }
@@ -212,10 +225,12 @@ export default function CanvasSkillsPanel({
   const handleAdd = async () => {
     if (!addSkillId) return;
     if (!hasFeature(scopeFeature(addScope))) {
+      openUpgradeFor(scopeFeature(addScope), `${scopeLabel[addScope]} skills`);
       setPanelMessage(requiredPlanMessage(scopeFeature(addScope), `${scopeLabel[addScope]} skills`));
       return;
     }
     if (!hasFeature(modeFeature(addMode))) {
+      openUpgradeFor(modeFeature(addMode), modeDisplayLabel[addMode]);
       setPanelMessage(requiredPlanMessage(modeFeature(addMode), modeDisplayLabel[addMode]));
       return;
     }
@@ -366,9 +381,14 @@ export default function CanvasSkillsPanel({
               <label className="block text-[10px] font-bold text-on-surface-variant/60 uppercase mb-1">Scope</label>
               <div className="flex gap-1">
                 {(["local", "global"] as const).map(s => (
-                  <button key={s} onClick={() => setAddScope(s)}
-                    disabled={!hasFeature(scopeFeature(s))}
-                    className={`flex-1 px-2 py-1.5 rounded-lg text-[10px] font-bold capitalize transition-all disabled:opacity-50 ${addScope === s ? "bg-primary text-white" : "bg-surface-container-high text-on-surface-variant"}`}>
+                  <button key={s} onClick={() => {
+                    if (!hasFeature(scopeFeature(s))) {
+                      openUpgradeFor(scopeFeature(s), `${scopeLabel[s]} skills`);
+                      return;
+                    }
+                    setAddScope(s);
+                  }}
+                    className={`flex-1 px-2 py-1.5 rounded-lg text-[10px] font-bold capitalize transition-all ${!hasFeature(scopeFeature(s)) ? "opacity-70" : ""} ${addScope === s ? "bg-primary text-white" : "bg-surface-container-high text-on-surface-variant"}`}>
                     {scopeLabel[s]}
                     {!hasFeature(scopeFeature(s)) && <PlanBadge planId={getRequiredPlan(scopeFeature(s))} className="ml-1" />}
                   </button>
@@ -379,9 +399,14 @@ export default function CanvasSkillsPanel({
               <label className="block text-[10px] font-bold text-on-surface-variant/60 uppercase mb-1">Mode</label>
               <div className="flex gap-1">
                 {(["automatic", "manual", "contextual"] as const).map(m => (
-                  <button key={m} onClick={() => setAddMode(m)}
-                    disabled={!hasFeature(modeFeature(m))}
-                    className={`flex-1 px-1 py-1.5 rounded-lg text-[10px] font-bold capitalize transition-all disabled:opacity-50 ${addMode === m ? "bg-primary text-white" : "bg-surface-container-high text-on-surface-variant"}`}>
+                  <button key={m} onClick={() => {
+                    if (!hasFeature(modeFeature(m))) {
+                      openUpgradeFor(modeFeature(m), modeDisplayLabel[m]);
+                      return;
+                    }
+                    setAddMode(m);
+                  }}
+                    className={`flex-1 px-1 py-1.5 rounded-lg text-[10px] font-bold capitalize transition-all ${!hasFeature(modeFeature(m)) ? "opacity-70" : ""} ${addMode === m ? "bg-primary text-white" : "bg-surface-container-high text-on-surface-variant"}`}>
                     {modeLabel[m]}
                     {!hasFeature(modeFeature(m)) && <PlanBadge planId={getRequiredPlan(modeFeature(m))} className="ml-1" />}
                   </button>

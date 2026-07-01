@@ -26,6 +26,7 @@ import {
 import { exportAsImage, exportAsMarkdown, exportAsZip } from "../utils/export";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { useUpgradePrompt } from "../contexts/UpgradePromptContext";
 import { useMermaidThumbnails } from "../hooks/useMermaidThumbnails";
 import type { CanvasProject, CollaborationCapability, CollaborationRoleSummary, DashboardCanvas, ProjectAccent, ProjectShare, UserGroup } from "../types";
 import { isLongTermMemoryItem } from "../types";
@@ -125,6 +126,7 @@ export default function DashboardPage() {
   const location = useLocation();
   const { registerReconnectHandler, setReconnectMessage } = useConnectivity();
   const { hasFeature, getRequiredPlan, getPlanName } = useEntitlements();
+  const { openUpgradePrompt } = useUpgradePrompt();
 
   const dashboardSearchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const activeProjectId = dashboardSearchParams.get("project");
@@ -374,9 +376,17 @@ export default function DashboardPage() {
     return plan && plan !== "free" ? `${label} requires ${getPlanName(plan)}.` : `${label} is not available on your current plan.`;
   }
 
+  function openUpgradeFor(featureKey: string, featureLabel: string) {
+    openUpgradePrompt({
+      featureKey,
+      featureLabel,
+      requiredPlan: getRequiredPlan(featureKey),
+    });
+  }
+
   function handleFileViewModeChange(nextMode: DashboardFileViewMode) {
     if (nextMode === "tree" && !canUseTreeView) {
-      setError(requiredPlanMessage("dashboard.tree_view", "Tree view"));
+      openUpgradeFor("dashboard.tree_view", "Tree view");
       return;
     }
     setFileViewMode(nextMode);
@@ -408,7 +418,8 @@ export default function DashboardPage() {
 
   async function handleCreateCanvas() {
     if (!activeProjectCanCreateCanvas) {
-      setError("You do not have permission to create canvases in this project.");
+      if (!hasFeature("canvas.create")) openUpgradeFor("canvas.create", "Creating canvases");
+      else setError("You do not have permission to create canvases in this project.");
       return;
     }
     try {
@@ -426,7 +437,8 @@ export default function DashboardPage() {
       return;
     }
     if (projectWizard?.mode !== "edit" && !activeProjectCanCreateFolder) {
-      setError("You do not have permission to create folders in this project.");
+      if (!hasFeature("project.create")) openUpgradeFor("project.create", "Creating projects");
+      else setError("You do not have permission to create folders in this project.");
       return;
     }
     try {
@@ -637,15 +649,15 @@ export default function DashboardPage() {
     if (selectedIds.length === 0) return;
 
     if (exportOptions.markdown && !canExportMarkdown) {
-      setError(requiredPlanMessage("export.markdown", "Markdown export"));
+      openUpgradeFor("export.markdown", "Markdown export");
       return;
     }
     if (exportOptions.png && !canExportPng) {
-      setError(requiredPlanMessage("export.png", "PNG export"));
+      openUpgradeFor("export.png", "PNG export");
       return;
     }
     if ((selectedIds.length > 1 || (exportOptions.markdown && exportOptions.png)) && !canExportZip) {
-      setError(requiredPlanMessage("export.zip", "Bulk ZIP export"));
+      openUpgradeFor("export.zip", "Bulk ZIP export");
       return;
     }
 
@@ -744,7 +756,7 @@ export default function DashboardPage() {
                       type="button"
                       aria-label="Project collaboration requires a higher plan"
                       title={requiredPlanMessage("project.share_groups", "Project collaboration")}
-                      onClick={() => setError(requiredPlanMessage("project.share_groups", "Project collaboration"))}
+                      onClick={() => openUpgradeFor("project.share_groups", "Project collaboration")}
                       className="h-10 rounded-full bg-surface-container-lowest border border-outline-variant/30 shadow-sm hover:bg-surface-container-low flex items-center gap-2 px-3 text-primary transition-colors"
                     >
                       <span className="material-symbols-outlined text-[22px]">groups</span>
@@ -824,6 +836,7 @@ export default function DashboardPage() {
             canExportPng={canExportPng}
             canExportZip={canExportZip}
             getRequiredPlan={getRequiredPlan}
+            onLockedFeature={openUpgradeFor}
             onCancel={() => {
               setExportMode(false);
               setSelectedForExport(new Set());
@@ -961,7 +974,7 @@ export default function DashboardPage() {
                       onDragEnd={handleDashboardDragEnd}
                       onExportMarkdown={() => {
                         if (!canExportMarkdown) {
-                          setError(requiredPlanMessage("export.markdown", "Markdown export"));
+                          openUpgradeFor("export.markdown", "Markdown export");
                           setMenuOpen(null);
                           return;
                         }
@@ -975,7 +988,7 @@ export default function DashboardPage() {
                       }}
                       onExportPng={() => {
                         if (!canExportPng) {
-                          setError(requiredPlanMessage("export.png", "PNG export"));
+                          openUpgradeFor("export.png", "PNG export");
                           setMenuOpen(null);
                           return;
                         }
@@ -1013,12 +1026,13 @@ export default function DashboardPage() {
         type="button"
         onClick={() => {
           if (!activeProjectCanCreate) {
-            const missingPlanFeature = !hasFeature("canvas.create")
-              ? requiredPlanMessage("canvas.create", "Creating canvases")
-              : !hasFeature("project.create")
-                ? requiredPlanMessage("project.create", "Creating projects")
-                : "You do not have permission to create items in this project.";
-            setError(missingPlanFeature);
+            if (!hasFeature("canvas.create")) {
+              openUpgradeFor("canvas.create", "Creating canvases");
+            } else if (!hasFeature("project.create")) {
+              openUpgradeFor("project.create", "Creating projects");
+            } else {
+              setError("You do not have permission to create items in this project.");
+            }
             return;
           }
           setShowCreateDialog(true);
@@ -1729,7 +1743,7 @@ function ChoiceButton({
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
+      disabled={busy}
       aria-busy={busy || undefined}
       className={`w-full flex items-center gap-4 rounded-xl px-4 py-4 text-left transition-colors ${disabled ? busy ? "cursor-wait opacity-80" : "cursor-not-allowed opacity-50" : "hover:bg-surface-container-low"}`}
     >
@@ -2158,6 +2172,7 @@ function ExportBar({
   canExportPng,
   canExportZip,
   getRequiredPlan,
+  onLockedFeature,
   onCancel,
   onExport,
 }: {
@@ -2168,16 +2183,12 @@ function ExportBar({
   canExportPng: boolean;
   canExportZip: boolean;
   getRequiredPlan: (key: string) => string | null;
+  onLockedFeature: (featureKey: string, featureLabel: string) => void;
   onCancel: () => void;
   onExport: () => void;
 }) {
   const requiresZip = selectedCount > 1 || (exportOptions.markdown && exportOptions.png);
-  const exportBlocked =
-    selectedCount === 0 ||
-    (!exportOptions.markdown && !exportOptions.png) ||
-    (exportOptions.markdown && !canExportMarkdown) ||
-    (exportOptions.png && !canExportPng) ||
-    (requiresZip && !canExportZip);
+  const exportSelectionBlocked = selectedCount === 0 || (!exportOptions.markdown && !exportOptions.png);
 
   return (
     <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between bg-secondary-fixed/30 rounded-xl px-6 py-4 gap-4">
@@ -2185,22 +2196,40 @@ function ExportBar({
         <span className="text-sm font-semibold text-on-surface">{selectedCount} selected</span>
         <div className="h-4 w-[1px] bg-outline-variant/30 hidden md:block" />
         <div className="flex items-center gap-4 text-sm font-medium">
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label
+            className={`flex items-center gap-2 cursor-pointer ${canExportMarkdown ? "" : "opacity-80"}`}
+            onClick={(event) => {
+              if (canExportMarkdown) return;
+              event.preventDefault();
+              onLockedFeature("export.markdown", "Markdown export");
+            }}
+          >
             <input type="checkbox" checked={exportOptions.markdown} onChange={(event) => onChangeOptions({ ...exportOptions, markdown: event.target.checked })} disabled={!canExportMarkdown} className="accent-secondary w-4 h-4 rounded disabled:opacity-40" />
             Markdown (.md)
             {!canExportMarkdown && <PlanBadge planId={getRequiredPlan("export.markdown")} />}
           </label>
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label
+            className={`flex items-center gap-2 cursor-pointer ${canExportPng ? "" : "opacity-80"}`}
+            onClick={(event) => {
+              if (canExportPng) return;
+              event.preventDefault();
+              onLockedFeature("export.png", "PNG export");
+            }}
+          >
             <input type="checkbox" checked={exportOptions.png} onChange={(event) => onChangeOptions({ ...exportOptions, png: event.target.checked })} disabled={!canExportPng} className="accent-secondary w-4 h-4 rounded disabled:opacity-40" />
             Image (.png)
             {!canExportPng && <PlanBadge planId={getRequiredPlan("export.png")} />}
           </label>
-          {requiresZip && !canExportZip && <PlanBadge planId={getRequiredPlan("export.zip")} />}
+          {requiresZip && !canExportZip && (
+            <button type="button" onClick={() => onLockedFeature("export.zip", "Bulk ZIP export")} className="inline-flex">
+              <PlanBadge planId={getRequiredPlan("export.zip")} />
+            </button>
+          )}
         </div>
       </div>
       <div className="flex justify-end gap-3 w-full md:w-auto">
         <button type="button" onClick={onCancel} className="text-sm font-bold text-on-surface-variant hover:text-on-surface">Cancel</button>
-        <button type="button" onClick={onExport} disabled={exportBlocked} className="px-4 py-2 editorial-gradient text-white text-sm font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-40">Export</button>
+        <button type="button" onClick={onExport} disabled={exportSelectionBlocked} className="px-4 py-2 editorial-gradient text-white text-sm font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-40">Export</button>
       </div>
     </div>
   );
