@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../../lib/entitlements.js";
 
 const VALID_SCOPES = new Set(["local", "global"]);
 const VALID_TRIGGER_MODES = new Set(["automatic", "manual", "contextual"]);
@@ -70,6 +71,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: "No updates provided" });
 
+    const scopeFeature = scope === "global" ? "skills.attach_global" : scope === "local" ? "skills.attach_canvas" : null;
+    const triggerFeature = trigger_mode === "automatic"
+      ? "skills.trigger_automatic"
+      : trigger_mode === "manual"
+        ? "skills.trigger_manual"
+        : trigger_mode === "contextual"
+          ? "skills.trigger_contextual"
+          : null;
+
+    try {
+      if (scopeFeature) {
+        const { count } = await supabase
+          .from("skill_note_attachments")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", auth.userId)
+          .eq("scope", scope);
+        await requireFeatureQuota(auth.userId, scopeFeature, count || 0);
+      }
+      if (triggerFeature) await requireFeatureQuota(auth.userId, triggerFeature);
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      return res.status(500).json({ error: "Failed to check feature access" });
+    }
+
     const { data, error } = await supabase.from("skill_note_attachments")
       .update(updates).eq("id", id).eq("user_id", auth.userId).select("*, skill_notes(*)").single();
     if (error) {
@@ -81,6 +106,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).json({ error: "Attachment not found" });
     }
     if (!data) return res.status(404).json({ error: "Attachment not found" });
+    if (scopeFeature) {
+      await recordFeatureUsage(auth.userId, scopeFeature, 1, {
+        attachmentId: id,
+        scope,
+      });
+    }
+    if (triggerFeature) {
+      await recordFeatureUsage(auth.userId, triggerFeature, 1, {
+        attachmentId: id,
+        triggerMode: trigger_mode,
+      });
+    }
     return res.json({ attachment: await enrichAttachment(data as Record<string, unknown>) });
   }
 

@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../lib/entitlements.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -13,6 +14,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    await requireFeatureQuota(authPayload.userId, "managed_api_key.request");
+
     const { data: currentUser, error: fetchError } = await supabase
       .from("users")
       .select("api_key_encrypted")
@@ -40,6 +43,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (error) {
       return res.status(500).json({ error: error.message || "Failed to record API key request" });
     }
+    await recordFeatureUsage(authPayload.userId, "managed_api_key.request", 1, {
+      status,
+    });
 
     return res.status(200).json({
       success: true,
@@ -48,6 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       apiKeyRequestChannel: user.api_key_request_channel,
     });
   } catch (err) {
+    if (isEntitlementError(err)) return sendEntitlementError(res, err);
     console.error("API key request error:", err);
     return res.status(500).json({ error: "Internal server error" });
   }

@@ -10,6 +10,7 @@ import AdminPage from "./pages/AdminPage";
 import PublicViewPage from "./pages/PublicViewPage";
 import SkillsMarketplacePage from "./pages/SkillsMarketplacePage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import VerifySignupPage from "./pages/VerifySignupPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import GuildPage from "./pages/GuildPage";
 import GoodbyePage from "./pages/GoodbyePage";
@@ -17,6 +18,8 @@ import OnboardingOverlay from "./components/OnboardingOverlay";
 import ConnectivityOverlay from "./components/ConnectivityOverlay";
 import { ConnectivityProvider } from "./contexts/ConnectivityContext";
 import { CommunityAccessProvider } from "./contexts/CommunityAccessContext";
+import { EntitlementsProvider } from "./contexts/EntitlementsContext";
+import { UpgradePromptProvider } from "./contexts/UpgradePromptContext";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -145,6 +148,7 @@ function AppRoutes() {
       />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+      <Route path="/verify-signup" element={<VerifySignupPage />} />
       <Route path="/goodbye" element={<GoodbyePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -159,7 +163,11 @@ export default function App() {
         <ConnectivityProvider>
           <ConnectivityOverlay>
             <CommunityAccessProvider>
-              <AppRoutes />
+              <EntitlementsProvider>
+                <UpgradePromptProvider>
+                  <AppRoutes />
+                </UpgradePromptProvider>
+              </EntitlementsProvider>
             </CommunityAccessProvider>
           </ConnectivityOverlay>
         </ConnectivityProvider>

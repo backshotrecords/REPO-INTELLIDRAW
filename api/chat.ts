@@ -2,6 +2,13 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "./lib/auth.js";
 import { supabase } from "./lib/db.js";
 import { decrypt } from "./lib/crypto.js";
+import {
+  isEntitlementError,
+  isFeatureEnabled,
+  recordFeatureUsage,
+  requireFeatureQuota,
+  sendEntitlementError,
+} from "./lib/entitlements.js";
 import OpenAI from "openai";
 
 interface MeetingProcessingMetrics {
@@ -115,12 +122,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { message, mermaidCode, chatHistory, canvasId, activeScopeId, scopePath, source } = req.body;
   const isMeetingTranscript = source === "meeting_transcribe";
+  const featureKey = isMeetingTranscript ? "voice.meeting_mode" : "canvas.ai_chat";
 
   if (!message) {
     return res.status(400).json({ error: "Message is required" });
   }
 
   try {
+    await requireFeatureQuota(authPayload.userId, featureKey);
+
     // Get user's API key and active model
     const { data: user } = await supabase
       .from("users")
@@ -153,7 +163,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let skillInstructions = "";
     if (canvasId) {
       try {
-        skillInstructions = await loadActiveSkillInstructions(authPayload.userId, canvasId);
+        if (await isFeatureEnabled(authPayload.userId, "skills.trigger_automatic")) {
+          skillInstructions = await loadActiveSkillInstructions(authPayload.userId, canvasId);
+        }
       } catch { /* non-fatal */ }
     }
 
@@ -236,6 +248,11 @@ INSTRUCTIONS:
     const mermaidMatch = aiResponse.match(/```mermaid\n([\s\S]*?)```/);
     const updatedMermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
     const { visibleResponse, meetingMetrics } = extractMeetingMetrics(aiResponse, isMeetingTranscript);
+    await recordFeatureUsage(authPayload.userId, featureKey, 1, {
+      canvasId: canvasId || null,
+      model: modelId,
+      source: source || "chat",
+    });
 
     return res.status(200).json({
       response: visibleResponse,
@@ -244,6 +261,7 @@ INSTRUCTIONS:
       ...(meetingMetrics ? { meetingMetrics } : {}),
     });
   } catch (err: unknown) {
+    if (isEntitlementError(err)) return sendEntitlementError(res, err);
     console.error("Chat error:", err);
     const errorMessage = err instanceof Error ? err.message : "Failed to get AI response";
     return res.status(500).json({ error: errorMessage });

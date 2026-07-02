@@ -2,7 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useCommunityAccess } from "../contexts/CommunityAccessContext";
+import { useEntitlements } from "../hooks/useEntitlements";
+import { useUpgradePrompt } from "../contexts/UpgradePromptContext";
 import { apiCreateCanvas } from "../lib/api";
+import PlanBadge from "./PlanBadge";
 import ProfileMenu from "./ProfileMenu";
 
 interface TopBarProps {
@@ -15,9 +18,12 @@ interface TopBarProps {
 export default function TopBar({ showSearch, onSearchChange, searchPlaceholder = "Search canvases...", searchVisibility = "all" }: TopBarProps) {
   const { user, logout } = useAuth();
   const { openCommunityAccess } = useCommunityAccess();
+  const { hasFeature, getRequiredPlan } = useEntitlements();
+  const { openUpgradePrompt } = useUpgradePrompt();
   const navigate = useNavigate();
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [creatingCanvas, setCreatingCanvas] = useState(false);
+  const [menuMessage, setMenuMessage] = useState("");
   const searchVisibilityClass =
     searchVisibility === "desktop" ? "hidden md:flex" : searchVisibility === "mobile" ? "flex md:hidden" : "flex";
 
@@ -28,13 +34,24 @@ export default function TopBar({ showSearch, onSearchChange, searchPlaceholder =
 
   const handleCreateCanvas = async () => {
     if (creatingCanvas) return;
+    if (!hasFeature("canvas.create")) {
+      openUpgradePrompt({
+        featureKey: "canvas.create",
+        featureLabel: "New Canvas",
+        requiredPlan: getRequiredPlan("canvas.create"),
+      });
+      setMenuMessage("");
+      return;
+    }
     setCreatingCanvas(true);
+    setMenuMessage("");
     try {
       const canvas = await apiCreateCanvas();
       setShowMobileMenu(false);
       navigate(`/canvas/${canvas.id}`);
     } catch (err) {
       console.error("Failed to create canvas:", err);
+      setMenuMessage(err instanceof Error ? err.message : "Failed to create canvas");
     } finally {
       setCreatingCanvas(false);
     }
@@ -120,6 +137,11 @@ export default function TopBar({ showSearch, onSearchChange, searchPlaceholder =
 
             {/* Nav links */}
             <nav className="flex-1 py-4 px-3 space-y-1">
+              {menuMessage && (
+                <div className="mx-3 mb-3 rounded-lg bg-surface-container-high px-3 py-2 text-xs font-semibold text-on-surface-variant">
+                  {menuMessage}
+                </div>
+              )}
               <button
                 onClick={() => {
                   navigate("/dashboard");
@@ -140,7 +162,10 @@ export default function TopBar({ showSearch, onSearchChange, searchPlaceholder =
                 <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
                   draw
                 </span>
-                New Canvas
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  New Canvas
+                  {!hasFeature("canvas.create") && <PlanBadge planId={getRequiredPlan("canvas.create")} />}
+                </span>
               </button>
               <button
                 onClick={() => {

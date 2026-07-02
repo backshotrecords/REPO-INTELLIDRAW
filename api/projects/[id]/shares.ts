@@ -7,6 +7,7 @@ import {
   legacyAccessForCapabilities,
   type LegacyShareAccessLevel,
 } from "../../lib/collaboration-roles.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../../lib/entitlements.js";
 import { getProjectAccess, hasCapability } from "../../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -37,6 +38,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { groupId, roleId, accessLevel } = req.body || {};
     const normalizedAccess: LegacyShareAccessLevel = accessLevel === "edit" ? "edit" : "view";
     if (!groupId) return res.status(400).json({ error: "groupId is required" });
+
+    try {
+      await requireFeatureQuota(auth.userId, "project.share_groups");
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      console.error("Project share entitlement check failed:", err);
+      return res.status(500).json({ error: "Failed to check feature access" });
+    }
 
     const { data: group } = await supabase
       .from("user_groups")
@@ -71,6 +80,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .single();
 
     if (error) return res.status(500).json({ error: error.message || "Failed to share project" });
+    await recordFeatureUsage(auth.userId, "project.share_groups", 1, {
+      projectId,
+      groupId,
+    });
     return res.status(201).json({ share: data });
   }
 

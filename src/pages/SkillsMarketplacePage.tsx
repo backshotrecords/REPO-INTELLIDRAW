@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
+import PlanBadge from "../components/PlanBadge";
 import { useAuth } from "../hooks/useAuth";
+import { useEntitlements } from "../hooks/useEntitlements";
+import { useUpgradePrompt } from "../contexts/UpgradePromptContext";
 import {
   apiListSkills, apiCreateSkill, apiUpdateSkill, apiDeleteSkill, apiArchiveSkill,
   apiGetMarketplace, apiInstallSkill, apiPublishSkill,
@@ -327,12 +330,17 @@ function PublishDialog({
 // ── Skill Card ──
 function SkillCard({
   skill, isOwner, onEdit, onDelete, onPublish, onInstall, onOpen, onUpdateInstall, onUninstall, onRemix, onShare, showInstall,
+  installRequiredPlan, publishRequiredPlan, shareRequiredPlan, remixRequiredPlan,
 }: {
   skill: SkillNote; isOwner: boolean;
   onEdit?: () => void; onDelete?: () => void;
   onPublish?: () => void; onInstall?: () => void; onOpen?: () => void;
   onUpdateInstall?: () => void; onUninstall?: () => void; onRemix?: () => void; onShare?: () => void;
   showInstall?: boolean;
+  installRequiredPlan?: string | null;
+  publishRequiredPlan?: string | null;
+  shareRequiredPlan?: string | null;
+  remixRequiredPlan?: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isPublished = skill.status === "published" || skill.is_published;
@@ -420,11 +428,13 @@ function SkillCard({
         {showInstall && onInstall && (!skill.relationship || skill.relationship === "not_installed") && (
           <button onClick={onInstall} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/5 rounded-lg transition-colors">
             <span className="material-symbols-outlined text-sm">add_circle</span>Install
+            {installRequiredPlan && <PlanBadge planId={installRequiredPlan} />}
           </button>
         )}
         {onRemix && (
           <button onClick={onRemix} className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-primary/5 rounded-lg transition-colors">
             <span className="material-symbols-outlined text-sm">content_copy</span>
+            {remixRequiredPlan && <PlanBadge planId={remixRequiredPlan} />}
           </button>
         )}
         {onUninstall && (
@@ -435,6 +445,7 @@ function SkillCard({
         {isOwner && onShare && (
           <button onClick={onShare} className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-primary/5 rounded-lg transition-colors">
             <span className="material-symbols-outlined text-sm">share</span>
+            {shareRequiredPlan && <PlanBadge planId={shareRequiredPlan} />}
           </button>
         )}
         {isOwner && onPublish && (
@@ -444,6 +455,7 @@ function SkillCard({
               {skill.has_unpublished_changes ? "published_with_changes" : isPublished ? "public" : "public_off"}
             </span>
             <span>{publishActionLabel}</span>
+            {publishRequiredPlan && <PlanBadge planId={publishRequiredPlan} />}
           </button>
         )}
         {isOwner && onEdit && (
@@ -464,6 +476,8 @@ function SkillCard({
 // ── Main Page ──
 export default function SkillsMarketplacePage() {
   const { user } = useAuth();
+  const { hasFeature, getRequiredPlan, getPlanName } = useEntitlements();
+  const { openUpgradePrompt } = useUpgradePrompt();
   const [activeTab, setActiveTab] = useState<"drafts" | "published" | "marketplace" | "shared" | "installed">("marketplace");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -484,6 +498,18 @@ export default function SkillsMarketplacePage() {
   const [shareTarget, setShareTarget] = useState<SkillNote | null>(null);
   const [publishTarget, setPublishTarget] = useState<SkillNote | null>(null);
   const [publishing, setPublishing] = useState(false);
+
+  const requiredPlanMessage = useCallback((featureKey: string, label: string) => {
+    const plan = getRequiredPlan(featureKey);
+    return plan && plan !== "free" ? `${label} requires ${getPlanName(plan)}.` : `${label} is not available on your current plan.`;
+  }, [getPlanName, getRequiredPlan]);
+  const openUpgradeFor = useCallback((featureKey: string, featureLabel: string) => {
+    openUpgradePrompt({
+      featureKey,
+      featureLabel,
+      requiredPlan: getRequiredPlan(featureKey),
+    });
+  }, [getRequiredPlan, openUpgradePrompt]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -530,6 +556,11 @@ export default function SkillsMarketplacePage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleSave = async (data: { title: string; description: string; instruction_text: string; category: string }) => {
+    if (!editorSkill && !hasFeature("skills.create")) {
+      openUpgradeFor("skills.create", "Creating skills");
+      setMessage(requiredPlanMessage("skills.create", "Creating skills"));
+      return;
+    }
     setSaving(true);
     try {
       const wasPublished = editorSkill && (
@@ -585,6 +616,11 @@ export default function SkillsMarketplacePage() {
 
   const handlePublishRelease = async (opts: { visibility: "public" | "shared"; releaseNotes: string; email?: string; groupId?: string }) => {
     if (!publishTarget) return;
+    if (!hasFeature("skills.publish_public")) {
+      openUpgradeFor("skills.publish_public", "Publishing skills");
+      setMessage(requiredPlanMessage("skills.publish_public", "Publishing skills"));
+      return;
+    }
     setPublishing(true);
     try {
       await apiPublishSkill(publishTarget.id, true, opts.visibility, opts.releaseNotes);
@@ -638,6 +674,12 @@ export default function SkillsMarketplacePage() {
 
   const handleInstallConfirmed = async () => {
     if (!disclaimerTarget) return;
+    if (!hasFeature("skills.install_marketplace")) {
+      openUpgradeFor("skills.install_marketplace", "Installing skills");
+      setMessage(requiredPlanMessage("skills.install_marketplace", "Installing skills"));
+      setDisclaimerTarget(null);
+      return;
+    }
     try { const result = await apiInstallSkill(disclaimerTarget.id); setDisclaimerTarget(null); setMessage(result.already_installed ? "Already installed." : "Skill installed."); loadData(); }
     catch (err) { console.error(err); setMessage(err instanceof Error ? err.message : "Install failed"); setDisclaimerTarget(null); }
   };
@@ -668,6 +710,11 @@ export default function SkillsMarketplacePage() {
 
   const handleRemix = async (skill: SkillNote) => {
     if (!skill.installation_id) return;
+    if (!hasFeature("skills.remix")) {
+      openUpgradeFor("skills.remix", "Remixing skills");
+      setMessage(requiredPlanMessage("skills.remix", "Remixing skills"));
+      return;
+    }
     try {
       await apiRemixSkillInstallation(skill.installation_id);
       setMessage("Private copy created in My Drafts.");
@@ -713,10 +760,18 @@ export default function SkillsMarketplacePage() {
               Reusable AI instructions and preferences that shape how IntelliDraw generates your flowcharts. Create, share, and discover skills.
             </p>
           </div>
-          <button onClick={() => setEditorSkill(null)}
+          <button onClick={() => {
+            if (!hasFeature("skills.create")) {
+              openUpgradeFor("skills.create", "Creating skills");
+              setMessage(requiredPlanMessage("skills.create", "Creating skills"));
+              return;
+            }
+            setEditorSkill(null);
+          }}
             className="shrink-0 inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-br from-primary to-primary-container text-white font-bold text-sm rounded-2xl shadow-lg hover:shadow-2xl hover:scale-105 active:scale-95 transition-all">
             <span className="material-symbols-outlined text-lg">add</span>
             New Skill
+            {!hasFeature("skills.create") && <PlanBadge planId={getRequiredPlan("skills.create")} />}
           </button>
         </div>
 
@@ -780,15 +835,40 @@ export default function SkillsMarketplacePage() {
                 skill={skill}
                 isOwner={skill.owner_id === user?.id}
                 showInstall={(activeTab === "marketplace" || activeTab === "shared") && skill.owner_id !== user?.id}
-                onInstall={() => setDisclaimerTarget(skill)}
+                onInstall={() => {
+                  if (!hasFeature("skills.install_marketplace")) {
+                    openUpgradeFor("skills.install_marketplace", "Installing skills");
+                    setMessage(requiredPlanMessage("skills.install_marketplace", "Installing skills"));
+                    return;
+                  }
+                  setDisclaimerTarget(skill);
+                }}
                 onOpen={skill.installation_id ? () => setActiveTab("installed") : undefined}
                 onUpdateInstall={skill.installation_id ? () => handleUpdateInstallation(skill) : undefined}
                 onUninstall={activeTab === "installed" && skill.installation_id ? () => handleUninstall(skill) : undefined}
                 onRemix={activeTab === "installed" && skill.installation_id ? () => handleRemix(skill) : undefined}
                 onEdit={skill.owner_id === user?.id ? () => setEditorSkill(skill) : undefined}
                 onDelete={skill.owner_id === user?.id ? () => handleDelete(skill.id) : undefined}
-                onPublish={skill.owner_id === user?.id ? () => setPublishTarget(skill) : undefined}
-                onShare={skill.owner_id === user?.id ? () => setShareTarget(skill) : undefined}
+                onPublish={skill.owner_id === user?.id ? () => {
+                  if (!hasFeature("skills.publish_public")) {
+                    openUpgradeFor("skills.publish_public", "Publishing skills");
+                    setMessage(requiredPlanMessage("skills.publish_public", "Publishing skills"));
+                    return;
+                  }
+                  setPublishTarget(skill);
+                } : undefined}
+                onShare={skill.owner_id === user?.id ? () => {
+                  if (!hasFeature("skills.share_private")) {
+                    openUpgradeFor("skills.share_private", "Sharing skills");
+                    setMessage(requiredPlanMessage("skills.share_private", "Sharing skills"));
+                    return;
+                  }
+                  setShareTarget(skill);
+                } : undefined}
+                installRequiredPlan={!hasFeature("skills.install_marketplace") ? getRequiredPlan("skills.install_marketplace") : null}
+                publishRequiredPlan={!hasFeature("skills.publish_public") ? getRequiredPlan("skills.publish_public") : null}
+                shareRequiredPlan={!hasFeature("skills.share_private") ? getRequiredPlan("skills.share_private") : null}
+                remixRequiredPlan={!hasFeature("skills.remix") ? getRequiredPlan("skills.remix") : null}
               />
             ))}
           </div>

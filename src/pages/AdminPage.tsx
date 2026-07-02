@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGetChatConfig, apiUpdateChatConfig, apiAdminListCollaborationRoles, apiAdminCreateCollaborationRole, apiAdminUpdateCollaborationRole, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel, apiGetOnboardingTutorials, apiCreateOnboardingTutorial, apiUpdateOnboardingTutorial, apiDeleteOnboardingTutorial, apiAdminListUsers, apiAdminDeleteUser, apiAdminBanUser, apiAdminSaveUserApiKey } from "../lib/api";
-import type { CollaborationCapability, CollaborationCapabilityDefinition, CollaborationRole } from "../types";
+import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiGetSoundConfig, apiUpdateSoundConfig, apiGetCanvasConfig, apiUpdateCanvasConfig, apiGetChatConfig, apiUpdateChatConfig, apiAdminListCollaborationRoles, apiAdminCreateCollaborationRole, apiAdminUpdateCollaborationRole, apiAdminGetFeatureMatrix, apiAdminUpdateFeatureRule, apiGenerateResetLink, apiGetModels, apiAddModel, apiDeleteModel, apiGetOnboardingTutorials, apiCreateOnboardingTutorial, apiUpdateOnboardingTutorial, apiDeleteOnboardingTutorial, apiAdminListUsers, apiAdminDeleteUser, apiAdminBanUser, apiAdminSaveUserApiKey, apiAdminSetUserPlan } from "../lib/api";
+import type { AdminFeatureMatrix, CollaborationCapability, CollaborationCapabilityDefinition, CollaborationRole, SubscriptionPlanId } from "../types";
 
 // ─── Config Module Registry ─────────────────────────────
 // Add new config modules here — the sidebar auto-populates from this array.
 const CONFIG_MODULES: { key: string; label: string; icon: string }[] = [
   { key: "models", label: "AI Models",           icon: "model_training" },
+  { key: "features", label: "Plans & Features",  icon: "workspace_premium" },
   { key: "sound",  label: "Sound Effects",       icon: "volume_up" },
   { key: "canvas", label: "Canvas Mechanics",    icon: "zoom_in" },
   { key: "chat",   label: "Chat History",        icon: "forum" },
@@ -74,6 +75,9 @@ interface AdminUser {
   api_key_request_status?: "none" | "requested" | "fulfilled" | "dismissed";
   api_key_requested_at?: string | null;
   api_key_request_channel?: string | null;
+  subscription_plan_id: SubscriptionPlanId;
+  subscription_plan_name: string;
+  subscription_status: string;
 }
 
 function hasPendingApiKeyRequest(u: AdminUser) {
@@ -136,6 +140,12 @@ export default function AdminPage() {
   const [newRoleCapabilities, setNewRoleCapabilities] = useState<CollaborationCapability[]>([]);
   const [addingRole, setAddingRole] = useState(false);
 
+  // Subscription feature matrix state
+  const [featureMatrix, setFeatureMatrix] = useState<AdminFeatureMatrix | null>(null);
+  const [featuresLoading, setFeaturesLoading] = useState(true);
+  const [featureSavingKey, setFeatureSavingKey] = useState<string | null>(null);
+  const [featureError, setFeatureError] = useState("");
+
   // User reset state
   const [resetEmail, setResetEmail] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -171,6 +181,7 @@ export default function AdminPage() {
   const [deleteConfirmStep, setDeleteConfirmStep] = useState<number>(0); // 0=none, 1=first confirm, 2=final confirm
   const [deleteTargetUser, setDeleteTargetUser] = useState<AdminUser | null>(null);
   const [banningUserId, setBanningUserId] = useState<string | null>(null);
+  const [planSavingUserId, setPlanSavingUserId] = useState<string | null>(null);
   const [apiKeyTargetUser, setApiKeyTargetUser] = useState<AdminUser | null>(null);
   const [adminApiKeyInput, setAdminApiKeyInput] = useState("");
   const [adminApiKeySaving, setAdminApiKeySaving] = useState(false);
@@ -228,6 +239,7 @@ export default function AdminPage() {
     loadCanvasConfig();
     loadChatConfig();
     loadCollaborationRoles();
+    loadFeatureMatrix();
     loadAiModels();
     loadOnboardingTutorials();
     loadAdminUsers();
@@ -272,6 +284,47 @@ export default function AdminPage() {
     } finally {
       setRolesLoading(false);
     }
+  };
+
+  const loadFeatureMatrix = async () => {
+    setFeaturesLoading(true);
+    setFeatureError("");
+    try {
+      setFeatureMatrix(await apiAdminGetFeatureMatrix());
+    } catch (err) {
+      setFeatureError(err instanceof Error ? err.message : "Failed to load feature matrix");
+    } finally {
+      setFeaturesLoading(false);
+    }
+  };
+
+  const handleToggleFeatureRule = async (
+    featureKey: string,
+    planId: SubscriptionPlanId,
+    enabled: boolean,
+    quota?: number | null,
+    resetPeriodDays = 0,
+  ) => {
+    const savingKey = `${featureKey}:${planId}`;
+    setFeatureSavingKey(savingKey);
+    setFeatureError("");
+    try {
+      setFeatureMatrix(await apiAdminUpdateFeatureRule({ planId, featureKey, enabled, quota, resetPeriodDays }));
+    } catch (err) {
+      setFeatureError(err instanceof Error ? err.message : "Failed to update feature rule");
+    } finally {
+      setFeatureSavingKey(null);
+    }
+  };
+
+  const handleQuotaChange = async (featureKey: string, planId: SubscriptionPlanId, rawValue: string, enabled: boolean, resetPeriodDays: number) => {
+    const quota = rawValue.trim() ? Math.max(0, parseInt(rawValue, 10)) : null;
+    await handleToggleFeatureRule(featureKey, planId, enabled, Number.isFinite(quota) ? quota : null, resetPeriodDays);
+  };
+
+  const handleResetPeriodChange = async (featureKey: string, planId: SubscriptionPlanId, rawValue: string, enabled: boolean, quota: number | null) => {
+    const resetPeriodDays = rawValue.trim() ? Math.max(0, Math.min(30, parseInt(rawValue, 10))) : 0;
+    await handleToggleFeatureRule(featureKey, planId, enabled, quota, Number.isFinite(resetPeriodDays) ? resetPeriodDays : 0);
   };
 
   const toggleNewRoleCapability = (capability: CollaborationCapability) => {
@@ -671,6 +724,25 @@ export default function AdminPage() {
     }
   };
 
+  const handleSetUserPlan = async (targetUserId: string, planId: SubscriptionPlanId) => {
+    setPlanSavingUserId(targetUserId);
+    try {
+      const result = await apiAdminSetUserPlan(targetUserId, planId);
+      const planName = String(result.plan?.name || planId).replace(/^./, (char) => char.toUpperCase());
+      setAdminUsers((prev) =>
+        prev.map((u) =>
+          u.id === targetUserId
+            ? { ...u, subscription_plan_id: planId, subscription_plan_name: planName, subscription_status: "active" }
+            : u
+        )
+      );
+    } catch (err) {
+      console.error("Failed to update user plan:", err);
+    } finally {
+      setPlanSavingUserId(null);
+    }
+  };
+
   const handleOpenApiKeyModal = (u: AdminUser) => {
     setApiKeyTargetUser(u);
     setAdminApiKeyInput("");
@@ -789,6 +861,11 @@ export default function AdminPage() {
   const capabilitiesByCategory = collabCapabilities.reduce<Record<string, CollaborationCapabilityDefinition[]>>((groups, capability) => {
     const category = capability.category || "Other";
     groups[category] = [...(groups[category] || []), capability];
+    return groups;
+  }, {});
+  const featuresByCategory = (featureMatrix?.features || []).reduce<Record<string, NonNullable<AdminFeatureMatrix["features"]>>>((groups, feature) => {
+    const category = feature.category || "Other";
+    groups[category] = [...(groups[category] || []), feature];
     return groups;
   }, {});
 
@@ -1077,6 +1154,123 @@ export default function AdminPage() {
                         >
                           <span className="material-symbols-outlined text-[20px]">delete</span>
                         </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* ═══ Plans & Features (collapsible) ════════════════ */}
+          <section
+            id="features"
+            ref={(el) => { sectionRefs.current["features"] = el; }}
+            className="bg-white rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden scroll-mt-24"
+          >
+            {renderAccordionHeader("features", "workspace_premium", "Plans & Features", featureMatrix ? `${featureMatrix.features.length} feature flag${featureMatrix.features.length !== 1 ? "s" : ""} across ${featureMatrix.plans.length} plans` : "Configure subscription entitlements")}
+
+            <div
+              className="transition-all duration-300 ease-in-out overflow-hidden"
+              style={{
+                maxHeight: expandedSection === "features" ? "6000px" : "0",
+                opacity: expandedSection === "features" ? 1 : 0,
+              }}
+            >
+              <div className="px-5 pb-5 space-y-5 border-t border-outline-variant/10">
+                <div className="flex items-start gap-3 pt-4 rounded-xl bg-surface-container-lowest px-4 py-3 border border-outline-variant/10">
+                  <span className="material-symbols-outlined text-lg text-primary mt-0.5" style={{ fontVariationSettings: "'FILL' 1" }}>verified_user</span>
+                  <p className="text-sm text-on-surface-variant leading-relaxed">
+                    Subscription gates are enforced in the production serverless APIs. Limits are optional per-plan caps; reset days can be 0 for no reset or 1-30 for rolling usage windows.
+                  </p>
+                </div>
+
+                {featureError && (
+                  <div className="flex items-center gap-2 bg-error-container/20 border border-error/20 rounded-xl px-4 py-3">
+                    <span className="material-symbols-outlined text-sm text-error" style={{ fontVariationSettings: "'FILL' 1" }}>error</span>
+                    <p className="text-sm text-error font-medium">{featureError}</p>
+                  </div>
+                )}
+
+                {featuresLoading || !featureMatrix ? (
+                  <div className="flex justify-center p-12">
+                    <span className="material-symbols-outlined animate-spin text-3xl text-primary">progress_activity</span>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {Object.entries(featuresByCategory).map(([category, features]) => (
+                      <div key={category} className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-extrabold uppercase tracking-wide text-primary">{category}</h3>
+                          <div className="h-px flex-1 bg-outline-variant/20" />
+                        </div>
+                        <div className="overflow-x-auto rounded-xl border border-outline-variant/15">
+                          <table className="w-full min-w-[920px] text-sm">
+                            <thead className="bg-surface-container-lowest">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-on-surface-variant">Feature</th>
+                                {featureMatrix.plans.map((plan) => (
+                                  <th key={plan.id} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-on-surface-variant">
+                                    {plan.name}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-outline-variant/10">
+                              {features.map((feature) => (
+                                <tr key={feature.key} className="bg-white">
+                                  <td className="px-4 py-3 align-top">
+                                    <p className="font-bold text-on-surface">{feature.label}</p>
+                                    <p className="text-xs text-on-surface-variant mt-0.5">{feature.description}</p>
+                                    <code className="mt-1 inline-block text-[10px] text-on-surface-variant/60">{feature.key}</code>
+                                  </td>
+                                  {featureMatrix.plans.map((plan) => {
+                                    const rule = feature.rules[plan.id] ?? { enabled: false, quota: null, resetPeriodDays: 0 };
+                                    const savingKey = `${feature.key}:${plan.id}`;
+                                    const isSaving = featureSavingKey === savingKey;
+                                    return (
+                                      <td key={plan.id} className="px-4 py-3 align-top">
+                                        <div className="flex flex-col gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleToggleFeatureRule(feature.key, plan.id, !rule.enabled, rule.quota, rule.resetPeriodDays)}
+                                            disabled={isSaving}
+                                            className={`relative h-7 w-12 rounded-full transition-colors ${rule.enabled ? "bg-primary" : "bg-outline-variant/40"} disabled:opacity-50`}
+                                            aria-label={`${rule.enabled ? "Disable" : "Enable"} ${feature.label} for ${plan.name}`}
+                                          >
+                                            <span className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${rule.enabled ? "translate-x-5" : ""}`} />
+                                          </button>
+                                          <label className="flex items-center gap-2">
+                                            <span className="text-[10px] font-bold uppercase text-on-surface-variant/60">Limit</span>
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              defaultValue={rule.quota ?? ""}
+                                              placeholder="none"
+                                              onBlur={(event) => handleQuotaChange(feature.key, plan.id, event.currentTarget.value, rule.enabled, rule.resetPeriodDays)}
+                                              className="w-20 rounded-lg border border-outline-variant/30 bg-surface-container-lowest px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-primary/20"
+                                            />
+                                          </label>
+                                          <label className="flex items-center gap-2">
+                                            <span className="text-[10px] font-bold uppercase text-on-surface-variant/60">Reset days</span>
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              max="30"
+                                              defaultValue={rule.resetPeriodDays}
+                                              onBlur={(event) => handleResetPeriodChange(feature.key, plan.id, event.currentTarget.value, rule.enabled, rule.quota)}
+                                              className="w-16 rounded-lg border border-outline-variant/30 bg-surface-container-lowest px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-primary/20"
+                                            />
+                                          </label>
+                                        </div>
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2067,6 +2261,9 @@ export default function AdminPage() {
                                   Admin
                                 </span>
                               )}
+                              <span className="text-[10px] font-bold uppercase tracking-wide bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded">
+                                {u.subscription_plan_name || "Free"}
+                              </span>
                               {u.is_banned && (
                                 <span className="text-[10px] font-bold uppercase tracking-wide bg-error/10 text-error px-1.5 py-0.5 rounded">
                                   Banned
@@ -2114,6 +2311,18 @@ export default function AdminPage() {
 
                           {/* Actions */}
                           <div className="flex items-center gap-1 shrink-0">
+                            <select
+                              value={u.subscription_plan_id || "free"}
+                              onChange={(event) => void handleSetUserPlan(u.id, event.target.value)}
+                              disabled={planSavingUserId === u.id || !featureMatrix}
+                              className="h-9 rounded-lg border border-outline-variant/30 bg-white px-2 text-xs font-bold text-on-surface outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
+                              aria-label={`Subscription plan for ${u.display_name}`}
+                            >
+                              {(featureMatrix?.plans || [{ id: "free", name: "Free", rank: 0 }]).map((plan) => (
+                                <option key={plan.id} value={plan.id}>{plan.name}</option>
+                              ))}
+                            </select>
+
                             {/* API Key */}
                             <button
                               onClick={() => handleOpenApiKeyModal(u)}

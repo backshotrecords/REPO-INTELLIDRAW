@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "./lib/auth.js";
 import { supabase } from "./lib/db.js";
 import { decrypt } from "./lib/crypto.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "./lib/entitlements.js";
 import OpenAI from "openai";
 
 /**
@@ -84,6 +85,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    await requireFeatureQuota(authPayload.userId, "voice.dictation");
+
     // Parse the multipart body
     const rawBody = await getRawBody(req);
     const contentType = req.headers["content-type"] || "";
@@ -109,8 +112,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const apiKey = decrypt(user.api_key_encrypted);
     const openai = new OpenAI({ apiKey });
 
-    // Create a File object from the buffer for the OpenAI SDK
-    const audioFile = new File([filePart.data], filePart.filename, {
+    // Create a File object from a browser-compatible byte array for the OpenAI SDK.
+    const audioBytes = new Uint8Array(filePart.data.byteLength);
+    audioBytes.set(filePart.data);
+    const audioFile = new File([audioBytes], filePart.filename, {
       type: filePart.mimeType,
     });
 
@@ -118,9 +123,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       file: audioFile,
       model: "whisper-1",
     });
+    await recordFeatureUsage(authPayload.userId, "voice.dictation", 1, {
+      inputBytes: filePart.data.byteLength,
+      mimeType: filePart.mimeType,
+    });
 
     return res.status(200).json({ text: transcription.text });
   } catch (err: unknown) {
+    if (isEntitlementError(err)) return sendEntitlementError(res, err);
     console.error("Transcription error:", err);
     const errorMessage = err instanceof Error ? err.message : "Transcription failed.";
     return res.status(500).json({ error: errorMessage });

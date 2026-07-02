@@ -8,6 +8,12 @@ import {
   loadRoleCapabilityMap,
   roleSummaryForShareRow,
 } from "../lib/collaboration-roles.js";
+import {
+  isEntitlementError,
+  recordFeatureUsage,
+  requireFeatureQuota,
+  sendEntitlementError,
+} from "../lib/entitlements.js";
 import { getProjectAccess, hasCapability, withAccessMetadata } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -152,6 +158,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const parentProjectId = normalizeProjectId(projectId);
 
     try {
+      const { count } = await supabase
+        .from("canvases")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId);
+      await requireFeatureQuota(userId, "canvas.create", count || 0);
+
       let ownerUserId = userId;
       let inheritedAccess = null as Awaited<ReturnType<typeof getProjectAccess>> | null;
       if (parentProjectId) {
@@ -185,6 +197,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       if (parentProjectId) await touchProjectAncestors(parentProjectId, ownerUserId, now);
+      await recordFeatureUsage(userId, "canvas.create", 1, {
+        projectId: parentProjectId || null,
+      });
 
       return res.status(201).json({
         canvas: withAccessMetadata(
@@ -193,6 +208,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ),
       });
     } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
       console.error("Create canvas error:", err);
       return res.status(500).json({ error: "Internal server error" });
     }

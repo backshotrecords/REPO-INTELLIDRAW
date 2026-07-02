@@ -9,11 +9,14 @@ import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton, { type VoiceQueueChunk, type VoiceTranscriptChunk } from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
 import CanvasSkillsPanel from "../components/CanvasSkillsPanel";
+import PlanBadge from "../components/PlanBadge";
 import { NetworkError, apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext, apiTranscribeAudio } from "../lib/api";
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { fetchChatSettings } from "../lib/chatSettings";
 import { useConnectivity } from "../contexts/ConnectivityContext";
+import { useEntitlements } from "../hooks/useEntitlements";
+import { useUpgradePrompt } from "../contexts/UpgradePromptContext";
 import {
   type CanvasSavePayload,
   type ChatSendPayload,
@@ -145,6 +148,7 @@ export default function WorkspacePage() {
     reportNetworkFailure,
     setReconnectMessage,
   } = useConnectivity();
+  const { hasFeature, getRequiredPlan, getPlanName } = useEntitlements();
 
   const [canvasId, setCanvasId] = useState<string | null>(id === "new" ? null : id || null);
   const [dashboardReturnCanvas, setDashboardReturnCanvas] = useState<DashboardReturnCanvas | null>(null);
@@ -177,6 +181,33 @@ export default function WorkspacePage() {
   const [meetingSideChatterRunCount, setMeetingSideChatterRunCount] = useState(0);
   const [voiceExternalStopSignal, setVoiceExternalStopSignal] = useState(0);
   const [voiceQueueChunks, setVoiceQueueChunks] = useState<VoiceQueueChunk[]>([]);
+  const canUseChat = hasFeature("canvas.ai_chat");
+  const canAutoFix = hasFeature("canvas.auto_fix");
+  const canUploadFile = hasFeature("canvas.upload_file");
+  const canUseVoice = hasFeature("voice.dictation");
+  const canUseMeetingMode = hasFeature("voice.meeting_mode");
+  const canPublishCanvas = hasFeature("canvas.publish_public");
+  const canUseSkills = hasFeature("skills.attach_canvas");
+  const canUseContextualSkills = hasFeature("skills.trigger_contextual");
+  const { openUpgradePrompt } = useUpgradePrompt();
+
+  const requiredPlanMessage = useCallback((featureKey: string, label: string) => {
+    const plan = getRequiredPlan(featureKey);
+    return plan && plan !== "free" ? `${label} requires ${getPlanName(plan)}.` : `${label} is not available on your current plan.`;
+  }, [getPlanName, getRequiredPlan]);
+  const addPlanNotice = useCallback((featureKey: string, label: string) => {
+    openUpgradePrompt({
+      featureKey,
+      featureLabel: label,
+      requiredPlan: getRequiredPlan(featureKey),
+    });
+    const notice: ChatMessage = {
+      role: "assistant",
+      content: `Locked: ${requiredPlanMessage(featureKey, label)}`,
+      timestamp: new Date().toISOString(),
+    };
+    setChatHistory((prev) => [...prev, notice]);
+  }, [getRequiredPlan, openUpgradePrompt, requiredPlanMessage]);
 
   // Ref mirrors — sendMessage reads these instead of closures (closure-proof)
   const chatHistoryRef = useRef<ChatMessage[]>([]);
@@ -854,6 +885,10 @@ export default function WorkspacePage() {
   const handleSyntaxError = useCallback(async (_errorMsg: string, _brokenCode: string) => {
     if (isReadOnlyCollab) return;
     if (isFixing || chatLoading) return;
+    if (!canAutoFix) {
+      addPlanNotice("canvas.auto_fix", "Auto-fix");
+      return;
+    }
     flushPreviewMode();
     setIsFixing(true);
     setChatLoading(true);
@@ -924,7 +959,7 @@ export default function WorkspacePage() {
       setIsFixing(false);
       setChatLoading(false);
     }
-  }, [isFixing, chatLoading, chatHistory, autoSave, createCommit, flushPreviewMode, isReadOnlyCollab]);
+  }, [isFixing, chatLoading, chatHistory, autoSave, createCommit, flushPreviewMode, isReadOnlyCollab, canAutoFix, addPlanNotice]);
 
   const handleMermaidCodeChange = (newCode: string) => {
     if (isReadOnlyCollab) return;
@@ -1044,6 +1079,10 @@ export default function WorkspacePage() {
   const handlePublishToggle = async () => {
     if (!canvasId || publishing) return;
     if (dashboardReturnCanvas?.access_level === "view" || dashboardReturnCanvas?.access_level === "edit") return;
+    if (!isPublic && !canPublishCanvas) {
+      addPlanNotice("canvas.publish_public", "Publishing");
+      return;
+    }
     setPublishing(true);
     try {
       await apiPublishCanvas(canvasId, !isPublic);
@@ -1315,6 +1354,10 @@ export default function WorkspacePage() {
   }, [activeScopeId, scopePath, mermaidCode]);
 
   const sendMessage = useCallback(async (text: string) => {
+    if (!canUseChat) {
+      addPlanNotice("canvas.ai_chat", "AI canvas chat");
+      return;
+    }
     if (!text.trim() || chatLoadingRef.current) return;
     if (isReadOnlyCollab) return;
     flushPreviewMode();
@@ -1426,7 +1469,7 @@ export default function WorkspacePage() {
     } finally {
       setChatLoading(false);
     }
-  }, [autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure, isReadOnlyCollab]);
+  }, [autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure, isReadOnlyCollab, canUseChat, addPlanNotice]);
 
   const appendVoiceTranscript = useCallback((text: string) => {
     if (isReadOnlyCollab) return;
@@ -1471,6 +1514,11 @@ export default function WorkspacePage() {
 
   const processMeetingTranscriptChunk = useCallback(async (text: string, chunk: VoiceTranscriptChunk) => {
     if (isReadOnlyCollab) return;
+    if (!canUseMeetingMode) {
+      addPlanNotice("voice.meeting_mode", "Meeting Mode");
+      setVoiceExternalStopSignal((value) => value + 1);
+      return;
+    }
     const transcript = text.trim();
     if (!transcript) return;
 
@@ -1577,7 +1625,7 @@ ${transcript}
     } finally {
       setChatLoading(false);
     }
-  }, [annotateMeetingMetrics, autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure, resetMeetingSideChatterRun, isReadOnlyCollab]);
+  }, [annotateMeetingMetrics, autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure, resetMeetingSideChatterRun, isReadOnlyCollab, canUseMeetingMode, addPlanNotice]);
 
   const enqueueMeetingTranscriptChunk = useCallback((text: string, chunk: VoiceTranscriptChunk) => {
     const pending = meetingChunkQueueRef.current.then(() => processMeetingTranscriptChunk(text, chunk));
@@ -1587,12 +1635,16 @@ ${transcript}
 
   const handleAddSkillToContext = useCallback((skill: { title: string; instructionText: string }) => {
     if (isReadOnlyCollab) return;
+    if (!canUseContextualSkills) {
+      addPlanNotice("skills.trigger_contextual", "Contextual skills");
+      return;
+    }
     const block = `Use this skill as context:\n\nSkill: ${skill.title}\n${skill.instructionText}`;
     setChatInput(prev => prev.trim() ? `${prev.trim()}\n\n${block}` : block);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
-  }, [isReadOnlyCollab]);
+  }, [isReadOnlyCollab, canUseContextualSkills, addPlanNotice]);
 
   const processCanvasSaveOperation = useCallback(async (operation: OfflineOperation<CanvasSavePayload>) => {
     if (!operation.canvasId) return;
@@ -1752,6 +1804,11 @@ ${transcript}
   // File upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (isReadOnlyCollab) {
+      e.target.value = "";
+      return;
+    }
+    if (!canUploadFile) {
+      addPlanNotice("canvas.upload_file", "File upload");
       e.target.value = "";
       return;
     }
@@ -2163,7 +2220,7 @@ ${transcript}
               disabled={publishing || !canvasId || isReadOnlyCollab || isSharedEditable}
               className={`hidden sm:inline-flex items-center justify-center rounded-full text-xs font-bold transition-all duration-200 active:scale-95 disabled:opacity-40 bg-surface-container-high text-on-surface-variant border border-outline-variant/20 hover:bg-surface-container-low hover:text-on-surface ${isPublic ? "w-8 h-8 outline outline-2 outline-emerald-800 outline-offset-[3px]" : "gap-1.5 px-3.5 py-2"
                 }`}
-              title={isPublic ? "Published" : "Publish"}
+              title={!isPublic && !canPublishCanvas ? requiredPlanMessage("canvas.publish_public", "Publishing") : isPublic ? "Published" : "Publish"}
             >
               <span
                 className={`material-symbols-outlined text-base transition-all duration-300 ${isPublic ? "text-emerald-700" : ""}`}
@@ -2172,6 +2229,7 @@ ${transcript}
                 {isPublic ? "public" : "public_off"}
               </span>
               {!isPublic && (publishing ? "..." : "Publish")}
+              {!isPublic && !canPublishCanvas && <PlanBadge planId={getRequiredPlan("canvas.publish_public")} />}
             </button>
 
             {/* Share button */}
@@ -2425,11 +2483,18 @@ ${transcript}
                 </div>
                 {/* Skills Button */}
                 <button
-                  onClick={() => setShowSkillsPanel(prev => !prev)}
-                  className={`p-3 bg-white shadow-xl border border-outline-variant/30 rounded-full hover:bg-surface-container text-on-surface-variant material-symbols-outlined text-xl transition-all ${showSkillsPanel ? "ring-2 ring-primary text-primary" : ""}`}
-                  title="Canvas Skills"
+                  onClick={() => {
+                    if (!canUseSkills) {
+                      addPlanNotice("skills.attach_canvas", "Canvas Skills");
+                      return;
+                    }
+                    setShowSkillsPanel(prev => !prev);
+                  }}
+                  className={`p-3 bg-white shadow-xl border border-outline-variant/30 rounded-full hover:bg-surface-container text-on-surface-variant text-xl transition-all flex flex-col items-center ${showSkillsPanel ? "ring-2 ring-primary text-primary" : ""}`}
+                  title={canUseSkills ? "Canvas Skills" : requiredPlanMessage("skills.attach_canvas", "Canvas Skills")}
                 >
-                  auto_awesome
+                  <span className="material-symbols-outlined text-xl">auto_awesome</span>
+                  {!canUseSkills && <PlanBadge planId={getRequiredPlan("skills.attach_canvas")} className="mt-1" />}
                 </button>
               </div>
               )}
@@ -2611,8 +2676,18 @@ ${transcript}
                 </button>
 
                 {/* Paperclip — desktop inline (left side) */}
-                <label className={`hidden md:flex shrink-0 w-10 h-10 rounded-full items-center justify-center text-on-surface-variant/60 transition-all self-end ${isReadOnlyCollab ? "opacity-30 pointer-events-none" : "cursor-pointer hover:text-primary hover:bg-surface-container-high/40"}`}>
+                <label
+                  onClick={(event) => {
+                    if (!canUploadFile) {
+                      event.preventDefault();
+                      addPlanNotice("canvas.upload_file", "File upload");
+                    }
+                  }}
+                  className={`hidden md:flex shrink-0 h-10 rounded-full items-center justify-center text-on-surface-variant/60 transition-all self-end ${isReadOnlyCollab ? "opacity-50 pointer-events-none px-2" : !canUploadFile ? "opacity-70 px-2 cursor-pointer hover:bg-surface-container-high/40" : "w-10 cursor-pointer hover:text-primary hover:bg-surface-container-high/40"}`}
+                  title={!canUploadFile ? requiredPlanMessage("canvas.upload_file", "File upload") : "Attach file"}
+                >
                   <span className="material-symbols-outlined text-xl">attach_file</span>
+                  {!canUploadFile && <PlanBadge planId={getRequiredPlan("canvas.upload_file")} className="ml-1" />}
                   <input
                     type="file"
                     className="hidden"
@@ -2622,15 +2697,31 @@ ${transcript}
                 </label>
 
                 {/* Auto-growing textarea */}
-                <div className="flex-1 min-w-0">
+                <div
+                  className="flex-1 min-w-0"
+                  onClickCapture={(event) => {
+                    if (!canUseChat) {
+                      event.preventDefault();
+                      addPlanNotice("canvas.ai_chat", "AI canvas chat");
+                    }
+                  }}
+                >
                   <textarea
                     ref={textareaRef}
                     className="w-full bg-transparent border-none rounded-xl px-3 py-2.5 text-sm font-medium placeholder:text-on-surface-variant/40 focus:ring-0 transition-all outline-none resize-none no-scrollbar"
-                    placeholder={isReadOnlyCollab ? "View-only shared canvas" : "Describe your flowchart..."}
+                    placeholder={isReadOnlyCollab ? "View-only shared canvas" : canUseChat ? "Describe your flowchart..." : requiredPlanMessage("canvas.ai_chat", "AI canvas chat")}
                     value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
+                    onChange={(e) => {
+                      if (canUseChat) setChatInput(e.target.value);
+                    }}
+                    readOnly={!canUseChat}
                     disabled={isReadOnlyCollab}
                     onKeyDown={(e) => {
+                      if (!canUseChat) {
+                        e.preventDefault();
+                        addPlanNotice("canvas.ai_chat", "AI canvas chat");
+                        return;
+                      }
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         if (isOffline || isReadOnlyCollab) return;
@@ -2645,7 +2736,16 @@ ${transcript}
                 <div className="shrink-0 flex items-end gap-1.5">
 
                   {/* Desktop-only: mic inline */}
-                  <div className="hidden md:block">
+                  <div
+                    className="hidden md:block"
+                    onClickCapture={(event) => {
+                      if (!canUseVoice) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        addPlanNotice("voice.dictation", "Voice input");
+                      }
+                    }}
+                  >
                     <VoiceMicButton
                       onTranscript={(text) => appendVoiceTranscript(text)}
                       onMeetingTranscript={enqueueMeetingTranscriptChunk}
@@ -2655,15 +2755,20 @@ ${transcript}
                       meetingSilenceStopSeconds={meetingSilenceStopSeconds}
                       externalStopSignal={voiceExternalStopSignal}
                       inputBarHeight={inputBarHeight}
+                      allowMeetingMode={canUseMeetingMode}
+                      meetingModeBadge={<PlanBadge planId={getRequiredPlan("voice.meeting_mode")} />}
+                      onLockedMeetingModeClick={() => addPlanNotice("voice.meeting_mode", "Meeting Mode")}
                       disabled={chatLoading || isOffline || isReadOnlyCollab}
                     />
+                    {!canUseVoice && <PlanBadge planId={getRequiredPlan("voice.dictation")} className="ml-1" />}
                   </div>
 
                   {/* Send button */}
                   <button
                     onClick={() => sendMessage(chatInput)}
-                    disabled={chatLoading || isOffline || isReadOnlyCollab || !chatInput.trim()}
+                    disabled={chatLoading || isOffline || isReadOnlyCollab || (canUseChat && !chatInput.trim())}
                     className="h-10 w-10 bg-primary text-white rounded-xl flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-30"
+                    title={!canUseChat ? requiredPlanMessage("canvas.ai_chat", "AI canvas chat") : "Send"}
                   >
                     {chatLoading ? (
                       <span className="spinner border-white/30 border-t-white" style={{ width: 16, height: 16 }} />
@@ -2676,6 +2781,7 @@ ${transcript}
                       </span>
                     )}
                   </button>
+                  {!canUseChat && <PlanBadge planId={getRequiredPlan("canvas.ai_chat")} />}
                 </div>
               </div>
 
@@ -2718,7 +2824,7 @@ ${transcript}
         </div>
 
         {/* Skills Panel — rendered at main level so mobile controls share the same stacking context */}
-        {activeView === "flowchart" && canvasId && !isReadOnlyCollab && (
+        {activeView === "flowchart" && canvasId && !isReadOnlyCollab && canUseSkills && (
           <CanvasSkillsPanel
             canvasId={canvasId}
             isOpen={showSkillsPanel}
@@ -2780,8 +2886,18 @@ ${transcript}
           className={`md:hidden absolute right-4 flex flex-col items-center gap-2 transition-all duration-300 ${showSkillsPanel ? "z-40" : "z-[10000]"}`}
           style={{ bottom: `${inputBarHeight + 16}px` }}
         >
-          <label className="cursor-pointer shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all bg-white shadow-xl border border-outline-variant/30 shadow-[0_8px_32px_rgba(0,0,0,0.15)]">
+          <label
+            onClick={(event) => {
+              if (!canUploadFile) {
+                event.preventDefault();
+                addPlanNotice("canvas.upload_file", "File upload");
+              }
+            }}
+            className={`shrink-0 rounded-full flex items-center justify-center text-on-surface-variant transition-all bg-white shadow-xl border border-outline-variant/30 shadow-[0_8px_32px_rgba(0,0,0,0.15)] ${canUploadFile ? "w-11 h-11 cursor-pointer hover:text-primary" : "min-h-11 px-2 opacity-70 cursor-pointer"}`}
+            title={!canUploadFile ? requiredPlanMessage("canvas.upload_file", "File upload") : "Attach file"}
+          >
             <span className="material-symbols-outlined text-xl">attach_file</span>
+            {!canUploadFile && <PlanBadge planId={getRequiredPlan("canvas.upload_file")} className="ml-1" />}
             <input
               type="file"
               className="hidden"
@@ -2789,7 +2905,16 @@ ${transcript}
               onChange={handleFileUpload}
             />
           </label>
-          <div className="voice-mic-mobile-float shadow-[0_8px_32px_rgba(0,0,0,0.15)] rounded-full">
+          <div
+            className="voice-mic-mobile-float shadow-[0_8px_32px_rgba(0,0,0,0.15)] rounded-full"
+            onClickCapture={(event) => {
+              if (!canUseVoice) {
+                event.preventDefault();
+                event.stopPropagation();
+                addPlanNotice("voice.dictation", "Voice input");
+              }
+            }}
+          >
             <VoiceMicButton
               onTranscript={(text) => appendVoiceTranscript(text)}
               onMeetingTranscript={enqueueMeetingTranscriptChunk}
@@ -2799,8 +2924,12 @@ ${transcript}
               meetingSilenceStopSeconds={meetingSilenceStopSeconds}
               externalStopSignal={voiceExternalStopSignal}
               inputBarHeight={inputBarHeight}
+              allowMeetingMode={canUseMeetingMode}
+              meetingModeBadge={<PlanBadge planId={getRequiredPlan("voice.meeting_mode")} />}
+              onLockedMeetingModeClick={() => addPlanNotice("voice.meeting_mode", "Meeting Mode")}
               disabled={chatLoading || isOffline}
             />
+            {!canUseVoice && <PlanBadge planId={getRequiredPlan("voice.dictation")} className="mt-1" />}
           </div>
         </div>
         )}

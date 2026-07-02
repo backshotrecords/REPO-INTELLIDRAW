@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "./lib/auth.js";
 import { supabase } from "./lib/db.js";
 import { decrypt } from "./lib/crypto.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "./lib/entitlements.js";
 import OpenAI from "openai";
 import type { ResponseInputMessageContentList } from "openai/resources/responses/responses";
 
@@ -127,6 +128,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    await requireFeatureQuota(authPayload.userId, "canvas.upload_file");
+
     // Get user's API key and active model
     const { data: user } = await supabase
       .from("users")
@@ -200,6 +203,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Extract mermaid code
     const mermaidMatch = aiResponse.match(/```mermaid\s*([\s\S]*?)```/i);
     const mermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
+    await recordFeatureUsage(authPayload.userId, "canvas.upload_file", 1, {
+      fileName: safeFileName,
+      inputBytes,
+      kind: resolvedType.kind,
+      model: modelId,
+    });
 
     return res.status(200).json({
       response: aiResponse,
@@ -207,6 +216,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       model: modelId,
     });
   } catch (err: unknown) {
+    if (isEntitlementError(err)) return sendEntitlementError(res, err);
     console.error("Upload analysis error:", err);
     const errorMessage = err instanceof Error ? err.message : "Failed to analyze file";
     return res.status(500).json({ error: errorMessage });

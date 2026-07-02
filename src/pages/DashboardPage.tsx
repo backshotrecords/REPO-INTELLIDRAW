@@ -4,6 +4,7 @@ import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
 import DashboardCanvasTreeView from "../components/DashboardCanvasTreeView";
 import DashboardFileViewToggle, { type DashboardFileViewMode } from "../components/DashboardFileViewToggle";
+import PlanBadge from "../components/PlanBadge";
 import {
   apiCreateCanvas,
   apiCreateProject,
@@ -24,6 +25,8 @@ import {
 } from "../lib/api";
 import { exportAsImage, exportAsMarkdown, exportAsZip } from "../utils/export";
 import { useConnectivity } from "../contexts/ConnectivityContext";
+import { useEntitlements } from "../hooks/useEntitlements";
+import { useUpgradePrompt } from "../contexts/UpgradePromptContext";
 import { useMermaidThumbnails } from "../hooks/useMermaidThumbnails";
 import type { CanvasProject, CollaborationCapability, CollaborationRoleSummary, DashboardCanvas, ProjectAccent, ProjectShare, UserGroup } from "../types";
 import { isLongTermMemoryItem } from "../types";
@@ -122,6 +125,8 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { registerReconnectHandler, setReconnectMessage } = useConnectivity();
+  const { hasFeature, getRequiredPlan, getPlanName } = useEntitlements();
+  const { openUpgradePrompt } = useUpgradePrompt();
 
   const dashboardSearchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const activeProjectId = dashboardSearchParams.get("project");
@@ -179,7 +184,11 @@ export default function DashboardPage() {
   ), [childProjects, scopedCanvases]);
   const shortTermFolderCanvasCount = scopedCanvases.filter((canvas) => !isLongTermMemoryItem(canvas)).length;
   const hasProjectSection = visibleProjects.length > 0;
-  const showCanvasTreeView = Boolean(activeProject && fileViewMode === "tree");
+  const canUseTreeView = hasFeature("dashboard.tree_view");
+  const canExportMarkdown = hasFeature("export.markdown");
+  const canExportPng = hasFeature("export.png");
+  const canExportZip = hasFeature("export.zip");
+  const showCanvasTreeView = Boolean(activeProject && fileViewMode === "tree" && canUseTreeView);
   const movingCanvas = movingCanvasId ? canvases.find((canvas) => canvas.id === movingCanvasId) ?? null : null;
   const movingProject = movingProjectId ? projects.find((project) => project.id === movingProjectId) ?? null : null;
   const collabProject = collabProjectId ? projects.find((project) => project.id === collabProjectId) ?? null : null;
@@ -187,11 +196,12 @@ export default function DashboardPage() {
     ? projects.find((project) => project.id === projectWizard.projectId) ?? null
     : null;
   const isTreeWorkspace = Boolean(showCanvasTreeView && activeProject);
-  const activeProjectCanCreateCanvas = !activeProject || hasItemCapability(activeProject, "canvas.create");
-  const activeProjectCanCreateFolder = !activeProject || hasItemCapability(activeProject, "project.create_folder");
+  const activeProjectCanCreateCanvas = hasFeature("canvas.create") && (!activeProject || hasItemCapability(activeProject, "canvas.create"));
+  const activeProjectCanCreateFolder = hasFeature("project.create") && (!activeProject || hasItemCapability(activeProject, "project.create_folder"));
   const activeProjectCanCreate = activeProjectCanCreateCanvas || activeProjectCanCreateFolder;
   const activeProjectCanEditDetails = activeProject ? hasItemCapability(activeProject, "project.update") : true;
-  const activeProjectCanManageShares = activeProject ? hasItemCapability(activeProject, "project.manage_shares") : false;
+  const activeProjectHasShareCapability = activeProject ? hasItemCapability(activeProject, "project.manage_shares") : false;
+  const activeProjectCanManageShares = activeProjectHasShareCapability && hasFeature("project.share_groups");
   const activeProjectAudienceLabel = activeProject ? getProjectAudienceLabelForPath(projectPath) : "";
 
   useEffect(() => {
@@ -361,6 +371,27 @@ export default function DashboardPage() {
     navigate("/user-management");
   }
 
+  function requiredPlanMessage(featureKey: string, label: string) {
+    const plan = getRequiredPlan(featureKey);
+    return plan && plan !== "free" ? `${label} requires ${getPlanName(plan)}.` : `${label} is not available on your current plan.`;
+  }
+
+  function openUpgradeFor(featureKey: string, featureLabel: string) {
+    openUpgradePrompt({
+      featureKey,
+      featureLabel,
+      requiredPlan: getRequiredPlan(featureKey),
+    });
+  }
+
+  function handleFileViewModeChange(nextMode: DashboardFileViewMode) {
+    if (nextMode === "tree" && !canUseTreeView) {
+      openUpgradeFor("dashboard.tree_view", "Tree view");
+      return;
+    }
+    setFileViewMode(nextMode);
+  }
+
   function closeMoveDialog(kind: "canvas" | "project") {
     if (movePendingRef.current) return;
     setMovePendingTargetKey(null);
@@ -387,7 +418,8 @@ export default function DashboardPage() {
 
   async function handleCreateCanvas() {
     if (!activeProjectCanCreateCanvas) {
-      setError("You do not have permission to create canvases in this project.");
+      if (!hasFeature("canvas.create")) openUpgradeFor("canvas.create", "Creating canvases");
+      else setError("You do not have permission to create canvases in this project.");
       return;
     }
     try {
@@ -405,7 +437,8 @@ export default function DashboardPage() {
       return;
     }
     if (projectWizard?.mode !== "edit" && !activeProjectCanCreateFolder) {
-      setError("You do not have permission to create folders in this project.");
+      if (!hasFeature("project.create")) openUpgradeFor("project.create", "Creating projects");
+      else setError("You do not have permission to create folders in this project.");
       return;
     }
     try {
@@ -615,6 +648,19 @@ export default function DashboardPage() {
       .map((canvas) => canvas.id);
     if (selectedIds.length === 0) return;
 
+    if (exportOptions.markdown && !canExportMarkdown) {
+      openUpgradeFor("export.markdown", "Markdown export");
+      return;
+    }
+    if (exportOptions.png && !canExportPng) {
+      openUpgradeFor("export.png", "PNG export");
+      return;
+    }
+    if ((selectedIds.length > 1 || (exportOptions.markdown && exportOptions.png)) && !canExportZip) {
+      openUpgradeFor("export.zip", "Bulk ZIP export");
+      return;
+    }
+
     try {
       const selected = await loadCanvasExportData(selectedIds);
       if (selected.length === 1) {
@@ -668,7 +714,12 @@ export default function DashboardPage() {
             audienceLabel={isTreeWorkspace ? activeProjectAudienceLabel : ""}
             onOpenUserManagement={openUserManagement}
             onNavigate={navigateToProject}
-            action={<DashboardFileViewToggle mode={fileViewMode} onChange={setFileViewMode} />}
+            action={
+              <div className="flex items-center gap-2">
+                <DashboardFileViewToggle mode={fileViewMode} onChange={handleFileViewModeChange} />
+                {!canUseTreeView && <PlanBadge planId={getRequiredPlan("dashboard.tree_view")} />}
+              </div>
+            }
           />
         )}
 
@@ -699,6 +750,17 @@ export default function DashboardPage() {
                       className="w-10 h-10 rounded-full bg-surface-container-lowest border border-outline-variant/30 shadow-sm hover:bg-surface-container-low flex items-center justify-center text-primary transition-colors"
                     >
                       <span className="material-symbols-outlined text-[22px]">groups</span>
+                    </button>
+                  ) : activeProjectHasShareCapability ? (
+                    <button
+                      type="button"
+                      aria-label="Project collaboration requires a higher plan"
+                      title={requiredPlanMessage("project.share_groups", "Project collaboration")}
+                      onClick={() => openUpgradeFor("project.share_groups", "Project collaboration")}
+                      className="h-10 rounded-full bg-surface-container-lowest border border-outline-variant/30 shadow-sm hover:bg-surface-container-low flex items-center gap-2 px-3 text-primary transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[22px]">groups</span>
+                      <PlanBadge planId={getRequiredPlan("project.share_groups")} />
                     </button>
                   ) : (
                     <span className="inline-flex items-center gap-1 rounded-full bg-secondary-fixed/50 px-3 py-2 text-xs font-bold text-primary">
@@ -770,6 +832,11 @@ export default function DashboardPage() {
             selectedCount={selectedForExport.size}
             exportOptions={exportOptions}
             onChangeOptions={setExportOptions}
+            canExportMarkdown={canExportMarkdown}
+            canExportPng={canExportPng}
+            canExportZip={canExportZip}
+            getRequiredPlan={getRequiredPlan}
+            onLockedFeature={openUpgradeFor}
             onCancel={() => {
               setExportMode(false);
               setSelectedForExport(new Set());
@@ -906,6 +973,11 @@ export default function DashboardPage() {
                       onDragStart={(event) => handleDashboardDragStart(event, { kind: "canvas", id: canvas.id, title: canvas.title })}
                       onDragEnd={handleDashboardDragEnd}
                       onExportMarkdown={() => {
+                        if (!canExportMarkdown) {
+                          openUpgradeFor("export.markdown", "Markdown export");
+                          setMenuOpen(null);
+                          return;
+                        }
                         void loadCanvasExportData([canvas.id])
                           .then(([exportCanvas]) => exportAsMarkdown(exportCanvas))
                           .catch((err) => {
@@ -915,6 +987,11 @@ export default function DashboardPage() {
                         setMenuOpen(null);
                       }}
                       onExportPng={() => {
+                        if (!canExportPng) {
+                          openUpgradeFor("export.png", "PNG export");
+                          setMenuOpen(null);
+                          return;
+                        }
                         void loadCanvasExportData([canvas.id])
                           .then(([exportCanvas]) => exportAsImage(exportCanvas))
                           .catch((err) => {
@@ -949,7 +1026,13 @@ export default function DashboardPage() {
         type="button"
         onClick={() => {
           if (!activeProjectCanCreate) {
-            setError("You do not have permission to create items in this project.");
+            if (!hasFeature("canvas.create")) {
+              openUpgradeFor("canvas.create", "Creating canvases");
+            } else if (!hasFeature("project.create")) {
+              openUpgradeFor("project.create", "Creating projects");
+            } else {
+              setError("You do not have permission to create items in this project.");
+            }
             return;
           }
           setShowCreateDialog(true);
@@ -968,6 +1051,8 @@ export default function DashboardPage() {
           activeProject={activeProject}
           canCreateCanvas={activeProjectCanCreateCanvas}
           canCreateProject={activeProjectCanCreateFolder}
+          canvasRequiredPlan={getRequiredPlan("canvas.create")}
+          projectRequiredPlan={getRequiredPlan("project.create")}
           onClose={() => setShowCreateDialog(false)}
           onCreateCanvas={() => {
             setShowCreateDialog(false);
@@ -1583,6 +1668,8 @@ function CreateChoiceDialog({
   activeProject,
   canCreateCanvas,
   canCreateProject,
+  canvasRequiredPlan,
+  projectRequiredPlan,
   onClose,
   onCreateCanvas,
   onCreateProject,
@@ -1590,6 +1677,8 @@ function CreateChoiceDialog({
   activeProject: CanvasProject | null;
   canCreateCanvas: boolean;
   canCreateProject: boolean;
+  canvasRequiredPlan: string | null;
+  projectRequiredPlan: string | null;
   onClose: () => void;
   onCreateCanvas: () => void;
   onCreateProject: () => void;
@@ -1608,12 +1697,23 @@ function CreateChoiceDialog({
           </button>
         </div>
         <div className="space-y-2">
-          {canCreateCanvas && (
-            <ChoiceButton icon="draw" title="New Canvas" description={activeProject ? `Create inside ${activeProject.title}` : "Create on the root dashboard"} onClick={onCreateCanvas} />
-          )}
-          {canCreateProject && (
-            <ChoiceButton icon="folder" title="New Project" description={activeProject ? `Create inside ${activeProject.title}` : "Create a project folder for related canvases"} onClick={onCreateProject} fill />
-          )}
+          <ChoiceButton
+            icon="draw"
+            title="New Canvas"
+            description={activeProject ? `Create inside ${activeProject.title}` : "Create on the root dashboard"}
+            disabled={!canCreateCanvas}
+            badge={!canCreateCanvas ? <PlanBadge planId={canvasRequiredPlan} /> : null}
+            onClick={onCreateCanvas}
+          />
+          <ChoiceButton
+            icon="folder"
+            title="New Project"
+            description={activeProject ? `Create inside ${activeProject.title}` : "Create a project folder for related canvases"}
+            disabled={!canCreateProject}
+            badge={!canCreateProject ? <PlanBadge planId={projectRequiredPlan} /> : null}
+            onClick={onCreateProject}
+            fill
+          />
         </div>
       </div>
     </div>
@@ -1627,6 +1727,7 @@ function ChoiceButton({
   fill,
   busy,
   disabled,
+  badge,
   onClick,
 }: {
   icon: string;
@@ -1635,13 +1736,14 @@ function ChoiceButton({
   fill?: boolean;
   busy?: boolean;
   disabled?: boolean;
+  badge?: ReactNode;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
+      disabled={busy}
       aria-busy={busy || undefined}
       className={`w-full flex items-center gap-4 rounded-xl px-4 py-4 text-left transition-colors ${disabled ? busy ? "cursor-wait opacity-80" : "cursor-not-allowed opacity-50" : "hover:bg-surface-container-low"}`}
     >
@@ -1649,7 +1751,7 @@ function ChoiceButton({
         <span className={`material-symbols-outlined ${fill ? "fill" : ""}`}>{icon}</span>
       </span>
       <span className="min-w-0 flex-1">
-        <strong className="block text-on-surface">{title}</strong>
+        <strong className="flex items-center gap-2 text-on-surface">{title}{badge}</strong>
         <small className="block text-on-surface-variant">{description}</small>
       </span>
       <span className={`material-symbols-outlined ${busy ? "text-primary animate-spin" : "text-on-surface-variant"}`}>
@@ -2066,34 +2168,68 @@ function ExportBar({
   selectedCount,
   exportOptions,
   onChangeOptions,
+  canExportMarkdown,
+  canExportPng,
+  canExportZip,
+  getRequiredPlan,
+  onLockedFeature,
   onCancel,
   onExport,
 }: {
   selectedCount: number;
   exportOptions: { markdown: boolean; png: boolean };
   onChangeOptions: (options: { markdown: boolean; png: boolean }) => void;
+  canExportMarkdown: boolean;
+  canExportPng: boolean;
+  canExportZip: boolean;
+  getRequiredPlan: (key: string) => string | null;
+  onLockedFeature: (featureKey: string, featureLabel: string) => void;
   onCancel: () => void;
   onExport: () => void;
 }) {
+  const requiresZip = selectedCount > 1 || (exportOptions.markdown && exportOptions.png);
+  const exportSelectionBlocked = selectedCount === 0 || (!exportOptions.markdown && !exportOptions.png);
+
   return (
     <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between bg-secondary-fixed/30 rounded-xl px-6 py-4 gap-4">
       <div className="flex items-center gap-4">
         <span className="text-sm font-semibold text-on-surface">{selectedCount} selected</span>
         <div className="h-4 w-[1px] bg-outline-variant/30 hidden md:block" />
         <div className="flex items-center gap-4 text-sm font-medium">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={exportOptions.markdown} onChange={(event) => onChangeOptions({ ...exportOptions, markdown: event.target.checked })} className="accent-secondary w-4 h-4 rounded" />
+          <label
+            className={`flex items-center gap-2 cursor-pointer ${canExportMarkdown ? "" : "opacity-80"}`}
+            onClick={(event) => {
+              if (canExportMarkdown) return;
+              event.preventDefault();
+              onLockedFeature("export.markdown", "Markdown export");
+            }}
+          >
+            <input type="checkbox" checked={exportOptions.markdown} onChange={(event) => onChangeOptions({ ...exportOptions, markdown: event.target.checked })} disabled={!canExportMarkdown} className="accent-secondary w-4 h-4 rounded disabled:opacity-40" />
             Markdown (.md)
+            {!canExportMarkdown && <PlanBadge planId={getRequiredPlan("export.markdown")} />}
           </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={exportOptions.png} onChange={(event) => onChangeOptions({ ...exportOptions, png: event.target.checked })} className="accent-secondary w-4 h-4 rounded" />
+          <label
+            className={`flex items-center gap-2 cursor-pointer ${canExportPng ? "" : "opacity-80"}`}
+            onClick={(event) => {
+              if (canExportPng) return;
+              event.preventDefault();
+              onLockedFeature("export.png", "PNG export");
+            }}
+          >
+            <input type="checkbox" checked={exportOptions.png} onChange={(event) => onChangeOptions({ ...exportOptions, png: event.target.checked })} disabled={!canExportPng} className="accent-secondary w-4 h-4 rounded disabled:opacity-40" />
             Image (.png)
+            {!canExportPng && <PlanBadge planId={getRequiredPlan("export.png")} />}
           </label>
+          {requiresZip && !canExportZip && (
+            <button type="button" onClick={() => onLockedFeature("export.zip", "Bulk ZIP export")} className="inline-flex">
+              <PlanBadge planId={getRequiredPlan("export.zip")} />
+            </button>
+          )}
         </div>
       </div>
       <div className="flex justify-end gap-3 w-full md:w-auto">
         <button type="button" onClick={onCancel} className="text-sm font-bold text-on-surface-variant hover:text-on-surface">Cancel</button>
-        <button type="button" onClick={onExport} disabled={selectedCount === 0 || (!exportOptions.markdown && !exportOptions.png)} className="px-4 py-2 editorial-gradient text-white text-sm font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-40">Export</button>
+        <button type="button" onClick={onExport} disabled={exportSelectionBlocked} className="px-4 py-2 editorial-gradient text-white text-sm font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-40">Export</button>
       </div>
     </div>
   );

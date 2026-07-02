@@ -237,3 +237,48 @@ export interface GroupMember {
   display_name?: string;
   email?: string;
 }
+
+// ===== Subscription Entitlements =====
+
+export type SubscriptionPlanId = "free" | "pro" | "max" | string;
+
+export interface SubscriptionPlan {
+  id: SubscriptionPlanId;
+  name: string;
+  rank: number;
+  description?: string | null;
+}
+
+export interface EntitlementFeature {
+  key: string;
+  label: string;
+  description: string;
+  category: string;
+  enabled: boolean;
+  quota: number | null;
+  resetPeriodDays: number;
+  requiredPlan: SubscriptionPlanId;
+  defaultRequiredPlan: SubscriptionPlanId;
+}
+
+export interface EntitlementsSnapshot {
+  plan: SubscriptionPlan;
+  plans: SubscriptionPlan[];
+  features: EntitlementFeature[];
+  featureMap: Record<string, EntitlementFeature>;
+}
+
+export interface AdminFeatureMatrixFeature {
+  key: string;
+  label: string;
+  description: string;
+  category: string;
+  defaultRequiredPlan: SubscriptionPlanId;
+  requiredPlan: SubscriptionPlanId;
+  rules: Record<string, { enabled: boolean; quota: number | null; resetPeriodDays: number }>;
+}
+
+export interface AdminFeatureMatrix {
+  plans: SubscriptionPlan[];
+  features: AdminFeatureMatrixFeature[];
+}

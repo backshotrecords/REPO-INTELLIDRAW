@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../../lib/entitlements.js";
 
 const VALID_SCOPES = new Set(["local", "global"]);
 const VALID_TRIGGER_MODES = new Set(["automatic", "manual", "contextual"]);
@@ -76,6 +77,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: "Invalid scope or trigger_mode" });
     }
 
+    const scopeFeature = scope === "global" ? "skills.attach_global" : "skills.attach_canvas";
+    const triggerFeature = trigger_mode === "automatic"
+      ? "skills.trigger_automatic"
+      : trigger_mode === "manual"
+        ? "skills.trigger_manual"
+        : "skills.trigger_contextual";
+
+    try {
+      const { count } = await supabase
+        .from("skill_note_attachments")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", auth.userId)
+        .eq("scope", scope);
+      await requireFeatureQuota(auth.userId, scopeFeature, count || 0);
+      await requireFeatureQuota(auth.userId, triggerFeature);
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      return res.status(500).json({ error: "Failed to check feature access" });
+    }
+
     const row: Record<string, unknown> = { skill_note_id, skill_installation_id, user_id: auth.userId, scope, trigger_mode, is_active: true };
     if (canvas_id && scope === "local") row.canvas_id = canvas_id;
 
@@ -102,6 +123,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       return res.status(500).json({ error: error.message || "Failed to attach" });
     }
+
+    await recordFeatureUsage(auth.userId, scopeFeature, 1, {
+      attachmentId: data.id,
+      scope,
+    });
+    await recordFeatureUsage(auth.userId, triggerFeature, 1, {
+      attachmentId: data.id,
+      triggerMode: trigger_mode,
+    });
 
     return res.status(201).json({ attachment: await enrichAttachment(data as Record<string, unknown>) });
   }

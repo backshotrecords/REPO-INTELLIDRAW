@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../../lib/entitlements.js";
 import { ensureReleasedSkill } from "../../lib/skill-marketplace.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -14,6 +15,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "POST") {
     const { email, group_id } = req.body || {};
     if (!email && !group_id) return res.status(400).json({ error: "email or group_id required" });
+    try {
+      await requireFeatureQuota(auth.userId, "skills.share_private");
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      return res.status(500).json({ error: "Failed to check feature access" });
+    }
 
     const skill = await ensureReleasedSkill(id, auth.userId, "shared");
     if (!skill) return res.status(403).json({ error: "You can only share skills you own" });
@@ -32,6 +39,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error.code === "23505") return res.status(409).json({ error: "Already shared" });
       return res.status(500).json({ error: error.message || "Failed to share" });
     }
+    await recordFeatureUsage(auth.userId, "skills.share_private", 1, {
+      skillId: id,
+      targetType: email ? "user" : "group",
+    });
     return res.status(201).json({ share: data });
   }
 

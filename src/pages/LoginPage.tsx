@@ -19,12 +19,13 @@ function getGoogleOAuthURL() {
 }
 
 export default function LoginPage() {
-  const [isRegister, setIsRegister] = useState(false);
+  const [isRegister, setIsRegister] = useState(() => new URLSearchParams(window.location.search).get("mode") === "signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const { login, loginWithGoogle, register } = useAuth();
@@ -54,6 +55,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccessMessage("");
     setLoading(true);
 
     try {
@@ -63,7 +65,11 @@ export default function LoginPage() {
           setLoading(false);
           return;
         }
-        await register(email, password, displayName);
+        const data = await register(email, password, displayName);
+        setSuccessMessage(data.message || "Check your email to verify your signup. The link expires in 5 minutes.");
+        setPassword("");
+        setLoading(false);
+        return;
       } else {
         await login(email, password);
       }
@@ -223,6 +229,12 @@ export default function LoginPage() {
             </div>
           )}
 
+          {successMessage && (
+            <div className="bg-emerald-500/10 text-emerald-700 text-sm p-3 rounded-xl border border-emerald-500/20">
+              {successMessage}
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={loading}
@@ -231,10 +243,10 @@ export default function LoginPage() {
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="spinner" />
-                {isRegister ? "Creating Account..." : "Logging In..."}
+                {isRegister ? "Sending Email..." : "Logging In..."}
               </span>
             ) : isRegister ? (
-              "Create Account"
+              "Send Verification Email"
             ) : (
               "Log In"
             )}
@@ -250,7 +262,7 @@ export default function LoginPage() {
             </span>
             <p className="text-sm text-tertiary-fixed/90 leading-relaxed">
               {isRegister
-                ? "Create your account to start building AI-powered flowcharts."
+                ? "Verify your inbox before your IntelliDraw account is created."
                 : "Sign in to access your AI-powered canvases and collaborative drafting tools."}
             </p>
           </div>
@@ -264,6 +276,7 @@ export default function LoginPage() {
               onClick={() => {
                 setIsRegister(!isRegister);
                 setError("");
+                setSuccessMessage("");
               }}
               className="font-bold text-secondary ml-1 hover:underline"
             >

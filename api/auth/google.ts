@@ -47,7 +47,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const claims = decodeJwt(tokenData.id_token);
     const email = (claims.email as string)?.toLowerCase();
     const name = (claims.name as string) || (claims.given_name as string) || "User";
-    const googleSub = claims.sub as string;
 
     if (!email) {
       return res.status(400).json({ error: "Could not retrieve email from Google account" });
@@ -81,7 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // 4. New user — create account with a random unguessable password hash
+    // 4. New Google user — create account immediately because Google verified the inbox owner.
     const randomPassword = crypto.randomUUID() + crypto.randomUUID();
     const passwordHash = await bcrypt.hash(randomPassword, 12);
 
@@ -100,7 +99,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: "Failed to create account" });
     }
 
-    // Create default canvas
     await supabase.from("canvases").insert({
       user_id: newUser.id,
       title: DEFAULT_CANVAS_TITLE,
@@ -108,7 +106,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       chat_history: [],
     });
 
-    // 5. Create JWT
     const token = await createToken({ userId: newUser.id, email: newUser.email });
 
     return res.status(201).json({

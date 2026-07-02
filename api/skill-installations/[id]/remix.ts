@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../../lib/entitlements.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -9,6 +10,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { id } = req.query;
   if (!id || typeof id !== "string") return res.status(400).json({ error: "Missing installation id" });
+
+  try {
+    await requireFeatureQuota(auth.userId, "skills.remix");
+  } catch (err) {
+    if (isEntitlementError(err)) return sendEntitlementError(res, err);
+    return res.status(500).json({ error: "Failed to check feature access" });
+  }
 
   const { data: installation } = await supabase
     .from("skill_installations")
@@ -38,5 +46,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .single();
 
   if (error) return res.status(500).json({ error: error.message || "Failed to create private copy" });
+  await recordFeatureUsage(auth.userId, "skills.remix", 1, {
+    installationId: id,
+    skillId: skill.id,
+  });
   return res.status(201).json({ skill });
 }

@@ -13,6 +13,7 @@ import {
   loadRoleCapabilityMap,
   roleSummaryForShareRow,
 } from "../lib/collaboration-roles.js";
+import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../lib/entitlements.js";
 import { getProjectAccess, hasCapability, withAccessMetadata } from "../lib/project-access.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -71,7 +72,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const summary = ownerShareSummaries.get(currentId);
           if (summary) return summary;
 
-          const parentId = current.parent_project_id ? String(current.parent_project_id) : "";
+          const parentId: string = current.parent_project_id ? String(current.parent_project_id) : "";
           current = parentId ? ownedProjectsById.get(parentId) : undefined;
         }
 
@@ -184,7 +185,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const seen = new Set<string>();
-      const projects = [...ownedWithAccess, ...sharedProjects].filter((project) => {
+      const combinedProjects = [...ownedWithAccess, ...sharedProjects] as Record<string, unknown>[];
+      const projects = combinedProjects.filter((project) => {
         const key = `${project.access_level}:${project.id}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -203,6 +205,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const parentId = normalizeProjectId(parentProjectId);
 
     try {
+      const { count } = await supabase
+        .from("canvas_projects")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId);
+      await requireFeatureQuota(userId, "project.create", count || 0);
+
       let ownerUserId = userId;
       let inheritedAccess = null as Awaited<ReturnType<typeof getProjectAccess>> | null;
       if (parentId) {
@@ -236,6 +244,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       if (parentId) await touchProjectAncestors(parentId, ownerUserId, now);
+      await recordFeatureUsage(userId, "project.create", 1, {
+        parentProjectId: parentId || null,
+      });
 
       return res.status(201).json({
         project: withAccessMetadata(
@@ -244,6 +255,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ),
       });
     } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
       console.error("Create project error:", err);
       return res.status(500).json({ error: "Internal server error" });
     }
