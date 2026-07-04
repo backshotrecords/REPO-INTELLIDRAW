@@ -967,6 +967,45 @@ export default function WorkspacePage() {
     autoSave(newCode);
   };
 
+  // ── Debounced code editor draft ──
+  // Typing in the code editor updates only this local draft, so each keystroke
+  // stays cheap. The expensive downstream work (AST re-parse, filtered-code
+  // rebuild, autosave) runs once via handleMermaidCodeChange after the user
+  // pauses. The timer is deliberately not cleared on unmount so the final
+  // commit (and its autosave) still fires, matching autoSave's own behavior.
+  const [codeDraft, setCodeDraft] = useState<string | null>(null);
+  const codeDraftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCodeDraftRef = useRef<string | null>(null);
+
+  const handleCodeDraftChange = (raw: string) => {
+    if (isReadOnlyCollab) return;
+    setCodeDraft(raw);
+    pendingCodeDraftRef.current = raw;
+    if (codeDraftTimerRef.current) clearTimeout(codeDraftTimerRef.current);
+    codeDraftTimerRef.current = setTimeout(() => {
+      codeDraftTimerRef.current = null;
+      pendingCodeDraftRef.current = null;
+      setCodeDraft(null);
+      handleMermaidCodeChange(raw);
+    }, 400);
+  };
+
+  // Commit any pending draft immediately; returns the up-to-date code.
+  const flushCodeDraft = (): string => {
+    if (codeDraftTimerRef.current) {
+      clearTimeout(codeDraftTimerRef.current);
+      codeDraftTimerRef.current = null;
+    }
+    const pending = pendingCodeDraftRef.current;
+    pendingCodeDraftRef.current = null;
+    if (pending !== null) {
+      setCodeDraft(null);
+      setMermaidCode(pending);
+      return pending;
+    }
+    return mermaidCodeRef.current;
+  };
+
   const handleTitleSave = async () => {
     setEditingTitle(false);
     if (!canvasId) return;
@@ -1056,10 +1095,13 @@ export default function WorkspacePage() {
 
   // Manual edit tracking on view switch
   const handleViewSwitch = (view: "flowchart" | "code") => {
+    // Commit any pending debounced code edits first so the comparison below
+    // (and the flowchart render) sees the latest text
+    const currentCode = flushCodeDraft();
     if (view === "code" && activeView !== "code") {
-      codeOnEnterRef.current = mermaidCode;
+      codeOnEnterRef.current = currentCode;
     } else if (!isReadOnlyCollab && view === "flowchart" && activeView === "code") {
-      if (mermaidCode !== codeOnEnterRef.current) {
+      if (currentCode !== codeOnEnterRef.current) {
         flushPreviewMode();
         const manualMsg: ChatMessage = {
           role: "assistant",
@@ -1068,8 +1110,8 @@ export default function WorkspacePage() {
         };
         const newHistory = [...chatHistoryRef.current, manualMsg];
         setChatHistory(newHistory);
-        autoSave(mermaidCode, newHistory);
-        createCommit(mermaidCode, "manual", "Manual code edit");
+        autoSave(currentCode, newHistory);
+        createCommit(currentCode, "manual", "Manual code edit");
       }
     }
     setActiveView(view);
@@ -2564,7 +2606,7 @@ ${transcript}
             <div className="flex-1 flex flex-col bg-surface-container-lowest p-4">
               <textarea
                 className="flex-1 w-full bg-surface-container-high rounded-xl p-6 font-mono text-sm text-on-surface outline-none focus:ring-2 focus:ring-secondary/20 resize-none"
-                value={"\n\n\n\n" + mermaidCode + "\n\n\n\n\n\n\n"}
+                value={"\n\n\n\n" + (codeDraft ?? mermaidCode) + "\n\n\n\n\n\n\n"}
                 readOnly={isReadOnlyCollab}
                 onChange={(e) => {
                   if (isReadOnlyCollab) return;
@@ -2573,7 +2615,7 @@ ${transcript}
                   raw = raw.startsWith("\n\n\n\n") ? raw.slice(4) : raw.trimStart();
                   // Strip the 7 trailing newlines we inject for visual padding
                   raw = raw.endsWith("\n\n\n\n\n\n\n") ? raw.slice(0, -7) : raw.trimEnd();
-                  handleMermaidCodeChange(raw);
+                  handleCodeDraftChange(raw);
                 }}
                 spellCheck={false}
                 placeholder="Enter Mermaid code here..."

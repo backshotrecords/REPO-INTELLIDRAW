@@ -140,6 +140,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (typeof displayName !== "string" || !displayName.trim()) {
           return res.status(400).json({ error: "Please enter your full name before saving account settings." });
         }
+        if (displayName.trim().length > 80) {
+          return res.status(400).json({ error: "Full name must be 80 characters or fewer" });
+        }
         updateData.display_name = displayName.trim();
       }
       if (email !== undefined) updateData.email = email.toLowerCase();

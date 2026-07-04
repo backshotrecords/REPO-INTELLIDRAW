@@ -48,7 +48,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === "POST") {
     const { name } = req.body || {};
-    if (!name) return res.status(400).json({ error: "Group name is required" });
+    const trimmedName = typeof name === "string" ? name.trim() : "";
+    if (!trimmedName) return res.status(400).json({ error: "Group name is required" });
+    if (trimmedName.length > 80) return res.status(400).json({ error: "Group name must be 80 characters or fewer" });
     try {
       const { count } = await supabase
         .from("user_groups")
@@ -60,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       console.error("Group entitlement check failed:", err);
       return res.status(500).json({ error: "Failed to check feature access" });
     }
-    const { data, error } = await supabase.from("user_groups").insert({ name, owner_id: auth.userId }).select("*").single();
+    const { data, error } = await supabase.from("user_groups").insert({ name: trimmedName, owner_id: auth.userId }).select("*").single();
     if (error) return res.status(500).json({ error: error.message || "Failed to create group" });
     await recordFeatureUsage(auth.userId, "groups.create", 1, {
       groupId: data.id,

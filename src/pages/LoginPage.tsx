@@ -166,7 +166,13 @@ export default function LoginPage() {
                   type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
+                  maxLength={80}
                 />
+                {displayName.length >= 80 && (
+                  <p className="text-xs text-error font-medium ml-1">
+                    Display name is limited to 80 characters.
+                  </p>
+                )}
               </div>
             )}
 

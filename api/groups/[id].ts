@@ -20,7 +20,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: "Failed to check feature access" });
     }
     const { name } = req.body || {};
-    const { data, error } = await supabase.from("user_groups").update({ name })
+    const trimmedName = typeof name === "string" ? name.trim() : "";
+    if (!trimmedName) return res.status(400).json({ error: "Group name is required" });
+    if (trimmedName.length > 80) return res.status(400).json({ error: "Group name must be 80 characters or fewer" });
+    const { data, error } = await supabase.from("user_groups").update({ name: trimmedName })
       .eq("id", id).eq("owner_id", auth.userId).select("*").single();
     if (error || !data) return res.status(404).json({ error: "Group not found" });
     await recordFeatureUsage(auth.userId, "groups.manage_members", 1, {

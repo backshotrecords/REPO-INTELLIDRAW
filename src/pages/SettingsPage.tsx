@@ -348,7 +348,13 @@ export default function SettingsPage() {
                     if (profileError) setProfileError("");
                   }}
                   aria-invalid={profileError ? "true" : "false"}
+                  maxLength={80}
                 />
+                {displayName.length >= 80 && (
+                  <p className="text-xs text-error font-medium">
+                    Full name is limited to 80 characters.
+                  </p>
+                )}
               </div>
 
               {profileError && (
