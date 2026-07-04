@@ -31,6 +31,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Display name is required" });
   }
 
+  if (displayName.trim().length > 80) {
+    return res.status(400).json({ error: "Display name must be 80 characters or fewer" });
+  }
+
   if (password.length < 6) {
     return res.status(400).json({ error: "Password must be at least 6 characters" });
   }

@@ -46,7 +46,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     //    (safe to decode without verification since we got it directly from Google's token endpoint)
     const claims = decodeJwt(tokenData.id_token);
     const email = (claims.email as string)?.toLowerCase();
-    const name = (claims.name as string) || (claims.given_name as string) || "User";
+    const name = ((claims.name as string) || (claims.given_name as string) || "User").slice(0, 80);
 
     if (!email) {
       return res.status(400).json({ error: "Could not retrieve email from Google account" });

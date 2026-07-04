@@ -130,13 +130,19 @@ export default function UserManagementPage() {
           <div className="flex-1 min-w-0">
             {isEditing ? (
               <div className="flex flex-col sm:flex-row gap-2" onClick={(event) => event.stopPropagation()}>
-                <input
-                  value={editName}
-                  onChange={(event) => setEditName(event.target.value)}
-                  onKeyDown={(event) => event.key === "Enter" && handleUpdateGroup(group.id)}
-                  autoFocus
-                  className="flex-1 bg-surface-container-high rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-secondary/30"
-                />
+                <div className="flex-1 min-w-0">
+                  <input
+                    value={editName}
+                    onChange={(event) => setEditName(event.target.value)}
+                    onKeyDown={(event) => event.key === "Enter" && handleUpdateGroup(group.id)}
+                    autoFocus
+                    maxLength={80}
+                    className="w-full bg-surface-container-high rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-secondary/30"
+                  />
+                  {editName.length >= 80 && (
+                    <p className="mt-1 text-xs text-error font-medium">Group name is limited to 80 characters.</p>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <button onClick={() => handleUpdateGroup(group.id)} className="px-4 py-2 rounded-lg bg-primary text-white text-xs font-bold">
                     Save
@@ -320,14 +326,20 @@ export default function UserManagementPage() {
           <section className="rounded-xl border border-primary/20 bg-primary/5 p-5">
             <label className="text-sm font-bold text-on-surface">Group name</label>
             <div className="mt-3 flex flex-col sm:flex-row gap-3">
-              <input
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                onKeyDown={(event) => event.key === "Enter" && handleCreateGroup()}
-                placeholder="Design team, reviewers, operations..."
-                autoFocus
-                className="flex-1 bg-white rounded-lg px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary/30"
-              />
+              <div className="flex-1 min-w-0">
+                <input
+                  value={newName}
+                  onChange={(event) => setNewName(event.target.value)}
+                  onKeyDown={(event) => event.key === "Enter" && handleCreateGroup()}
+                  placeholder="Design team, reviewers, operations..."
+                  autoFocus
+                  maxLength={80}
+                  className="w-full bg-white rounded-lg px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary/30"
+                />
+                {newName.length >= 80 && (
+                  <p className="mt-1 text-xs text-error font-medium">Group name is limited to 80 characters.</p>
+                )}
+              </div>
               <button
                 onClick={handleCreateGroup}
                 disabled={!newName.trim()}

@@ -224,9 +224,12 @@ export default function UserGroupsDialog({ isOpen, onClose }: UserGroupsDialogPr
           {creating ? (
             <div className="border border-primary/20 rounded-xl px-4 py-3 bg-primary/5">
               <input value={newName} onChange={e => setNewName(e.target.value)}
-                placeholder="Group name" autoFocus
+                placeholder="Group name" autoFocus maxLength={80}
                 onKeyDown={e => e.key === "Enter" && handleCreateGroup()}
                 className="w-full bg-white rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-secondary mb-2" />
+              {newName.length >= 80 && (
+                <p className="text-xs text-error font-medium mb-2">Group name is limited to 80 characters.</p>
+              )}
               <div className="flex justify-end gap-2">
                 <button onClick={() => setCreating(false)} className="text-xs font-semibold text-on-surface-variant">Cancel</button>
                 <button onClick={handleCreateGroup} disabled={!newName.trim()}
