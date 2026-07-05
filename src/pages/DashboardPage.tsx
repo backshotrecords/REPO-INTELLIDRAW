@@ -44,7 +44,7 @@ const INITIAL_LEVELS = [
 type MenuState = { type: "canvas" | "project"; id: string } | null;
 type ProjectDraft = { title: string; description: string; accent: ProjectAccent };
 type DashboardDragItem = { kind: "canvas" | "project"; id: string; title: string };
-type DashboardPendingDrop = { item: DashboardDragItem; targetProjectId: string };
+type DashboardPendingDrop = { item: DashboardDragItem };
 type DashboardDropState = "valid" | "invalid" | null;
 const ROOT_MOVE_TARGET_KEY = "__root__";
 
@@ -631,7 +631,7 @@ export default function DashboardPage() {
     }
 
     movePendingRef.current = true;
-    setPendingDrop({ item, targetProjectId: project.id });
+    setPendingDrop({ item });
     try {
       await moveDashboardItem(item, project.id);
       setMenuOpen(null);
@@ -715,11 +715,21 @@ export default function DashboardPage() {
     });
   }
 
+  const pendingDropLabel = pendingDrop
+    ? `Moving ${pendingDrop.item.kind === "canvas" ? "canvas" : "folder"}...`
+    : "";
+
   return (
     <div className={`dashboard-page bg-surface text-on-surface min-h-screen${isTreeWorkspace ? " dashboard-page-tree-mode" : " pb-32"}`}>
-      <TopBar showSearch searchVisibility="desktop" onSearchChange={setSearch} />
+      <div
+        className={`min-h-screen transition-[filter,opacity] duration-200 ${
+          pendingDrop ? "pointer-events-none select-none blur-[3px] brightness-50" : ""
+        }`}
+        inert={Boolean(pendingDrop)}
+      >
+        <TopBar showSearch searchVisibility="desktop" onSearchChange={setSearch} />
 
-      <main className={`dashboard-main mx-auto px-6 pt-8${isTreeWorkspace ? " dashboard-main-tree-mode max-w-none" : " max-w-7xl"}`}>
+        <main className={`dashboard-main mx-auto px-6 pt-8${isTreeWorkspace ? " dashboard-main-tree-mode max-w-none" : " max-w-7xl"}`}>
         {projectPath.length > 0 && (
           <ProjectBreadcrumb
             path={projectPath}
@@ -882,11 +892,6 @@ export default function DashboardPage() {
                         project={project}
                         canvasCount={projectCanvasCounts.get(project.id) ?? 0}
                         isDragSource={dragItem?.kind === "project" && dragItem.id === project.id}
-                        movingIntoLabel={
-                          pendingDrop?.targetProjectId === project.id
-                            ? `Moving ${pendingDrop.item.kind === "canvas" ? "canvas" : "folder"}...`
-                            : null
-                        }
                         dropState={
                           dragTargetProjectId === project.id
                             ? canDropDashboardItemOnProject(dragItem, project, projects, canvases) ? "valid" : "invalid"
@@ -1128,6 +1133,24 @@ export default function DashboardPage() {
       )}
 
       <BottomNav />
+      </div>
+
+      {pendingDrop && (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center px-4 pt-8">
+          <div className="rounded-2xl bg-white/95 px-5 py-3 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl sm:rounded-full" role="status" aria-live="polite">
+            <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
+              <span
+                className="material-symbols-outlined animate-spin text-lg text-slate-600"
+                style={{ fontVariationSettings: "'FILL' 1" }}
+                aria-hidden="true"
+              >
+                sync
+              </span>
+              <span>{pendingDropLabel}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1217,7 +1240,6 @@ function ProjectCard({
   project,
   canvasCount,
   isDragSource,
-  movingIntoLabel,
   dropState,
   menuOpen,
   menuAbove,
@@ -1240,7 +1262,6 @@ function ProjectCard({
   project: CanvasProject;
   canvasCount: number;
   isDragSource: boolean;
-  movingIntoLabel: string | null;
   dropState: DashboardDropState;
   menuOpen: boolean;
   menuAbove: boolean;
@@ -1277,12 +1298,6 @@ function ProjectCard({
       onDrop={onDropTargetDrop}
       className={`dashboard-grid-card project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible${menuOpen ? " z-40" : ""}${canMove ? " is-draggable" : ""}${isDragSource ? " is-drag-source" : ""}${dropState === "valid" ? " is-drop-target" : ""}${dropState === "invalid" ? " is-invalid-drop-target" : ""}`}
     >
-      {movingIntoLabel && (
-        <div className="dashboard-drop-pending-pill" role="status" aria-live="polite">
-          <span className="material-symbols-outlined animate-spin" aria-hidden="true">progress_activity</span>
-          <span>{movingIntoLabel}</span>
-        </div>
-      )}
       <div className="project-card-side-rail">
         <div className={`project-folder-art-production project-${project.accent}`}>
           <span className="material-symbols-outlined fill">folder</span>
