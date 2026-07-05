@@ -44,6 +44,7 @@ const INITIAL_LEVELS = [
 type MenuState = { type: "canvas" | "project"; id: string } | null;
 type ProjectDraft = { title: string; description: string; accent: ProjectAccent };
 type DashboardDragItem = { kind: "canvas" | "project"; id: string; title: string };
+type DashboardPendingDrop = { item: DashboardDragItem };
 type DashboardDropState = "valid" | "invalid" | null;
 const ROOT_MOVE_TARGET_KEY = "__root__";
 
@@ -109,6 +110,7 @@ export default function DashboardPage() {
   const [movePendingTargetKey, setMovePendingTargetKey] = useState<string | null>(null);
   const [dragItem, setDragItem] = useState<DashboardDragItem | null>(null);
   const [dragTargetProjectId, setDragTargetProjectId] = useState<string | null>(null);
+  const [pendingDrop, setPendingDrop] = useState<DashboardPendingDrop | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [thumbnailLimit, setThumbnailLimit] = useState(THUMBNAIL_BATCH_SIZE);
   const [fileViewMode, setFileViewMode] = useState<DashboardFileViewMode>(() => {
@@ -578,6 +580,10 @@ export default function DashboardPage() {
   }
 
   function handleDashboardDragStart(event: DragEvent<HTMLElement>, item: DashboardDragItem) {
+    if (movePendingRef.current) {
+      event.preventDefault();
+      return;
+    }
     setDragItem(item);
     setDragTargetProjectId(null);
     setMenuOpen(null);
@@ -618,17 +624,23 @@ export default function DashboardPage() {
     setDragTargetProjectId(null);
 
     if (!item) return;
+    if (movePendingRef.current) return;
     if (!canDropDashboardItemOnProject(item, project, projects, canvases)) {
       setError(`"${item.title}" cannot be moved to "${project.title}".`);
       return;
     }
 
+    movePendingRef.current = true;
+    setPendingDrop({ item });
     try {
       await moveDashboardItem(item, project.id);
       setMenuOpen(null);
     } catch (err) {
       console.error("Failed to move item:", err);
       setError(err instanceof Error ? err.message : `Failed to move ${item.kind}`);
+    } finally {
+      movePendingRef.current = false;
+      setPendingDrop(null);
     }
   }
 
@@ -703,11 +715,21 @@ export default function DashboardPage() {
     });
   }
 
+  const pendingDropLabel = pendingDrop
+    ? `Moving ${pendingDrop.item.kind === "canvas" ? "canvas" : "folder"}...`
+    : "";
+
   return (
     <div className={`dashboard-page bg-surface text-on-surface min-h-screen${isTreeWorkspace ? " dashboard-page-tree-mode" : " pb-32"}`}>
-      <TopBar showSearch searchVisibility="desktop" onSearchChange={setSearch} />
+      <div
+        className={`min-h-screen transition-[filter,opacity] duration-200 ${
+          pendingDrop ? "pointer-events-none select-none blur-[3px] brightness-50" : ""
+        }`}
+        inert={Boolean(pendingDrop)}
+      >
+        <TopBar showSearch searchVisibility="desktop" onSearchChange={setSearch} />
 
-      <main className={`dashboard-main mx-auto px-6 pt-8${isTreeWorkspace ? " dashboard-main-tree-mode max-w-none" : " max-w-7xl"}`}>
+        <main className={`dashboard-main mx-auto px-6 pt-8${isTreeWorkspace ? " dashboard-main-tree-mode max-w-none" : " max-w-7xl"}`}>
         {projectPath.length > 0 && (
           <ProjectBreadcrumb
             path={projectPath}
@@ -1111,6 +1133,24 @@ export default function DashboardPage() {
       )}
 
       <BottomNav />
+      </div>
+
+      {pendingDrop && (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center px-4 pt-8">
+          <div className="rounded-2xl bg-white/95 px-5 py-3 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl sm:rounded-full" role="status" aria-live="polite">
+            <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
+              <span
+                className="material-symbols-outlined animate-spin text-lg text-slate-600"
+                style={{ fontVariationSettings: "'FILL' 1" }}
+                aria-hidden="true"
+              >
+                sync
+              </span>
+              <span>{pendingDropLabel}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
