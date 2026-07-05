@@ -2,10 +2,25 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useCommunityAccess } from "../contexts/CommunityAccessContext";
+import { useEntitlements } from "../hooks/useEntitlements";
+import PlanBadge from "./PlanBadge";
+import QuotaMeterList from "./QuotaMeterList";
+
+const RING_RADIUS = 21;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+function ringColor(percentUsed: number) {
+  if (percentUsed <= 30) return "#22c55e";
+  if (percentUsed <= 80) return "#eab308";
+  return "#ef4444";
+}
 
 export default function ProfileMenu() {
   const { user, logout } = useAuth();
   const { openCommunityAccess } = useCommunityAccess();
+  const { entitlements, getQuotaStatus, refreshEntitlements } = useEntitlements();
+  const aiChatQuota = getQuotaStatus("canvas.ai_chat");
+  const [showUsageCard, setShowUsageCard] = useState(false);
   const navigate = useNavigate();
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -28,13 +43,58 @@ export default function ProfileMenu() {
   };
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div
+      className="relative"
+      ref={dropdownRef}
+      onMouseEnter={() => {
+        setShowUsageCard(true);
+        void refreshEntitlements();
+      }}
+      onMouseLeave={() => setShowUsageCard(false)}
+    >
       <button
         onClick={() => setShowDropdown(!showDropdown)}
-        className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary font-bold text-sm hover:ring-2 hover:ring-secondary/30 transition-all active:scale-95"
+        onFocus={() => setShowUsageCard(true)}
+        onBlur={() => setShowUsageCard(false)}
+        className="relative w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary font-bold text-sm hover:ring-2 hover:ring-secondary/30 transition-all active:scale-95"
       >
         {user?.displayName?.charAt(0)?.toUpperCase() || "U"}
+        {aiChatQuota && (
+          <svg
+            className="absolute -inset-1 h-12 w-12 -rotate-90 pointer-events-none"
+            viewBox="0 0 48 48"
+            role="img"
+            aria-label={`AI canvas chat usage: ${aiChatQuota.percentUsed}%`}
+          >
+            <circle cx="24" cy="24" r={RING_RADIUS} fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="3" />
+            <circle
+              cx="24"
+              cy="24"
+              r={RING_RADIUS}
+              fill="none"
+              stroke={ringColor(aiChatQuota.percentUsed)}
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeDasharray={RING_CIRCUMFERENCE}
+              strokeDashoffset={RING_CIRCUMFERENCE * (1 - Math.min(100, aiChatQuota.percentUsed) / 100)}
+              className="transition-all duration-500"
+            />
+          </svg>
+        )}
       </button>
+
+      {showUsageCard && !showDropdown && (
+        <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-ambient-lg border border-outline-variant/10 p-4 z-50 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center justify-between gap-3 pb-3 mb-3 border-b border-outline-variant/10">
+            <div>
+              <p className="text-xs text-on-surface-variant">Current plan</p>
+              <p className="font-bold text-on-surface">{entitlements?.plan?.name || "Free"}</p>
+            </div>
+            <PlanBadge planId={entitlements?.plan?.id} />
+          </div>
+          <QuotaMeterList />
+        </div>
+      )}
 
       {showDropdown && (
         <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-ambient-lg border border-outline-variant/10 py-2 z-50 animate-in fade-in slide-in-from-top-2">

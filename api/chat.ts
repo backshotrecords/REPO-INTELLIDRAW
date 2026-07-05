@@ -62,6 +62,23 @@ function parseMeetingMetricsLine(line: string): MeetingProcessingMetrics | null 
   };
 }
 
+const MERMAID_BLOCK_PLACEHOLDER = "[diagram updated — current version is in CURRENT MERMAID CODE above]";
+
+/**
+ * Strip mermaid code blocks from historical assistant messages so the only
+ * diagram copy the model reads is the CURRENT MERMAID CODE in the system prompt.
+ * Keeps a placeholder so the model still sees that an update happened that turn.
+ */
+function stripMermaidBlocks(content: string): string {
+  let stripped = content.replace(/```mermaid\b[\s\S]*?```/g, MERMAID_BLOCK_PLACEHOLDER);
+  // A truncated response can leave an unterminated fence — drop everything from it on.
+  const danglingFence = stripped.search(/```mermaid\b/);
+  if (danglingFence !== -1) {
+    stripped = stripped.slice(0, danglingFence) + MERMAID_BLOCK_PLACEHOLDER;
+  }
+  return stripped.trim() || MERMAID_BLOCK_PLACEHOLDER;
+}
+
 function extractMeetingMetrics(response: string, enabled: boolean) {
   if (!enabled) return { visibleResponse: response, meetingMetrics: undefined as MeetingProcessingMetrics | undefined };
 
@@ -228,7 +245,9 @@ INSTRUCTIONS:
     for (const msg of contextHistory) {
       messages.push({
         role: msg.role as "user" | "assistant",
-        content: msg.content,
+        // Only assistant messages carry generated diagrams; user messages may
+        // legitimately contain pasted mermaid the user is asking about.
+        content: msg.role === "assistant" ? stripMermaidBlocks(msg.content) : msg.content,
       });
     }
 
