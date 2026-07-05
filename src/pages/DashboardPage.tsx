@@ -44,6 +44,7 @@ const INITIAL_LEVELS = [
 type MenuState = { type: "canvas" | "project"; id: string } | null;
 type ProjectDraft = { title: string; description: string; accent: ProjectAccent };
 type DashboardDragItem = { kind: "canvas" | "project"; id: string; title: string };
+type DashboardPendingDrop = { item: DashboardDragItem; targetProjectId: string };
 type DashboardDropState = "valid" | "invalid" | null;
 const ROOT_MOVE_TARGET_KEY = "__root__";
 
@@ -109,6 +110,7 @@ export default function DashboardPage() {
   const [movePendingTargetKey, setMovePendingTargetKey] = useState<string | null>(null);
   const [dragItem, setDragItem] = useState<DashboardDragItem | null>(null);
   const [dragTargetProjectId, setDragTargetProjectId] = useState<string | null>(null);
+  const [pendingDrop, setPendingDrop] = useState<DashboardPendingDrop | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [thumbnailLimit, setThumbnailLimit] = useState(THUMBNAIL_BATCH_SIZE);
   const [fileViewMode, setFileViewMode] = useState<DashboardFileViewMode>(() => {
@@ -578,6 +580,10 @@ export default function DashboardPage() {
   }
 
   function handleDashboardDragStart(event: DragEvent<HTMLElement>, item: DashboardDragItem) {
+    if (movePendingRef.current) {
+      event.preventDefault();
+      return;
+    }
     setDragItem(item);
     setDragTargetProjectId(null);
     setMenuOpen(null);
@@ -618,17 +624,23 @@ export default function DashboardPage() {
     setDragTargetProjectId(null);
 
     if (!item) return;
+    if (movePendingRef.current) return;
     if (!canDropDashboardItemOnProject(item, project, projects, canvases)) {
       setError(`"${item.title}" cannot be moved to "${project.title}".`);
       return;
     }
 
+    movePendingRef.current = true;
+    setPendingDrop({ item, targetProjectId: project.id });
     try {
       await moveDashboardItem(item, project.id);
       setMenuOpen(null);
     } catch (err) {
       console.error("Failed to move item:", err);
       setError(err instanceof Error ? err.message : `Failed to move ${item.kind}`);
+    } finally {
+      movePendingRef.current = false;
+      setPendingDrop(null);
     }
   }
 
@@ -870,6 +882,11 @@ export default function DashboardPage() {
                         project={project}
                         canvasCount={projectCanvasCounts.get(project.id) ?? 0}
                         isDragSource={dragItem?.kind === "project" && dragItem.id === project.id}
+                        movingIntoLabel={
+                          pendingDrop?.targetProjectId === project.id
+                            ? `Moving ${pendingDrop.item.kind === "canvas" ? "canvas" : "folder"}...`
+                            : null
+                        }
                         dropState={
                           dragTargetProjectId === project.id
                             ? canDropDashboardItemOnProject(dragItem, project, projects, canvases) ? "valid" : "invalid"
@@ -1200,6 +1217,7 @@ function ProjectCard({
   project,
   canvasCount,
   isDragSource,
+  movingIntoLabel,
   dropState,
   menuOpen,
   menuAbove,
@@ -1222,6 +1240,7 @@ function ProjectCard({
   project: CanvasProject;
   canvasCount: number;
   isDragSource: boolean;
+  movingIntoLabel: string | null;
   dropState: DashboardDropState;
   menuOpen: boolean;
   menuAbove: boolean;
@@ -1258,6 +1277,12 @@ function ProjectCard({
       onDrop={onDropTargetDrop}
       className={`dashboard-grid-card project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible${menuOpen ? " z-40" : ""}${canMove ? " is-draggable" : ""}${isDragSource ? " is-drag-source" : ""}${dropState === "valid" ? " is-drop-target" : ""}${dropState === "invalid" ? " is-invalid-drop-target" : ""}`}
     >
+      {movingIntoLabel && (
+        <div className="dashboard-drop-pending-pill" role="status" aria-live="polite">
+          <span className="material-symbols-outlined animate-spin" aria-hidden="true">progress_activity</span>
+          <span>{movingIntoLabel}</span>
+        </div>
+      )}
       <div className="project-card-side-rail">
         <div className={`project-folder-art-production project-${project.accent}`}>
           <span className="material-symbols-outlined fill">folder</span>
