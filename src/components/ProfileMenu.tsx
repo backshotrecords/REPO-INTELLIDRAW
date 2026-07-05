@@ -18,7 +18,7 @@ function ringColor(percentUsed: number) {
 export default function ProfileMenu() {
   const { user, logout } = useAuth();
   const { openCommunityAccess } = useCommunityAccess();
-  const { entitlements, getQuotaStatus } = useEntitlements();
+  const { entitlements, getQuotaStatus, refreshEntitlements } = useEntitlements();
   const aiChatQuota = getQuotaStatus("canvas.ai_chat");
   const [showUsageCard, setShowUsageCard] = useState(false);
   const navigate = useNavigate();
@@ -46,7 +46,10 @@ export default function ProfileMenu() {
     <div
       className="relative"
       ref={dropdownRef}
-      onMouseEnter={() => setShowUsageCard(true)}
+      onMouseEnter={() => {
+        setShowUsageCard(true);
+        void refreshEntitlements();
+      }}
       onMouseLeave={() => setShowUsageCard(false)}
     >
       <button

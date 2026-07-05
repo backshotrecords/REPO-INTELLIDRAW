@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { apiGetEntitlements } from "../lib/api";
+import { apiGetEntitlements, USAGE_CHANGED_EVENT } from "../lib/api";
 import type { EntitlementsSnapshot, SubscriptionPlanId } from "../types";
 import { useAuth } from "../hooks/useAuth";
 import { EntitlementsContext } from "./EntitlementsContextDef";
@@ -29,6 +29,25 @@ export function EntitlementsProvider({ children }: { children: React.ReactNode }
     if (authLoading) return;
     void refreshEntitlements();
   }, [authLoading, refreshEntitlements]);
+
+  // Refetch usage counts shortly after any quota-affecting API call so meters
+  // (avatar ring, hover card) stay current without waiting for a page reload.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let timer: number | null = null;
+    const handleUsageChanged = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = null;
+        void refreshEntitlements();
+      }, 1200);
+    };
+    window.addEventListener(USAGE_CHANGED_EVENT, handleUsageChanged);
+    return () => {
+      window.removeEventListener(USAGE_CHANGED_EVENT, handleUsageChanged);
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [isAuthenticated, refreshEntitlements]);
 
   const value = useMemo(() => ({
     entitlements,
