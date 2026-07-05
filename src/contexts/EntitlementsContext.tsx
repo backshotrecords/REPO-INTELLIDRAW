@@ -44,6 +44,22 @@ export function EntitlementsProvider({ children }: { children: React.ReactNode }
       if (!planId) return "";
       return entitlements?.plans.find((plan) => plan.id === planId)?.name || String(planId).toUpperCase();
     },
+    getQuotaStatus: (key: string) => {
+      const feature = entitlements?.featureMap[key];
+      if (!feature || !feature.enabled || feature.quota === null || feature.quota === undefined) return null;
+      const quota = feature.quota;
+      const usage = Math.max(0, feature.usage ?? 0);
+      const remaining = Math.max(0, quota - usage);
+      const percentRemaining = quota > 0 ? Math.round((remaining / quota) * 100) : 0;
+      return {
+        quota,
+        usage,
+        remaining,
+        percentUsed: 100 - percentRemaining,
+        percentRemaining,
+        resetPeriodDays: feature.resetPeriodDays,
+      };
+    },
   }), [entitlements, isLoading, refreshEntitlements]);
 
   return (

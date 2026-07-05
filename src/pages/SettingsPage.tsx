@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useCommunityAccess } from "../contexts/CommunityAccessContext";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
+import PlanUsagePanel from "../components/PlanUsagePanel";
 import {
   apiGetSettings,
   apiUpdateProfile,
@@ -312,6 +313,19 @@ export default function SettingsPage() {
           <p className="text-on-surface-variant text-lg">
             Manage your workspace precision and intelligence configurations.
           </p>
+        </section>
+
+        {/* Plan & Usage */}
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="md:col-span-1">
+            <h3 className="text-xl font-headline font-bold text-primary">Plan & Usage</h3>
+            <p className="text-sm text-on-surface-variant mt-2">
+              Your subscription tier and how much of each usage limit remains.
+            </p>
+          </div>
+          <div className="md:col-span-2">
+            <PlanUsagePanel />
+          </div>
         </section>
 
         {/* Account Details */}

@@ -279,6 +279,7 @@ export type FeatureAccess = {
   enabled: boolean;
   quota: number | null;
   resetPeriodDays: number;
+  usage: number | null;
   requiredPlan: string;
   defaultRequiredPlan: string;
 };
@@ -507,7 +508,7 @@ async function getActivePlanId(userId: string): Promise<string> {
   return subscription.plan_id;
 }
 
-export async function getEntitlements(userId: string): Promise<EntitlementSnapshot> {
+export async function getEntitlements(userId: string, options: { includeUsage?: boolean } = {}): Promise<EntitlementSnapshot> {
   try {
     await ensureEntitlementSchema();
   } catch (err) {
@@ -543,7 +544,7 @@ export async function getEntitlements(userId: string): Promise<EntitlementSnapsh
   const activePlanId = await getActivePlanId(userId).catch(() => "free");
   const activePlan = plans.find((plan) => plan.id === activePlanId) ?? plans.find((plan) => plan.id === "free") ?? builtInPlans()[0];
 
-  const featureAccess = features.map((feature) => {
+  const featureAccess: FeatureAccess[] = features.map((feature) => {
     const planRule = rules.find((rule) => rule.plan_id === activePlan.id && rule.feature_key === feature.key)
       ?? fallbackRule(activePlan.id, feature);
     const featureRules = plans.map((plan) => (
@@ -559,10 +560,22 @@ export async function getEntitlements(userId: string): Promise<EntitlementSnapsh
       enabled: Boolean(planRule.enabled),
       quota: planRule.quota ?? null,
       resetPeriodDays: Math.max(0, Math.min(30, planRule.reset_period_days ?? 0)),
+      usage: null,
       requiredPlan: lowestEnabledPlan(feature.key, plans, featureRules),
       defaultRequiredPlan: feature.default_required_plan,
     };
   });
+
+  if (options.includeUsage) {
+    await Promise.all(featureAccess.map(async (feature) => {
+      if (!feature.enabled || feature.quota === null) return;
+      try {
+        feature.usage = await getCurrentUsage(userId, feature.key as FeatureKey, feature.resetPeriodDays);
+      } catch (err) {
+        console.error(`Usage lookup failed for ${feature.key}:`, err);
+      }
+    }));
+  }
 
   return {
     plan: activePlan,
@@ -606,6 +619,7 @@ export async function getFeatureAccess(userId: string, key: FeatureKey) {
         enabled: defaultEnabledFor(entitlements.plan.id, definition),
         quota: defaultQuotaFor(entitlements.plan.id, definition),
         resetPeriodDays: defaultResetPeriodFor(),
+        usage: null,
         requiredPlan: definition.defaultPlan,
         defaultRequiredPlan: definition.defaultPlan,
       },
@@ -630,6 +644,47 @@ export async function isFeatureEnabled(userId: string, key: FeatureKey) {
   } catch {
     return false;
   }
+}
+
+// Lifetime quotas on "create"-style features are enforced against live row
+// counts at their call sites (deleting a canvas frees quota), not usage events.
+// Mirror that here so displayed usage matches what enforcement will do.
+const LIVE_USAGE_COUNTERS: Partial<Record<FeatureKey, { table: string; ownerColumn: string; filters?: Record<string, string> }>> = {
+  "canvas.create": { table: "canvases", ownerColumn: "user_id" },
+  "project.create": { table: "canvas_projects", ownerColumn: "user_id" },
+  "skills.create": { table: "skill_notes", ownerColumn: "owner_id" },
+  "groups.create": { table: "user_groups", ownerColumn: "owner_id" },
+  "skills.install_marketplace": { table: "skill_installations", ownerColumn: "user_id", filters: { status: "active" } },
+  "skills.attach_canvas": { table: "skill_note_attachments", ownerColumn: "user_id", filters: { scope: "local" } },
+  "skills.attach_global": { table: "skill_note_attachments", ownerColumn: "user_id", filters: { scope: "global" } },
+};
+
+async function getLiveUsageCount(userId: string, key: FeatureKey): Promise<number | null> {
+  const counter = LIVE_USAGE_COUNTERS[key];
+  if (!counter) return null;
+
+  let query = supabase
+    .from(counter.table)
+    .select("id", { count: "exact", head: true })
+    .eq(counter.ownerColumn, userId);
+  for (const [column, value] of Object.entries(counter.filters ?? {})) {
+    query = query.eq(column, value);
+  }
+
+  const { count, error } = await query;
+  if (error) {
+    console.error(`Live usage count failed for ${key}:`, error);
+    return null;
+  }
+  return count || 0;
+}
+
+async function getCurrentUsage(userId: string, key: FeatureKey, resetPeriodDays: number): Promise<number> {
+  if (resetPeriodDays === 0) {
+    const liveCount = await getLiveUsageCount(userId, key);
+    if (liveCount !== null) return liveCount;
+  }
+  return getFeatureUsageCount(userId, key, resetPeriodDays);
 }
 
 export async function getFeatureUsageCount(userId: string, key: FeatureKey, resetPeriodDays: number) {

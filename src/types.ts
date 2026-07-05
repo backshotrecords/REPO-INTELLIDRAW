@@ -257,8 +257,18 @@ export interface EntitlementFeature {
   enabled: boolean;
   quota: number | null;
   resetPeriodDays: number;
+  usage?: number | null;
   requiredPlan: SubscriptionPlanId;
   defaultRequiredPlan: SubscriptionPlanId;
+}
+
+export interface FeatureQuotaStatus {
+  quota: number;
+  usage: number;
+  remaining: number;
+  percentUsed: number;
+  percentRemaining: number;
+  resetPeriodDays: number;
 }
 
 export interface EntitlementsSnapshot {

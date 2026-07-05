@@ -1488,7 +1488,7 @@
 }
 
 .dashboard-file-view-check .material-symbols-outlined {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -1505,8 +1505,8 @@
 }
 
 .dashboard-file-view-icon svg {
-  width: 26px;
-  height: 25px;
+  width: 22px;
+  height: 21px;
   fill: none;
   stroke: currentColor;
   stroke-width: 4.8;
@@ -1624,8 +1624,8 @@
   }
 
   .dashboard-file-view-icon svg {
-    width: 24px;
-    height: 23px;
+    width: 21px;
+    height: 20px;
   }
 }
 

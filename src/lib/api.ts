@@ -443,9 +443,12 @@ export async function apiChat(
   model: string;
   meetingMetrics?: MeetingProcessingMetrics;
 }> {
+  // Send only what the server reads — full ChatMessage objects carry
+  // mermaidSnapshot and other fields that bloat the request body.
+  const slimHistory = chatHistory.map(({ role, content }) => ({ role, content }));
   const res = await apiFetch("/chat", {
     method: "POST",
-    body: JSON.stringify({ message, mermaidCode, chatHistory, canvasId, activeScopeId, scopePath, source }),
+    body: JSON.stringify({ message, mermaidCode, chatHistory: slimHistory, canvasId, activeScopeId, scopePath, source }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Chat failed");

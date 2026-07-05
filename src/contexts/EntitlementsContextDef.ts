@@ -1,5 +1,5 @@
 import { createContext } from "react";
-import type { EntitlementFeature, EntitlementsSnapshot, SubscriptionPlanId } from "../types";
+import type { EntitlementFeature, EntitlementsSnapshot, FeatureQuotaStatus, SubscriptionPlanId } from "../types";
 
 export interface EntitlementsContextType {
   entitlements: EntitlementsSnapshot | null;
@@ -9,6 +9,7 @@ export interface EntitlementsContextType {
   getFeature: (key: string) => EntitlementFeature | null;
   getRequiredPlan: (key: string) => SubscriptionPlanId | null;
   getPlanName: (planId: SubscriptionPlanId | null | undefined) => string;
+  getQuotaStatus: (key: string) => FeatureQuotaStatus | null;
 }
 
 export const EntitlementsContext = createContext<EntitlementsContextType | null>(null);
