@@ -1258,30 +1258,62 @@ function ProjectCard({
       onDrop={onDropTargetDrop}
       className={`dashboard-grid-card project-card-production project-${project.accent}${hasCollabSignal ? " is-collab-project" : ""} group bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 relative border border-outline-variant/10 cursor-pointer p-5 min-h-[200px] overflow-visible${menuOpen ? " z-40" : ""}${canMove ? " is-draggable" : ""}${isDragSource ? " is-drag-source" : ""}${dropState === "valid" ? " is-drop-target" : ""}${dropState === "invalid" ? " is-invalid-drop-target" : ""}`}
     >
-      {canMove && (
-        <>
-          <svg className="project-card-drag-backing" viewBox="0 0 120 200" aria-hidden="true" focusable="false">
-            <path d="M 0,0 L 0,23 C 0,100 104,40 104,100 C 104,160 0,100 0,177 L 0,200 Z" />
-          </svg>
+      <div className="project-card-side-rail">
+        <div className={`project-folder-art-production project-${project.accent}`}>
+          <span className="material-symbols-outlined fill">folder</span>
+        </div>
+        {canMove && (
+          <div className="project-card-drag-cluster">
+            <svg className="project-card-drag-backing" viewBox="0 0 132 200" aria-hidden="true" focusable="false">
+              <path d="M 0,0 L 0,23 C 0,100 116,40 116,100 C 116,160 0,100 0,177 L 0,200 Z" />
+            </svg>
+            <button
+              type="button"
+              draggable
+              onClick={(event) => event.stopPropagation()}
+              onDragStart={(event) => {
+                event.stopPropagation();
+                onDragStart(event);
+              }}
+              onDragEnd={onDragEnd}
+              className="dashboard-card-drag-handle is-project-side"
+              aria-label={`Move ${project.title}`}
+              title="Drag to move"
+            >
+              <span className="material-symbols-outlined">drag_indicator</span>
+            </button>
+          </div>
+        )}
+        <div className="project-card-menu-layer relative" ref={menuOpen ? menuRef : undefined}>
           <button
             type="button"
-            draggable
-            onClick={(event) => event.stopPropagation()}
-            onDragStart={(event) => {
+            onClick={(event) => {
               event.stopPropagation();
-              onDragStart(event);
+              onToggleMenu(event.currentTarget);
             }}
-            onDragEnd={onDragEnd}
-            className="dashboard-card-drag-handle is-project-side"
-            aria-label={`Move ${project.title}`}
-            title="Drag to move"
+            className="project-card-menu-trigger w-9 h-9 rounded-full bg-surface-container-high/80 text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors"
+            aria-label={`Open menu for ${project.title}`}
           >
-            <span className="material-symbols-outlined">drag_indicator</span>
+            <span className="material-symbols-outlined">more_horiz</span>
           </button>
-        </>
-      )}
-      <div className={`project-folder-art-production project-${project.accent}`}>
-        <span className="material-symbols-outlined fill">folder</span>
+          {menuOpen && (
+            <ProjectMenu
+              menuAbove={menuAbove}
+              menuClosing={menuClosing}
+              canEdit={canEdit}
+              canManageShares={canManageShares}
+              canMove={canMove}
+              canArchive={canArchive}
+              canDelete={canDelete}
+              onOpen={onOpen}
+              onEdit={onEdit}
+              onCollaborate={onCollaborate}
+              onMove={onMove}
+              onArchive={onArchive}
+              onDelete={onDelete}
+            />
+          )}
+        </div>
       </div>
       <div className="pl-28 pr-3 min-h-[160px] flex flex-col">
         <div className="flex items-center gap-2">
@@ -1303,41 +1335,12 @@ function ProjectCard({
             </span>
           )}
         </div>
-        {projectAudienceLabel && (
-          <div className="mt-auto pt-4">
-            <CollabProjectAudience label={projectAudienceLabel} onOpenUserManagement={onOpenUserManagement} />
-          </div>
-        )}
-      </div>
-      <div className="project-card-menu-layer absolute left-5 bottom-4 z-40" ref={menuOpen ? menuRef : undefined}>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleMenu(event.currentTarget);
-          }}
-          className="project-card-menu-trigger w-9 h-9 rounded-full bg-surface-container-high/80 text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors"
-          aria-label={`Open menu for ${project.title}`}
-        >
-          <span className="material-symbols-outlined">more_horiz</span>
-        </button>
-        {menuOpen && (
-          <ProjectMenu
-            menuAbove={menuAbove}
-            menuClosing={menuClosing}
-            canEdit={canEdit}
-            canManageShares={canManageShares}
-            canMove={canMove}
-            canArchive={canArchive}
-            canDelete={canDelete}
-            onOpen={onOpen}
-            onEdit={onEdit}
-            onCollaborate={onCollaborate}
-            onMove={onMove}
-            onArchive={onArchive}
-            onDelete={onDelete}
+        <div className={`mt-auto pt-4${projectAudienceLabel ? "" : " invisible"}`}>
+          <CollabProjectAudience
+            label={projectAudienceLabel || "Not shared"}
+            onOpenUserManagement={projectAudienceLabel ? onOpenUserManagement : undefined}
           />
-        )}
+        </div>
       </div>
     </article>
   );

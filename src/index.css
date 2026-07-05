@@ -1215,10 +1215,9 @@
 }
 
 .dashboard-card-drag-handle.is-project-side {
-  top: 50%;
+  position: relative;
+  top: auto;
   right: auto;
-  left: 2.15rem;
-  transform: translateY(-50%);
   border: 1px solid rgba(169, 178, 191, 0.74);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.94));
   box-shadow:
@@ -1240,7 +1239,7 @@
 }
 
 .dashboard-card-drag-handle.is-project-side:hover {
-  transform: translateY(calc(-50% - 1px));
+  transform: translateY(-1px);
   border-color: rgba(190, 199, 212, 0.72);
   background: linear-gradient(180deg, #ffffff, rgba(245, 248, 252, 0.98));
   box-shadow:
@@ -1256,7 +1255,7 @@
 }
 
 .dashboard-card-drag-handle.is-project-side:active {
-  transform: translateY(-50%);
+  transform: translateY(0);
 }
 
 .dashboard-card-drag-handle .material-symbols-outlined {
@@ -1972,17 +1971,39 @@
   z-index: 1;
 }
 
-.project-card-production>.dashboard-card-drag-handle {
+.project-card-side-rail {
   position: absolute;
-  z-index: 3;
+  /* matches the folder art's original 20px / 24px insets so it keeps its spot */
+  left: 1.25rem;
+  top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  z-index: 4;
+}
+
+.project-card-side-rail>.project-folder-art-production {
+  position: relative;
+  left: auto;
+  top: auto;
+}
+
+.project-card-drag-cluster {
+  position: relative;
+  display: flex;
 }
 
 .project-card-drag-backing {
   position: absolute !important;
-  left: -0.55rem;
+  /* centered on the drag handle; pulled left past the rail inset (1.25rem)
+     and the folder/handle centering offset (1.5rem) to overhang the card
+     edge by the original 0.55rem */
+  left: -3.3rem;
   top: 50%;
-  z-index: 2 !important;
-  width: 6.6rem;
+  z-index: 0;
+  /* 132/120 of the original 6.6rem so the wider viewBox keeps the same scale */
+  width: 7.26rem;
   height: 9.2rem;
   color: #e0e2e7;
   filter: drop-shadow(0 12px 18px rgba(4, 22, 39, 0.07));
@@ -1994,12 +2015,12 @@
   fill: currentColor;
 }
 
-.project-card-production>.project-folder-art-production {
+.project-card-production .project-folder-art-production {
   pointer-events: none;
 }
 
-.project-card-production>.project-card-menu-layer {
-  z-index: 4;
+.project-card-side-rail>.project-card-menu-layer {
+  z-index: 1;
 }
 
 .project-card-production .project-card-menu-trigger {
