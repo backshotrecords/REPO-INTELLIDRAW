@@ -310,11 +310,10 @@ export default function WorkspacePage() {
     if (!parsedAST) return { filteredCode: mermaidCode, boundaryNodeIds: [] as string[], compoundNodeIds: [] as string[] };
 
     if (!activeScopeId) {
-      // Root view — apply collapse state
-      if (collapsedSubgraphIds.size === 0) {
-        // All expanded — pass through raw code (zero overhead)
-        return { filteredCode: mermaidCode, boundaryNodeIds: [] as string[], compoundNodeIds: [] as string[] };
-      }
+      // Root view — apply collapse state. The all-expanded case short-circuits
+      // inside the parser, which still rewrites title-only group declarations
+      // whose synthetic IDs are referenced by edges (otherwise Mermaid mints a
+      // phantom node for them in the raw view).
       const result = getRootViewWithCollapseState(parsedAST, collapsedSubgraphIds);
       return { filteredCode: result.code, boundaryNodeIds: [] as string[], compoundNodeIds: result.compoundNodeIds };
     }
@@ -322,10 +321,21 @@ export default function WorkspacePage() {
     // Scoped view — show inner nodes + boundary stubs, respecting collapse state
     const result = getScopeViewCode(parsedAST, activeScopeId, collapsedSubgraphIds);
     const sg = parsedAST.allSubgraphsFlat.get(activeScopeId);
-    // Only children that are collapsed become compound nodes
-    const compIds = sg
-      ? sg.children.filter(c => collapsedSubgraphIds.has(c.id)).map(c => c.id)
-      : [];
+    // Collapsed descendants render as compound nodes — at any depth, stopping
+    // at each collapsed group (its hidden contents can't render compounds)
+    const compIds: string[] = [];
+    if (sg) {
+      const collectCompounds = (node: typeof sg) => {
+        for (const child of node.children) {
+          if (collapsedSubgraphIds.has(child.id)) {
+            compIds.push(child.id);
+          } else {
+            collectCompounds(child);
+          }
+        }
+      };
+      collectCompounds(sg);
+    }
     return { filteredCode: result.code, boundaryNodeIds: result.boundaryNodeIds, compoundNodeIds: compIds };
   }, [parsedAST, activeScopeId, mermaidCode, collapsedSubgraphIds]);
 
