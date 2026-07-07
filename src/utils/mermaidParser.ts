@@ -250,8 +250,14 @@ export function parseMermaidAST(code: string): MermaidAST {
       // References are provisional: `A --> B` may appear before `B[Label]`
       // later defines B inside its real scope. Once a definition exists, keep
       // that explicit owner stable so cross-scope edges do not steal it.
+      // Exception: a root-level inline definition does not claim membership
+      // the way a subgraph block does (root is not a cluster in Mermaid) —
+      // a later declaration inside a group adopts the node into that group,
+      // mirroring recordNodeMembership's rule for bare membership lines.
       if (existingExplicitOwner !== undefined && existingExplicitOwner !== currentOwner) {
-        return;
+        if (existingExplicitOwner !== null || currentOwner === null) {
+          return;
+        }
       }
 
       if (existingOwner !== undefined && existingOwner !== currentOwner) {
