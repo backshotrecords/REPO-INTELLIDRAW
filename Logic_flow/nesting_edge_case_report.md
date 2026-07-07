@@ -245,6 +245,14 @@ All 11 findings are FIXED on this branch, each with a regression test in
 - **Suggested fix direction**: when emitting any view (including the raw short-circuit), rewrite title-only declarations whose synthetic ID is referenced by an edge to explicit-ID form: `subgraph Launch_Strategy["Launch Strategy"]`. Renders identically; gives Mermaid the ID binding.
 - **Status**: CONFIRMED in the production app (user screenshot, 2026-07-06): phantom `Launch_Strategy` node outside the expanded group, edge into Node A from the phantom.
 
+## Finding 12 — Root-level inline definitions blocked later in-group declarations from claiming the node
+
+- **Severity**: high (node rendered outside its group, duplicated next to the compound)
+- **Location**: `recordNodeReference` explicit-owner guard (the `existingExplicitOwner !== currentOwner → return` rule).
+- **Scenario**: `B --> M["At-a-Glance Metrics"]` at root, followed later by `subgraph MGroup` containing the declaration `M["At-a-Glance Metrics"]`. The root inline definition claimed explicit ownership (`null`), so the group's declaration was rejected as "stealing". Mermaid itself puts M inside MGroup (subgraph blocks claim members; root mentions don't), so the raw view nested M while collapsed views rendered M at root with a redirected edge into the `📂` compound — both the node and its group visible at once.
+- **Fix**: a `null` (root) explicit owner yields to a later in-group declaration, mirroring `recordNodeMembership`'s existing rule for bare membership lines. Group→group stealing remains forbidden (H2 protections unaffected).
+- **Status**: CONFIRMED in production (At-a-Glance Metrics dashboard screenshot, 2026-07-07). FIXED 2026-07-07 with regression tests (`root-defined nodes later declared inside a group`).
+
 ---
 
 ## Verification of the two 2026-07-06 fixes
