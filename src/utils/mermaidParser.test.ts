@@ -5,7 +5,7 @@
  * compound node tracking, and the collapse/expand cycle.
  */
 import { describe, it, expect } from 'vitest';
-import { parseMermaidAST, getRootViewCode, getRootViewWithCollapseState, getScopeViewCode, getScopePath } from './mermaidParser';
+import { parseMermaidAST, getRootViewCode, getRootViewWithCollapseState, getScopeViewCode, getScopePath, getBoundaryRefs, findNodeScope, extractScopeCode } from './mermaidParser';
 
 // ── Test Fixture ──────────────────────────────────────────────────
 // A flowchart with 2 top-level subgraphs (S and T), each containing 2 nodes,
@@ -285,6 +285,37 @@ const DEFERRED_SUBGRAPH_MEMBERSHIP_FIXTURE = `flowchart TD
         D
         J
     end`;
+
+const SHARED_ASSET_LAYER_FIXTURE = `flowchart TD
+    subgraph Recruiting["Recruiting"]
+        subgraph Travis["Owner: Travis"]
+            T1["Get the people"]
+            T2["Recruit the right candidates"]
+            T1 --> T2
+        end
+    end
+
+    subgraph Training["Training"]
+        subgraph Daniel["Owner: Daniel"]
+            D1["Manage coaches"]
+        end
+    end
+
+    subgraph SharedAssetLayer["Shared Asset Layer"]
+        subgraph Tiffany["Owner: Tiffany"]
+            TF1["Measure quality of recruitment"]
+        end
+        subgraph Alex["Owner: Alex"]
+            AL1["Ensure everyone has the right equipment"]
+        end
+    end
+
+    T2 --> D1
+
+    Tiffany -. "quality measurement across pipeline" .-> Recruiting
+    Tiffany -. "quality measurement across pipeline" .-> Training
+    Alex -. "equipment and technology support" .-> Recruiting
+    Alex -. "equipment and technology support" .-> Training`;
 
 // ── Tests ──────────────────────────────────────────────────────────
 
@@ -648,6 +679,77 @@ describe('student support collapse regression', () => {
   });
 });
 
+describe('nested subgraph IDs as edge endpoints (groups inside a group)', () => {
+  it('redirects root edges from nested group endpoints to the collapsed parent compound', () => {
+    const ast = parseMermaidAST(SHARED_ASSET_LAYER_FIXTURE);
+    // Shared Asset Layer collapsed, Recruiting/Training expanded — the state
+    // that produced phantom Tiffany/Alex root nodes.
+    const result = getRootViewWithCollapseState(ast, new Set(['SharedAssetLayer']));
+
+    expect(result.code).toContain('SharedAssetLayer["📂 Shared Asset Layer"]');
+
+    // Edges from the nested owner groups must redirect to the parent compound,
+    // not leak the hidden subgraph IDs as phantom root nodes — and keep their
+    // spaced dotted labels.
+    expect(result.code).not.toMatch(/^\s*Tiffany\s/m);
+    expect(result.code).not.toMatch(/^\s*Alex\s/m);
+    expect(result.code).toContain('SharedAssetLayer -.->|"quality measurement across pipeline"| Recruiting');
+    expect(result.code).toContain('SharedAssetLayer -.->|"quality measurement across pipeline"| Training');
+
+    // Duplicate redirected edges (Tiffany + Alex → same targets) are deduped
+    const salToRecruiting = result.code.split('\n')
+      .filter(l => l.includes('SharedAssetLayer') && l.includes('Recruiting') && l.includes('->'));
+    expect(salToRecruiting).toHaveLength(1);
+  });
+
+  it('redirects nested group endpoints in the all-collapsed root view', () => {
+    const ast = parseMermaidAST(SHARED_ASSET_LAYER_FIXTURE);
+    const result = getRootViewCode(ast);
+
+    expect(result).not.toMatch(/^\s*Tiffany\s/m);
+    expect(result).not.toMatch(/^\s*Alex\s/m);
+    expect(result).toContain('SharedAssetLayer -.->|"quality measurement across pipeline"| Recruiting');
+    expect(result).toContain('SharedAssetLayer -.->|"quality measurement across pipeline"| Training');
+  });
+
+  it('resolves the outermost collapsed ancestor when nested groups are collapsed along with the parent', () => {
+    const ast = parseMermaidAST(SHARED_ASSET_LAYER_FIXTURE);
+    // Both the owner groups AND the parent are collapsed (e.g. collapse-all
+    // default, then expand Recruiting/Training only)
+    const result = getRootViewWithCollapseState(
+      ast,
+      new Set(['SharedAssetLayer', 'Tiffany', 'Alex', 'Travis', 'Daniel'])
+    );
+
+    // Tiffany is collapsed but hidden inside collapsed SharedAssetLayer —
+    // edges must redirect to the visible outermost compound, not to Tiffany.
+    expect(result.code).not.toMatch(/^\s*Tiffany\s/m);
+    expect(result.code).not.toMatch(/^\s*Alex\s/m);
+    expect(result.code).toContain('SharedAssetLayer -.->|"quality measurement across pipeline"| Recruiting');
+    expect(result.code).toContain('SharedAssetLayer -.->|"quality measurement across pipeline"| Training');
+  });
+
+  it('captures spaced labels on dotted and thick arrows and normalizes split dotted arrows', () => {
+    const ast = parseMermaidAST(`flowchart TD
+    A -. dotted note .-> B
+    C == thick note ==> D`);
+
+    expect(ast.edges[0]).toMatchObject({ from: 'A', to: 'B', label: 'dotted note', arrow: '-.->' });
+    expect(ast.edges[1]).toMatchObject({ from: 'C', to: 'D', label: 'thick note', arrow: '==>' });
+  });
+
+  it('keeps nested collapsed groups as visible edge endpoints when the parent is expanded', () => {
+    const ast = parseMermaidAST(SHARED_ASSET_LAYER_FIXTURE);
+    // Parent expanded, owner groups collapsed — Tiffany/Alex are visible
+    // compound nodes inside the expanded parent, so edges pass through.
+    const result = getRootViewWithCollapseState(ast, new Set(['Tiffany', 'Alex', 'Travis', 'Daniel']));
+
+    expect(result.code).toContain('subgraph SharedAssetLayer');
+    expect(result.code).toContain('Tiffany["📂 Owner: Tiffany"]');
+    expect(result.code).toContain('Tiffany -. "quality measurement across pipeline" .-> Recruiting');
+  });
+});
+
 describe('deferred subgraph membership declarations', () => {
   it('records bare membership nodes inside groups when labels and edges are defined earlier', () => {
     const ast = parseMermaidAST(DEFERRED_SUBGRAPH_MEMBERSHIP_FIXTURE);
@@ -676,6 +778,255 @@ describe('deferred subgraph membership declarations', () => {
     expect(openedMicModes.code).toContain('J[User taps mic to start live meeting recording]');
     expect(openedMicModes.code).toContain('MicButtonExpandableMenu -->|Regular voice mode| D');
     expect(openedMicModes.code).toContain('MicButtonExpandableMenu -->|Meeting mode| J');
+  });
+});
+
+describe('audit F1/F2: subgraph IDs referenced by edges inside other groups', () => {
+  const SIBLING_GROUP_EDGE_FIXTURE = `flowchart TD
+    subgraph S1[Group One]
+        A[Node A]
+        A --> GroupB
+    end
+    subgraph GroupB[Group B]
+        B1[Node B1]
+    end`;
+
+  it('keeps sibling group IDs out of directNodes even when declared after the edge', () => {
+    const ast = parseMermaidAST(SIBLING_GROUP_EDGE_FIXTURE);
+    expect(ast.allSubgraphsFlat.get('S1')!.directNodes).toEqual(['A']);
+    expect(ast.rootNodes).not.toContain('GroupB');
+  });
+
+  it('classifies the cross-group edge as a boundary ref', () => {
+    const ast = parseMermaidAST(SIBLING_GROUP_EDGE_FIXTURE);
+    const refs = getBoundaryRefs(ast, 'S1');
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({ direction: 'outgoing', insideNodeId: 'A', externalNodeId: 'GroupB' });
+  });
+
+  it('renders the sibling group as a boundary stub in the opened scope, not a phantom node', () => {
+    const ast = parseMermaidAST(SIBLING_GROUP_EDGE_FIXTURE);
+    const opened = getScopeViewCode(ast, 'S1');
+    expect(opened.code).toContain('_ext_GroupB["📂 Group B"]');
+    expect(opened.code).toContain('A -.-> _ext_GroupB');
+    expect(opened.code).not.toMatch(/^\s*GroupB\[Group B\]$/m);
+  });
+
+  it('keeps the collapsed sibling compound outside the referencing group block', () => {
+    const ast = parseMermaidAST(SIBLING_GROUP_EDGE_FIXTURE);
+    const result = getRootViewWithCollapseState(ast, new Set(['GroupB']));
+    const lines = result.code.split('\n');
+    const s1Start = lines.findIndex(l => l.includes('subgraph S1'));
+    const s1End = lines.findIndex((l, idx) => idx > s1Start && l.trim() === 'end');
+    const s1Block = lines.slice(s1Start, s1End + 1).join('\n');
+    expect(s1Block).not.toContain('GroupB[Group B]');
+    expect(result.code).toContain('GroupB["📂 Group B"]');
+    expect(result.code).toContain('A --> GroupB');
+  });
+
+  it('never emits a plain node definition for an expanded group hit by a redirected edge', () => {
+    const ast = parseMermaidAST(`flowchart TD
+    subgraph T1[First]
+        A[Node A]
+    end
+    A --> T2
+    subgraph T2[Second]
+        B[Node B]
+    end`);
+    const result = getRootViewWithCollapseState(ast, new Set(['T1']));
+    const trimmedLines = result.code.split('\n').map(l => l.trim());
+    expect(trimmedLines).not.toContain('T2[Second]');
+    expect(result.code).toContain('subgraph T2[Second]');
+    expect(result.code).toContain('T1 --> T2');
+  });
+});
+
+describe('audit F8: bare membership lines naming a group nest it (membership-by-reference)', () => {
+  const BARE_GROUP_MEMBERSHIP_FIXTURE = `flowchart TD
+    subgraph S1[One]
+        GroupB
+    end
+    subgraph GroupB[Group B]
+        B1[Node B1]
+    end
+    B1 --> X[External]`;
+
+  it('adopts the referenced group as a child instead of a member node', () => {
+    const ast = parseMermaidAST(BARE_GROUP_MEMBERSHIP_FIXTURE);
+    const s1 = ast.allSubgraphsFlat.get('S1')!;
+    expect(ast.allSubgraphsFlat.get('GroupB')!.parentId).toBe('S1');
+    expect(s1.children.map(c => c.id)).toContain('GroupB');
+    expect(s1.directNodes).not.toContain('GroupB');
+    expect(ast.subgraphs.map(s => s.id)).toEqual(['S1']);
+  });
+
+  it('renders one compound at root when everything is collapsed', () => {
+    const ast = parseMermaidAST(BARE_GROUP_MEMBERSHIP_FIXTURE);
+    const result = getRootViewCode(ast);
+    expect(result).toContain('S1["📂 One"]');
+    expect(result).not.toContain('GroupB["📂 Group B"]');
+    expect(result).not.toContain('subgraph GroupB');
+    expect(result).toContain('S1 --> X');
+  });
+
+  it('renders the adopted group as a compound inside the expanded adopter', () => {
+    const ast = parseMermaidAST(BARE_GROUP_MEMBERSHIP_FIXTURE);
+    const result = getRootViewWithCollapseState(ast, new Set(['GroupB']));
+    expect(result.code).toContain('subgraph S1[One]');
+    expect(result.code).toContain('GroupB["📂 Group B"]');
+    expect(result.code).not.toContain('subgraph GroupB');
+    expect(result.code).toContain('GroupB --> X');
+    expect(result.compoundNodeIds).toContain('GroupB');
+  });
+
+  it('opens the adopter scope with the adopted group as a compound child', () => {
+    const ast = parseMermaidAST(BARE_GROUP_MEMBERSHIP_FIXTURE);
+    const opened = getScopeViewCode(ast, 'S1');
+    expect(opened.code).toContain('GroupB["📂 Group B"]');
+    expect(opened.code).not.toMatch(/^\s*GroupB$/m);
+    expect(opened.code).toContain('GroupB -.-> _ext_X');
+  });
+});
+
+describe('audit F3: scope views honor collapse state below direct children', () => {
+  it('collapses a grandchild group inside an opened scope', () => {
+    const ast = parseMermaidAST(`flowchart TD
+    subgraph Top[Top]
+        subgraph Child[Child]
+            C1[C One]
+            subgraph Grand[Grand]
+                G1[G One]
+                G2[G Two]
+            end
+            C1 --> G1
+        end
+        T1[T One]
+        T1 --> C1
+    end`);
+    const opened = getScopeViewCode(ast, 'Top', new Set(['Grand']));
+    expect(opened.code).toContain('Grand["📂 Grand"]');
+    expect(opened.code).not.toContain('G1[G One]');
+    expect(opened.code).not.toContain('subgraph Grand');
+    expect(opened.code).toContain('C1 --> Grand');
+    expect(opened.code).toContain('T1 --> C1');
+  });
+});
+
+describe('audit F4: boundary stubs resolve to the outermost collapsed stand-in', () => {
+  it('emits one stub for a hidden region whether the endpoint is a node or a group', () => {
+    const ast = parseMermaidAST(`flowchart TD
+    subgraph Alpha[Alpha]
+        subgraph AMid[A Mid]
+            subgraph ADeep[A Deep]
+                AD1[AD One]
+            end
+        end
+    end
+    subgraph Beta[Beta]
+        B1[B One]
+    end
+    ADeep --> B1
+    B1 --> AD1`);
+    const opened = getScopeViewCode(ast, 'Beta', new Set(['AMid', 'ADeep']));
+    expect(opened.code).toContain('_ext_AMid["📂 A Mid"]');
+    expect(opened.code).not.toContain('_ext_ADeep');
+    expect(opened.code).toContain('_ext_AMid -.-> B1');
+    expect(opened.code).toContain('B1 -.-> _ext_AMid');
+  });
+});
+
+describe('audit F5: findNodeScope resolves subgraph IDs to their parent scope', () => {
+  it('returns the parent group for nested subgraph IDs and null for top-level ones', () => {
+    const ast = parseMermaidAST(`flowchart TD
+    subgraph Top[Top]
+        subgraph Mid[Mid]
+            subgraph Inner[Inner]
+                I1[I One]
+            end
+        end
+    end`);
+    expect(findNodeScope(ast, 'Inner')).toBe('Mid');
+    expect(findNodeScope(ast, 'Mid')).toBe('Top');
+    expect(findNodeScope(ast, 'Top')).toBeNull();
+    expect(findNodeScope(ast, 'I1')).toBe('Inner');
+  });
+});
+
+describe('audit F6: boundary stubs for external groups use display labels', () => {
+  it('labels an expanded title-only external group with the folder icon and its title', () => {
+    const ast = parseMermaidAST(`flowchart TD
+    subgraph S1[Group One]
+        A[Node A]
+    end
+    subgraph Launch Strategy
+        L1[Launch Node]
+    end
+    Launch_Strategy --> A`);
+    const opened = getScopeViewCode(ast, 'S1', new Set());
+    expect(opened.code).toContain('_ext_Launch_Strategy["📂 Launch Strategy"]');
+    expect(opened.code).not.toContain('_ext_Launch_Strategy["Launch_Strategy"]');
+    expect(opened.code).toContain('_ext_Launch_Strategy -.-> A');
+  });
+});
+
+describe('audit F7: scope exports keep edges referencing the container', () => {
+  it('includes container-level edges written outside the block', () => {
+    const ast = parseMermaidAST(`flowchart TD
+    subgraph Top[Top]
+        A1[A One]
+    end
+    A1 --> Top`);
+    const exported = extractScopeCode(ast, 'Top');
+    expect(exported).toContain('A1 --> Top');
+  });
+});
+
+describe('audit F9: class lines keep visible subsets', () => {
+  it('keeps the visible compound child in a class line that also names the scope container', () => {
+    const ast = parseMermaidAST(`flowchart TD
+    subgraph Top[Top]
+        subgraph Mid[Mid]
+            M1[M One]
+        end
+    end
+    classDef someClass fill:#f96
+    class Mid,Top someClass`);
+    const opened = getScopeViewCode(ast, 'Top', new Set(['Mid']));
+    expect(opened.code).toContain('classDef someClass fill:#f96');
+    expect(opened.code).toContain('class Mid someClass');
+    expect(opened.code).not.toContain('class Mid,Top someClass');
+  });
+});
+
+describe('audit F11: title-only groups referenced by their synthetic IDs', () => {
+  const TITLE_ONLY_REF_FIXTURE = `flowchart TD
+    subgraph S1[Group One]
+        A[Node A]
+    end
+    subgraph Launch Strategy
+        L1[Launch Node]
+    end
+    Launch_Strategy --> A`;
+
+  it('rewrites the declaration to explicit-ID form in the raw all-expanded view', () => {
+    const ast = parseMermaidAST(TITLE_ONLY_REF_FIXTURE);
+    const result = getRootViewWithCollapseState(ast, new Set());
+    expect(result.code).toContain('subgraph Launch_Strategy["Launch Strategy"]');
+    expect(result.code).not.toMatch(/subgraph Launch Strategy$/m);
+  });
+
+  it('rewrites the declaration when the group is expanded in a partial-collapse view', () => {
+    const ast = parseMermaidAST(TITLE_ONLY_REF_FIXTURE);
+    const result = getRootViewWithCollapseState(ast, new Set(['S1']));
+    expect(result.code).toContain('subgraph Launch_Strategy["Launch Strategy"]');
+  });
+
+  it('leaves unreferenced title-only declarations untouched', () => {
+    const ast = parseMermaidAST(HELL_GROUPING_FIXTURE);
+    const collapsed = new Set(ast.allSubgraphsFlat.keys());
+    collapsed.delete('Legal_and_Compliance');
+    const result = getRootViewWithCollapseState(ast, collapsed);
+    expect(result.code).toContain('subgraph Legal and Compliance');
   });
 });
 
