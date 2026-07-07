@@ -31,4 +31,16 @@ describe('getRenderedClusterSubgraphId', () => {
 
     expect(getRenderedClusterSubgraphId(fakeCluster('', 'Layer 1Listener Layer'), ast)).toBe('L1');
   });
+
+  it('prefers exact label matches over fuzzy containment for nested groups with shared prefixes', () => {
+    const ast = parseMermaidAST(`flowchart TD
+    subgraph Auth[Auth]
+        subgraph AuthServices[Auth Services]
+            A["Start"]
+        end
+    end`);
+
+    expect(getRenderedClusterSubgraphId(fakeCluster('', 'Auth Services'), ast)).toBe('AuthServices');
+    expect(getRenderedClusterSubgraphId(fakeCluster('', 'Auth'), ast)).toBe('Auth');
+  });
 });

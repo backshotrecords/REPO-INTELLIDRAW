@@ -36,15 +36,24 @@ export function getRenderedClusterSubgraphId(
   const clusterCompactLabel = compactLabel(labelEl.textContent || "");
   if (!clusterLabelText && !clusterCompactLabel) return null;
 
+  // Exact label matches win before fuzzy containment — nested groups can
+  // share label prefixes (e.g. "Auth" inside "Auth Services"), and the first
+  // fuzzy hit would send interactions to the wrong group.
   for (const sg of parsedAST.allSubgraphsFlat.values()) {
     const normalizedLabel = normalizeMermaidDisplayLabel(sg.label).toLowerCase();
     const compact = compactLabel(sg.label);
 
+    if (clusterLabelText === normalizedLabel || (compact && clusterCompactLabel === compact)) {
+      return sg.id;
+    }
+  }
+
+  for (const sg of parsedAST.allSubgraphsFlat.values()) {
+    const normalizedLabel = normalizeMermaidDisplayLabel(sg.label).toLowerCase();
+
     if (
-      clusterLabelText === normalizedLabel ||
       clusterLabelText.includes(normalizedLabel) ||
-      normalizedLabel.includes(clusterLabelText) ||
-      (compact && clusterCompactLabel === compact)
+      normalizedLabel.includes(clusterLabelText)
     ) {
       return sg.id;
     }

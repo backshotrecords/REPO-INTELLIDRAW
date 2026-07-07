@@ -19,6 +19,7 @@ export interface SubgraphNode {
   sourceStart: number;           // line index of "subgraph ..."
   sourceEnd: number;             // line index of matching "end"
   directNodes: string[];         // node IDs defined at this level (not in sub-subgraphs)
+  titleOnly: boolean;            // declared without an explicit ID (synthetic ID minted from the title)
 }
 
 export interface Edge {
@@ -61,6 +62,9 @@ export function parseMermaidAST(code: string): MermaidAST {
   const allDefinedNodes = new Set<string>();
   const nodeOwners = new Map<string, string | null>();
   const explicitNodeOwners = new Map<string, string | null>();
+  // Bare membership lines may name a subgraph declared later (Mermaid's
+  // membership-by-reference nests that group); resolved in a post-pass.
+  const pendingGroupAdoptions: Array<{ childId: string; parentId: string }> = [];
 
   // ── Pass 1: Identify subgraph blocks ──
   const stack: SubgraphNode[] = [];
@@ -95,6 +99,7 @@ export function parseMermaidAST(code: string): MermaidAST {
         sourceStart: i,
         sourceEnd: -1, // filled in when we find the matching "end"
         directNodes: [],
+        titleOnly: sgDecl.titleOnly,
       };
 
       if (parentId && allSubgraphsFlat.has(parentId)) {
@@ -130,7 +135,12 @@ export function parseMermaidAST(code: string): MermaidAST {
     // `subgraph Group` followed by bare `NodeId` lines.
     const bareMembershipMatch = trimmed.match(/^([A-Za-z_]\w*)$/);
     if (bareMembershipMatch && stack.length > 0) {
-      recordNodeMembership(bareMembershipMatch[1], stack[stack.length - 1]);
+      const memberId = bareMembershipMatch[1];
+      const scope = stack[stack.length - 1];
+      pendingGroupAdoptions.push({ childId: memberId, parentId: scope.id });
+      if (!allSubgraphsFlat.has(memberId)) {
+        recordNodeMembership(memberId, scope);
+      }
       continue;
     }
 
@@ -162,6 +172,36 @@ export function parseMermaidAST(code: string): MermaidAST {
       const currentScope = stack.length > 0 ? stack[stack.length - 1] : null;
       recordNodeReference(nodeId, currentScope, true);
     }
+  }
+
+  // ── Post-pass: reconcile IDs that turned out to be subgraphs ──
+  // A bare membership line naming a group (declared before or after the line)
+  // nests that group under the referencing scope, matching Mermaid's
+  // membership-by-reference.
+  for (const { childId, parentId } of pendingGroupAdoptions) {
+    const child = allSubgraphsFlat.get(childId);
+    const parent = allSubgraphsFlat.get(parentId);
+    if (!child || !parent || child.parentId === parentId) continue;
+    if (isSelfOrDescendant(parentId, childId)) continue; // cycle guard
+    if (child.parentId && allSubgraphsFlat.has(child.parentId)) {
+      const oldParent = allSubgraphsFlat.get(child.parentId)!;
+      oldParent.children = oldParent.children.filter(c => c !== child);
+    } else {
+      const idx = topLevelSubgraphs.indexOf(child);
+      if (idx >= 0) topLevelSubgraphs.splice(idx, 1);
+    }
+    child.parentId = parentId;
+    parent.children.push(child);
+  }
+
+  // Edge/membership references recorded before a subgraph declaration was
+  // reached may have captured the subgraph ID as a plain node — subgraph IDs
+  // are never member nodes.
+  for (const sg of allSubgraphsFlat.values()) {
+    sg.directNodes = sg.directNodes.filter(id => !allSubgraphsFlat.has(id));
+  }
+  for (const sgId of allSubgraphsFlat.keys()) {
+    allDefinedNodes.delete(sgId);
   }
 
   // ── Compute root-level nodes (not inside any subgraph) ──
@@ -197,6 +237,9 @@ export function parseMermaidAST(code: string): MermaidAST {
     currentScope: SubgraphNode | null,
     isDefinition = false
   ): void {
+    // Subgraph IDs are edge endpoints, never plain member nodes. Forward
+    // references (subgraph declared later) are cleaned up in the post-pass.
+    if (allSubgraphsFlat.has(nodeId)) return;
     allDefinedNodes.add(nodeId);
 
     const currentOwner = currentScope?.id ?? null;
@@ -240,6 +283,7 @@ export function parseMermaidAST(code: string): MermaidAST {
   }
 
   function recordNodeMembership(nodeId: string, currentScope: SubgraphNode): void {
+    if (allSubgraphsFlat.has(nodeId)) return;
     allDefinedNodes.add(nodeId);
 
     const currentOwner = currentScope.id;
@@ -273,12 +317,21 @@ export function parseMermaidAST(code: string): MermaidAST {
     if (!owner) return;
     owner.directNodes = owner.directNodes.filter(id => id !== nodeId);
   }
+
+  function isSelfOrDescendant(candidateId: string, ancestorId: string): boolean {
+    let current: string | null = candidateId;
+    while (current) {
+      if (current === ancestorId) return true;
+      current = allSubgraphsFlat.get(current)?.parentId ?? null;
+    }
+    return false;
+  }
 }
 
 function parseSubgraphDeclaration(
   trimmed: string,
   allSubgraphsFlat: Map<string, SubgraphNode>
-): { id: string; label: string } | null {
+): { id: string; label: string; titleOnly: boolean } | null {
   const restMatch = trimmed.match(/^subgraph\s+(.+)$/i);
   if (!restMatch) return null;
 
@@ -289,11 +342,17 @@ function parseSubgraphDeclaration(
     const rawId = explicitMatch[1];
     const rawLabel = explicitMatch[2];
     const label = stripLabelQuotes(rawLabel ? rawLabel.trim() : rawId);
-    return { id: ensureUniqueSubgraphId(rawId, allSubgraphsFlat), label };
+    return { id: ensureUniqueSubgraphId(rawId, allSubgraphsFlat), label, titleOnly: false };
   }
 
   const label = stripLabelQuotes(rest);
-  return { id: ensureUniqueSubgraphId(labelToSubgraphId(label), allSubgraphsFlat), label };
+  return {
+    id: ensureUniqueSubgraphId(labelToSubgraphId(label), allSubgraphsFlat),
+    label,
+    // Multi-word title with no explicit ID: our synthetic ID is unknown to
+    // stock Mermaid, so passthrough views may need the declaration rewritten.
+    titleOnly: true,
+  };
 }
 
 export function normalizeMermaidDisplayLabel(label: string): string {
@@ -392,20 +451,25 @@ function parseAllEdges(line: string): ParsedEdge[] {
     const toMatch = afterArrow.match(/^(?:\s*\|[^|]*\|)?\s*([A-Za-z_]\w*)/);
     if (!toMatch) break;
 
-    // Extract label if present. Mermaid supports both A -->|label| B and
-    // A -- label --> B; normalize both forms for rewritten edges.
+    // Extract label if present. Mermaid supports A -->|label| B plus the
+    // spaced forms A -- label -->, A -. label .->, and A == label ==> B;
+    // normalize all of them for rewritten edges.
     const pipeLabelMatch = afterArrow.match(/^\s*\|([^|]*)\|/);
     const beforeArrow = line.substring(0, arr.index);
     const currentFromMatches = [...beforeArrow.matchAll(new RegExp(`\\b${escapeRegex(currentFrom)}\\b`, 'g'))];
     const afterCurrentFrom = currentFromMatches.length > 0
       ? beforeArrow.slice(currentFromMatches[currentFromMatches.length - 1].index! + currentFrom.length)
       : '';
-    const spacedLabelMatch = afterCurrentFrom.match(/--\s*([^-|][\s\S]*?)\s*$/);
+    const spacedLabelMatch = afterCurrentFrom.match(/(?:--|-\.+|==)\s*([^-|][\s\S]*?)\s*$/);
     const label = pipeLabelMatch
       ? pipeLabelMatch[1].trim()
       : spacedLabelMatch?.[1].trim() || undefined;
 
-    edges.push({ from: currentFrom, to: toMatch[1], label, arrow: arr.arrow, rawLine: line });
+    // The spaced dotted form `A -. text .->` tokenizes its closing arrow as
+    // `.->`; normalize to the canonical `-.->` so re-emitted edges stay valid.
+    const arrow = /^\.+->$/.test(arr.arrow) ? `-${arr.arrow}` : arr.arrow;
+
+    edges.push({ from: currentFrom, to: toMatch[1], label, arrow, rawLine: line });
 
     // Chain: this edge's TO becomes the next edge's FROM
     currentFrom = toMatch[1];
@@ -714,6 +778,10 @@ function hasNodeDefinition(lines: string[], nodeId: string): boolean {
 }
 
 function emitNodeDefinitionIfMissing(output: string[], ast: MermaidAST, nodeId: string): void {
+  // Groups render as clusters or compound nodes — never emit a plain node
+  // definition for one (hasNodeDefinition's regex matches `subgraph X[...]`
+  // lines, which would create a node/cluster ID collision).
+  if (ast.allSubgraphsFlat.has(nodeId)) return;
   if (hasNodeDefinition(output, nodeId)) return;
   if (!hasNodeDefinition(ast.lines, nodeId)) return;
 
@@ -794,25 +862,45 @@ export function getRootViewCode(ast: MermaidAST): string {
   const topSgIds = new Set(ast.subgraphs.map(s => s.id));
   const visibleAtRoot = new Set([...rootNodeSet, ...topSgIds]);
 
-  // Build a quick lookup: top-level subgraph line ranges
-  const topSgRanges = ast.subgraphs
-    .filter(sg => sg.sourceEnd >= 0) // skip incomplete subgraphs (no 'end' yet)
+  // Build a quick lookup: lexically top-level subgraph line ranges (includes
+  // groups adopted via membership-by-reference, which stay lexically at root)
+  const topSgRanges = getLexicalRootSubgraphs(ast)
     .map(sg => ({
       start: sg.sourceStart,
       end: sg.sourceEnd,
       id: sg.id,
       label: sg.label,
+      adopted: sg.parentId !== null,
     }));
 
   // Edge deduplication for redirected cross-subgraph edges
   const emittedRedirectedEdges = new Set<string>();
+  const redirectToTopLevel = (nodeId: string) => {
+    const owner = findOwnerSubgraph(nodeId, ast);
+    return owner ? (getTopLevelParent(owner, ast) || nodeId) : nodeId;
+  };
 
   for (let i = 0; i < ast.lines.length; i++) {
     const trimmed = ast.lines[i].trim();
 
-    // Check if this line starts a top-level subgraph block
+    // Check if this line starts a lexically top-level subgraph block
     const sgRange = topSgRanges.find(r => i === r.start);
     if (sgRange) {
+      if (sgRange.adopted) {
+        // Adopted group: hidden inside its adopter's compound at root \u2014
+        // skip the block, redirect its cross-boundary edges.
+        emitRedirectedEdgesInRange(
+          ast,
+          sgRange.start + 1,
+          sgRange.end,
+          visibleAtRoot,
+          emittedRedirectedEdges,
+          output,
+          redirectToTopLevel
+        );
+        i = sgRange.end;
+        continue;
+      }
       // Emit a compound node in place of the entire subgraph block
       const safeLabel = sgRange.label.replace(/"/g, "'");
       output.push(`    ${sgRange.id}["\uD83D\uDCC2 ${safeLabel}"]`);
@@ -823,10 +911,7 @@ export function getRootViewCode(ast: MermaidAST): string {
         visibleAtRoot,
         emittedRedirectedEdges,
         output,
-        (nodeId) => {
-          const owner = findOwnerSubgraph(nodeId, ast);
-          return owner ? (getTopLevelParent(owner, ast) || nodeId) : nodeId;
-        }
+        redirectToTopLevel
       );
       // Skip all lines until the matching 'end'
       i = sgRange.end;
@@ -879,13 +964,14 @@ export function getRootViewCode(ast: MermaidAST): string {
       continue;
     }
 
-    // class lines: only emit if ALL referenced nodes are visible at root
+    // class lines: emit for the subset of referenced nodes visible at root
     if (/^class\s/i.test(trimmed)) {
-      const classMatch = trimmed.match(/^class\s+(.+?)\s+\S+$/i);
+      const classMatch = trimmed.match(/^class\s+(.+?)\s+(\S+)$/i);
       if (classMatch) {
-        const nodeIds = classMatch[1].split(',').map(s => s.trim());
-        if (nodeIds.every(id => visibleAtRoot.has(id))) {
-          output.push(ast.lines[i]);
+        const visibleIds = classMatch[1].split(',').map(s => s.trim())
+          .filter(id => visibleAtRoot.has(id));
+        if (visibleIds.length > 0) {
+          output.push(`    class ${visibleIds.join(',')} ${classMatch[2]}`);
         }
       }
       continue;
@@ -924,9 +1010,16 @@ export function getRootViewWithCollapseState(
   ast: MermaidAST,
   collapsedSubgraphIds: Set<string>
 ): { code: string; compoundNodeIds: string[] } {
-  // Short-circuit: nothing collapsed → return raw code unchanged
+  const declRewrites = buildDeclarationRewrites(ast);
+  const sourceLine = (i: number) => declRewrites.get(i) ?? ast.lines[i];
+
+  // Short-circuit: nothing collapsed → return raw code (with title-only
+  // declarations rewritten where edges reference their synthetic IDs)
   if (collapsedSubgraphIds.size === 0) {
-    return { code: ast.lines.join("\n"), compoundNodeIds: [] };
+    const code = declRewrites.size === 0
+      ? ast.lines.join("\n")
+      : ast.lines.map((_, i) => sourceLine(i)).join("\n");
+    return { code, compoundNodeIds: [] };
   }
 
   // If ALL top-level subgraphs are collapsed, delegate to existing getRootViewCode
@@ -952,15 +1045,16 @@ export function getRootViewWithCollapseState(
     }
   }
 
-  // Build lookup: top-level subgraph line ranges
-  const topSgRanges = ast.subgraphs
-    .filter(sg => sg.sourceEnd >= 0)
+  // Build lookup: lexically top-level subgraph line ranges (includes groups
+  // adopted via membership-by-reference, which stay lexically at root)
+  const topSgRanges = getLexicalRootSubgraphs(ast)
     .map(sg => ({
       start: sg.sourceStart,
       end: sg.sourceEnd,
       id: sg.id,
       label: sg.label,
       collapsed: collapsedSubgraphIds.has(sg.id),
+      hidden: hasCollapsedAncestor(sg.id, ast, collapsedSubgraphIds),
     }));
 
   // Edge deduplication for redirected edges
@@ -975,10 +1069,23 @@ export function getRootViewWithCollapseState(
     // In any filtered view, cross-boundary ~~~ links cause phantom node duplicates.
     if (/~{3,}/.test(trimmed)) continue;
 
-    // Check if this line starts a top-level subgraph block
+    // Check if this line starts a lexically top-level subgraph block
     const sgRange = topSgRanges.find(r => i === r.start);
     if (sgRange) {
-      if (sgRange.collapsed) {
+      if (sgRange.hidden) {
+        // Hidden: an ancestor is collapsed, so this adopted block lives
+        // inside that compound — skip it, redirect its cross-boundary edges.
+        emitRedirectedEdgesInRange(
+          ast,
+          sgRange.start + 1,
+          sgRange.end,
+          visibleNodes,
+          emittedRedirectedEdges,
+          output,
+          (nodeId) => findCollapsedVisibleOwner(nodeId, ast, collapsedSubgraphIds) || nodeId
+        );
+        i = sgRange.end;
+      } else if (sgRange.collapsed) {
         // Collapsed → emit compound node, skip to end
         const safeLabel = sgRange.label.replace(/"/g, "'");
         output.push(`    ${sgRange.id}["\uD83D\uDCC2 ${safeLabel}"]`);
@@ -993,8 +1100,9 @@ export function getRootViewWithCollapseState(
         );
         i = sgRange.end;
       } else {
-        // Expanded → pass through the subgraph line as-is (loop will continue through inner lines)
-        output.push(ast.lines[i]);
+        // Expanded → pass through the subgraph line (rewriting title-only
+        // declarations whose synthetic ID is edge-referenced)
+        output.push(sourceLine(i));
       }
       continue;
     }
@@ -1107,7 +1215,7 @@ export function getRootViewWithCollapseState(
         continue;
       }
 
-      output.push(ast.lines[i]);
+      output.push(sourceLine(i));
       continue;
     }
 
@@ -1154,13 +1262,14 @@ export function getRootViewWithCollapseState(
       continue;
     }
 
-    // class lines: only emit if ALL referenced nodes are visible
+    // class lines: emit for the subset of referenced nodes that are visible
     if (/^class\s/i.test(trimmed)) {
-      const classMatch = trimmed.match(/^class\s+(.+?)\s+\S+$/i);
+      const classMatch = trimmed.match(/^class\s+(.+?)\s+(\S+)$/i);
       if (classMatch) {
-        const nodeIds = classMatch[1].split(',').map(s => s.trim());
-        if (nodeIds.every(id => visibleNodes.has(id))) {
-          output.push(ast.lines[i]);
+        const visibleIds = classMatch[1].split(',').map(s => s.trim())
+          .filter(id => visibleNodes.has(id));
+        if (visibleIds.length > 0) {
+          output.push(`    class ${visibleIds.join(',')} ${classMatch[2]}`);
         }
       }
       continue;
@@ -1212,17 +1321,42 @@ export function getScopeViewCode(
   const isChildCollapsed = (childId: string) =>
     !collapsedSubgraphIds || collapsedSubgraphIds.has(childId);
 
+  const declRewrites = buildDeclarationRewrites(ast);
+  const sourceLine = (i: number) => declRewrites.get(i) ?? ast.lines[i];
+
   // Build the set of node IDs visible in this scope
   const visibleNodes = new Set(sg.directNodes);
   for (const child of sg.children) {
     visibleNodes.add(child.id);
-    // If child is expanded, add all its internal nodes to the visible set
+    // If child is expanded, add its internal nodes — stopping at collapsed
+    // descendants when an explicit collapse state is provided
     if (!isChildCollapsed(child.id)) {
-      for (const nid of getAllNodesInSubgraph(child, ast.allSubgraphsFlat)) {
-        visibleNodes.add(nid);
+      if (collapsedSubgraphIds) {
+        addVisibleNodesRecursive(child, collapsedSubgraphIds, visibleNodes, [], ast.allSubgraphsFlat);
+      } else {
+        for (const nid of getAllNodesInSubgraph(child, ast.allSubgraphsFlat)) {
+          visibleNodes.add(nid);
+        }
       }
     }
   }
+
+  // Visible stand-in for a hidden node in this scope: the outermost collapsed
+  // subgraph on its ownership chain below the scope. With no explicit
+  // collapse state (default: all children collapsed), that is the direct child.
+  const findScopeStandIn = (nodeId: string): string | null => {
+    const direct = findChildContaining(nodeId, sg, ast.allSubgraphsFlat);
+    if (!direct || !collapsedSubgraphIds) return direct;
+    let currentId = ast.allSubgraphsFlat.has(nodeId)
+      ? ast.allSubgraphsFlat.get(nodeId)!.parentId
+      : findOwnerSubgraph(nodeId, ast);
+    let outermost: string | null = null;
+    while (currentId && currentId !== scopeId) {
+      if (collapsedSubgraphIds.has(currentId)) outermost = currentId;
+      currentId = ast.allSubgraphsFlat.get(currentId)?.parentId ?? null;
+    }
+    return outermost ?? direct;
+  };
 
   // Emit lines from the subgraph body (between sourceStart+1 and sourceEnd-1)
   // but skip nested subgraph internals and cross-scope edge lines
@@ -1233,6 +1367,7 @@ export function getScopeViewCode(
     collapsed: isChildCollapsed(c.id),
   }));
   const scopeRedirectedEdges = new Set<string>();
+  const deferredScopeEdges: string[] = [];
 
   for (let i = innerStart; i < innerEnd; i++) {
     const trimmed = ast.lines[i].trim();
@@ -1240,6 +1375,11 @@ export function getScopeViewCode(
     if (/^direction\s/i.test(trimmed)) continue;
     if (/^classDef\s/i.test(trimmed) || /^class\s/i.test(trimmed) || /^style\s/i.test(trimmed)) continue;
     if (/^click\s/i.test(trimmed) || /^linkStyle\s/i.test(trimmed)) continue;
+
+    // Membership-by-reference lines naming a child group are structural —
+    // the child is emitted as a compound or block elsewhere.
+    const bareGroupRef = trimmed.match(/^([A-Za-z_]\w*)$/);
+    if (bareGroupRef && sg.children.some(c => c.id === bareGroupRef[1])) continue;
 
     // Check if this line is inside a child subgraph's body
     const childRange = childRanges.find(cr => i >= cr.start && i <= cr.end);
@@ -1256,18 +1396,66 @@ export function getScopeViewCode(
             visibleNodes,
             scopeRedirectedEdges,
             output,
-            (nodeId) => findChildContaining(nodeId, sg, ast.allSubgraphsFlat) || nodeId
+            (nodeId) => findScopeStandIn(nodeId) || nodeId
           );
         }
       } else {
-        // Expanded child: pass through original subgraph block
+        // Expanded child: honor collapse state of nested descendants
+        if (collapsedSubgraphIds && i > childRange.start) {
+          const nestedCollapsed = [...ast.allSubgraphsFlat.values()].find(
+            s => s.sourceStart === i && s.id !== childRange.id && collapsedSubgraphIds.has(s.id)
+          );
+          if (nestedCollapsed) {
+            const safeLabel = nestedCollapsed.label.replace(/"/g, "'");
+            output.push(`    ${nestedCollapsed.id}["📂 ${safeLabel}"]`);
+            emitRedirectedEdgesInRange(
+              ast,
+              nestedCollapsed.sourceStart + 1,
+              nestedCollapsed.sourceEnd,
+              visibleNodes,
+              scopeRedirectedEdges,
+              output,
+              (nodeId) => findScopeStandIn(nodeId) || nodeId
+            );
+            i = nestedCollapsed.sourceEnd;
+            continue;
+          }
+          // Redirect edges that point into nested collapsed descendants so
+          // hidden nodes do not reappear as Mermaid-created phantoms
+          const innerEdges = parseAllEdges(trimmed);
+          if (innerEdges.length > 0 &&
+              !innerEdges.every(e => visibleNodes.has(e.from) && visibleNodes.has(e.to))) {
+            for (const edgeParsed of innerEdges) {
+              const fromId = visibleNodes.has(edgeParsed.from)
+                ? edgeParsed.from
+                : (findScopeStandIn(edgeParsed.from) || edgeParsed.from);
+              const toId = visibleNodes.has(edgeParsed.to)
+                ? edgeParsed.to
+                : (findScopeStandIn(edgeParsed.to) || edgeParsed.to);
+              if (fromId === toId) continue;
+              if (!visibleNodes.has(fromId) || !visibleNodes.has(toId)) continue; // boundary refs handle these
+              const edgeKey = `${fromId}-->${toId}`;
+              if (scopeRedirectedEdges.has(edgeKey)) continue;
+              scopeRedirectedEdges.add(edgeKey);
+              const labelPart = edgeParsed.label ? `|${edgeParsed.label}|` : '';
+              const edgeLine = `    ${fromId} ${edgeParsed.arrow}${labelPart} ${toId}`;
+              if (isNodeWithinSubgraph(fromId, childRange.id, ast) &&
+                  isNodeWithinSubgraph(toId, childRange.id, ast)) {
+                output.push(edgeLine);
+              } else {
+                deferredScopeEdges.push(edgeLine);
+              }
+            }
+            continue;
+          }
+        }
         if (i === childRange.end) {
           const child = ast.allSubgraphsFlat.get(childRange.id);
           if (child) {
             emitDirectNodeDefinitionsIfMissing(output, ast, child);
           }
         }
-        output.push(ast.lines[i]);
+        output.push(sourceLine(i));
       }
       continue;
     }
@@ -1299,11 +1487,11 @@ export function getScopeViewCode(
 
           let hasRedirect = false;
           if (!fromVis) {
-            const childOwner = findChildContaining(edgeParsed.from, sg, ast.allSubgraphsFlat);
+            const childOwner = findScopeStandIn(edgeParsed.from);
             if (childOwner) { fromId = childOwner; hasRedirect = true; }
           }
           if (!toVis) {
-            const childOwner = findChildContaining(edgeParsed.to, sg, ast.allSubgraphsFlat);
+            const childOwner = findScopeStandIn(edgeParsed.to);
             if (childOwner) { toId = childOwner; hasRedirect = true; }
           }
 
@@ -1323,7 +1511,34 @@ export function getScopeViewCode(
       continue;
     }
 
-    output.push(ast.lines[i]);
+    output.push(sourceLine(i));
+  }
+
+  output.push(...deferredScopeEdges);
+
+  // Children adopted via membership-by-reference have their blocks outside
+  // this scope's line range — emit them here.
+  for (const child of sg.children) {
+    const inRange = child.sourceStart > sg.sourceStart && child.sourceEnd < sg.sourceEnd;
+    if (inRange || child.sourceEnd < 0) continue;
+    if (isChildCollapsed(child.id)) {
+      const safeLabel = child.label.replace(/"/g, "'");
+      output.push(`    ${child.id}["📂 ${safeLabel}"]`);
+      emitRedirectedEdgesInRange(
+        ast,
+        child.sourceStart + 1,
+        child.sourceEnd,
+        visibleNodes,
+        scopeRedirectedEdges,
+        output,
+        (nodeId) => findScopeStandIn(nodeId) || nodeId
+      );
+    } else {
+      for (let line = child.sourceStart; line <= child.sourceEnd; line++) {
+        output.push(sourceLine(line));
+      }
+      emitDirectNodeDefinitionsIfMissing(output, ast, child);
+    }
   }
 
   // Some user-authored Mermaid defines a node only as the visible endpoint of
@@ -1355,14 +1570,14 @@ export function getScopeViewCode(
 
     let hasRedirect = false;
     if (!fromVis) {
-      const childOwner = findChildContaining(fromId, sg, ast.allSubgraphsFlat);
+      const childOwner = findScopeStandIn(fromId);
       if (childOwner) {
         fromId = childOwner;
         hasRedirect = true;
       }
     }
     if (!toVis) {
-      const childOwner = findChildContaining(toId, sg, ast.allSubgraphsFlat);
+      const childOwner = findScopeStandIn(toId);
       if (childOwner) {
         toId = childOwner;
         hasRedirect = true;
@@ -1397,7 +1612,7 @@ export function getScopeViewCode(
 
     let insideVisibleId = ref.insideNodeId;
     if (!visibleNodes.has(insideVisibleId)) {
-      const childOwner = findChildContaining(insideVisibleId, sg, ast.allSubgraphsFlat);
+      const childOwner = findScopeStandIn(insideVisibleId);
       if (!childOwner || !visibleNodes.has(childOwner)) continue;
       insideVisibleId = childOwner;
     }
@@ -1413,13 +1628,15 @@ export function getScopeViewCode(
     if (!addedExternalNodes.has(externalVisibleId)) {
       addedExternalNodes.add(externalVisibleId);
       // Emit stub node preserving original shape (CSS handles the washed-out styling)
+      // Any external group renders as a folder stub — collapsed or expanded —
+      // so its display label and folder icon come from the AST, never from
+      // node-shape scraping (which leaks synthetic IDs for title-only groups).
       const externalSubgraph = ast.allSubgraphsFlat.get(externalVisibleId);
-      const isCollapsedExternalSubgraph = !!externalSubgraph && collapsedSubgraphIds?.has(externalVisibleId);
-      const safeLabel = (isCollapsedExternalSubgraph
-        ? `📂 ${externalSubgraph.label}`
+      const safeLabel = (externalSubgraph
+        ? `📂 ${normalizeMermaidDisplayLabel(externalSubgraph.label)}`
         : findNodeLabel(ast, externalVisibleId)
       ).replace(/"/g, "'");
-      const shape = isCollapsedExternalSubgraph
+      const shape = externalSubgraph
         ? { open: '["', close: '"]' }
         : findNodeShapeBrackets(ast, externalVisibleId);
       output.push(`    ${extId}${shape.open}${safeLabel}${shape.close}`);
@@ -1453,14 +1670,14 @@ export function getScopeViewCode(
     }
 
     // class lines reference specific nodes: `class A,B,C className`
-    // Only emit if ALL referenced nodes are visible in this scope
+    // Emit for the subset of referenced nodes that are visible in this scope
     if (/^class\s/i.test(trimmed)) {
-      const classMatch = trimmed.match(/^class\s+(.+?)\s+\S+$/i);
+      const classMatch = trimmed.match(/^class\s+(.+?)\s+(\S+)$/i);
       if (classMatch) {
-        const nodeIds = classMatch[1].split(',').map(s => s.trim());
-        const allVisible = nodeIds.every(id => visibleNodes.has(id));
-        if (allVisible) {
-          output.push(ast.lines[i]);
+        const visibleIds = classMatch[1].split(',').map(s => s.trim())
+          .filter(id => visibleNodes.has(id));
+        if (visibleIds.length > 0) {
+          output.push(`    class ${visibleIds.join(',')} ${classMatch[2]}`);
         }
       }
       continue;
@@ -1495,8 +1712,10 @@ export function extractScopeCode(ast: MermaidAST, scopeId: string): string {
     output.push(ast.lines[i]);
   }
 
-  // Include edges that are fully internal to this scope
+  // Include edges that are fully internal to this scope. The scope's own ID
+  // counts as inside — edges may reference the container itself.
   const allInsideNodes = getAllNodesInSubgraph(sg, ast.allSubgraphsFlat);
+  allInsideNodes.add(sg.id);
   for (const edge of ast.edges) {
     if (edge.lineIndex > sg.sourceStart && edge.lineIndex < sg.sourceEnd) continue; // already included
     if (allInsideNodes.has(edge.from) && allInsideNodes.has(edge.to)) {
@@ -1547,6 +1766,54 @@ function addVisibleNodesRecursive(
 }
 
 
+/** Subgraph blocks that start at the top lexical level of the source (not
+ * inside another block). Usually identical to ast.subgraphs, but a group
+ * adopted via membership-by-reference stays lexically top-level while being
+ * an AST child of its adopter. */
+function getLexicalRootSubgraphs(ast: MermaidAST): SubgraphNode[] {
+  const all = [...ast.allSubgraphsFlat.values()];
+  return all.filter(sg =>
+    sg.sourceEnd >= 0 &&
+    !all.some(other =>
+      other !== sg && sg.sourceStart > other.sourceStart && sg.sourceEnd < other.sourceEnd
+    )
+  );
+}
+
+/** Title-only groups get parser-minted synthetic IDs (e.g. `Launch_Strategy`
+ * for `subgraph Launch Strategy`) that stock Mermaid does not know. When such
+ * an ID is referenced by an edge, passthrough views must rewrite the
+ * declaration to explicit-ID form (`subgraph Launch_Strategy["Launch
+ * Strategy"]`) so the edge binds to the cluster instead of minting a phantom
+ * node. Returns a map of sourceStart line index → rewritten declaration. */
+function buildDeclarationRewrites(ast: MermaidAST): Map<number, string> {
+  const rewrites = new Map<number, string>();
+  for (const edge of ast.edges) {
+    for (const id of [edge.from, edge.to]) {
+      const sg = ast.allSubgraphsFlat.get(id);
+      if (!sg?.titleOnly || sg.sourceStart < 0 || rewrites.has(sg.sourceStart)) continue;
+      const indent = ast.lines[sg.sourceStart].match(/^\s*/)?.[0] ?? '';
+      rewrites.set(sg.sourceStart, `${indent}subgraph ${sg.id}["${sg.label.replace(/"/g, "'")}"]`);
+    }
+  }
+  return rewrites;
+}
+
+/** True when some AST ancestor of the subgraph is collapsed (the subgraph is
+ * hidden inside an ancestor's compound node). */
+function hasCollapsedAncestor(
+  sgId: string,
+  ast: MermaidAST,
+  collapsedSubgraphIds: Set<string>
+): boolean {
+  let current = ast.allSubgraphsFlat.get(sgId)?.parentId ?? null;
+  while (current) {
+    if (collapsedSubgraphIds.has(current)) return true;
+    current = ast.allSubgraphsFlat.get(current)?.parentId ?? null;
+  }
+  return false;
+}
+
 /** Check if a line index falls inside any subgraph. */
 function isLineInsideSubgraph(lineIdx: number, ast: MermaidAST): boolean {
   for (const sg of ast.allSubgraphsFlat.values()) {
@@ -1555,28 +1822,35 @@ function isLineInsideSubgraph(lineIdx: number, ast: MermaidAST): boolean {
   return false;
 }
 
-/** Find which subgraph (if any) directly contains a given node ID. */
+/** Find which subgraph (if any) directly contains a given node ID.
+ * Edge endpoints may themselves be subgraph IDs (groups inside a group);
+ * those are owned by their parent subgraph, not tracked in directNodes. */
 function findOwnerSubgraph(nodeId: string, ast: MermaidAST): string | null {
+  const asSubgraph = ast.allSubgraphsFlat.get(nodeId);
+  if (asSubgraph) return asSubgraph.parentId;
   for (const sg of ast.allSubgraphsFlat.values()) {
     if (sg.directNodes.includes(nodeId)) return sg.id;
   }
   return null;
 }
 
-/** Find the visible collapsed ancestor that should stand in for a hidden node. */
+/** Find the visible collapsed ancestor that should stand in for a hidden node.
+ * When nested groups are collapsed along with an ancestor, only the OUTERMOST
+ * collapsed ancestor is actually visible, so keep walking to the top. */
 function findCollapsedVisibleOwner(
   nodeId: string,
   ast: MermaidAST,
   collapsedSubgraphIds: Set<string>
 ): string | null {
   let currentId = findOwnerSubgraph(nodeId, ast);
+  let outermostCollapsed: string | null = null;
 
   while (currentId) {
-    if (collapsedSubgraphIds.has(currentId)) return currentId;
+    if (collapsedSubgraphIds.has(currentId)) outermostCollapsed = currentId;
     currentId = ast.allSubgraphsFlat.get(currentId)?.parentId ?? null;
   }
 
-  return null;
+  return outermostCollapsed;
 }
 
 function resolveVisibleBoundaryExternalId(
@@ -1586,9 +1860,17 @@ function resolveVisibleBoundaryExternalId(
   collapsedSubgraphIds?: Set<string>
 ): string {
   if (!collapsedSubgraphIds) return nodeId;
-  if (ast.allSubgraphsFlat.has(nodeId) && collapsedSubgraphIds.has(nodeId)) return nodeId;
 
   const collapsedOwner = findCollapsedVisibleOwner(nodeId, ast, collapsedSubgraphIds);
+  // A collapsed group is its own stand-in only when no collapsed ancestor
+  // hides it; otherwise the outermost collapsed ancestor is the visible one.
+  if (
+    ast.allSubgraphsFlat.has(nodeId) &&
+    collapsedSubgraphIds.has(nodeId) &&
+    !collapsedOwner
+  ) {
+    return nodeId;
+  }
   if (!collapsedOwner || isAncestorSubgraph(collapsedOwner, scopeId, ast)) return nodeId;
   return collapsedOwner;
 }
@@ -1621,6 +1903,10 @@ function getTopLevelParent(sgId: string, ast: MermaidAST): string | null {
  * Returns the subgraph ID, or null if the node is at root level.
  */
 export function findNodeScope(ast: MermaidAST, nodeId: string): string | null {
+  // A subgraph ID's scope is its parent group (null = top-level) — group
+  // boundary stubs navigate to where the group is visible, not to root.
+  const asSubgraph = ast.allSubgraphsFlat.get(nodeId);
+  if (asSubgraph) return asSubgraph.parentId;
   for (const sg of ast.allSubgraphsFlat.values()) {
     if (sg.directNodes.includes(nodeId)) return sg.id;
   }
