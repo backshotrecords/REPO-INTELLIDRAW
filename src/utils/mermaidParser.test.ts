@@ -1030,6 +1030,49 @@ describe('audit F11: title-only groups referenced by their synthetic IDs', () =>
   });
 });
 
+describe('root-defined nodes later declared inside a group', () => {
+  // Mirrors the At-a-Glance Metrics dashboard bug: M is inline-defined at
+  // root by an edge before its group declares it as a member.
+  const ROOT_THEN_GROUP_FIXTURE = `flowchart TD
+    B[Dashboard] --> M["At-a-Glance Metrics"]
+    StageProgress[Stage Progress] --> M
+
+    subgraph MGroup["At-a-Glance Metrics Group"]
+        M["At-a-Glance Metrics"]
+        M --> M1[People Reached]
+        M --> M2[Pipeline Health]
+    end
+
+    M --> Overall[Overall Progress]`;
+
+  it('assigns the node to the declaring group, matching Mermaid membership', () => {
+    const ast = parseMermaidAST(ROOT_THEN_GROUP_FIXTURE);
+    expect(ast.allSubgraphsFlat.get('MGroup')!.directNodes).toContain('M');
+    expect(ast.rootNodes).not.toContain('M');
+  });
+
+  it('hides the node and redirects its edges when the group is collapsed', () => {
+    const ast = parseMermaidAST(ROOT_THEN_GROUP_FIXTURE);
+    const result = getRootViewWithCollapseState(ast, new Set(['MGroup']));
+
+    expect(result.code).toContain('MGroup["📂 At-a-Glance Metrics Group"]');
+    // No duplicate standalone node next to the compound
+    expect(result.code).not.toContain('M["At-a-Glance Metrics"]');
+    expect(result.code).toContain('B --> MGroup');
+    expect(result.code).toContain('StageProgress --> MGroup');
+    expect(result.code).toContain('MGroup --> Overall');
+  });
+
+  it('shows the node inside its opened group with boundary stubs', () => {
+    const ast = parseMermaidAST(ROOT_THEN_GROUP_FIXTURE);
+    const opened = getScopeViewCode(ast, 'MGroup');
+
+    expect(opened.code).toContain('M["At-a-Glance Metrics"]');
+    expect(opened.code).toContain('_ext_B -.-> M');
+    expect(opened.code).toContain('M -.-> _ext_Overall');
+  });
+});
+
 describe('getScopeViewCode', () => {
   it('T1: should include internal edges defined outside the subgraph block', () => {
     const code = `flowchart TD
