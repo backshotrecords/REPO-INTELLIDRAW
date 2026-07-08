@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../../lib/entitlements.js";
 
 const VALID_STATUSES = new Set(["active", "pending"]);
 
@@ -13,13 +14,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // PUT = update link status
   if (req.method === "PUT") {
-    const { status } = req.body || {};
-    if (!status || !VALID_STATUSES.has(status)) return res.status(400).json({ error: "Invalid status" });
+    try {
+      await requireFeature(auth.userId, "project.asset_links");
 
-    const { data, error } = await supabase.from("project_asset_links")
-      .update({ status }).eq("id", id).eq("user_id", auth.userId).select("*").single();
-    if (error || !data) return res.status(404).json({ error: "Link not found" });
-    return res.json({ link: data });
+      const { status } = req.body || {};
+      if (!status || !VALID_STATUSES.has(status)) return res.status(400).json({ error: "Invalid status" });
+
+      const { data, error } = await supabase.from("project_asset_links")
+        .update({ status }).eq("id", id).eq("user_id", auth.userId).select("*").single();
+      if (error || !data) return res.status(404).json({ error: "Link not found" });
+      return res.json({ link: data });
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      console.error("Update project asset link error:", err);
+      return res.status(500).json({ error: "Failed to update link" });
+    }
   }
 
   // DELETE = unlink

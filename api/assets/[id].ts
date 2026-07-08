@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
+import { isEntitlementError, requireFeature, sendEntitlementError } from "../lib/entitlements.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -11,24 +12,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // PUT = rename / update markdown body
   if (req.method === "PUT") {
-    const { name, markdown } = req.body || {};
-    const updates: Record<string, unknown> = {};
+    try {
+      await requireFeature(auth.userId, "project.assets");
 
-    if (name !== undefined) {
-      if (typeof name !== "string" || !name.trim()) return res.status(400).json({ error: "Invalid name" });
-      updates.name = name.trim().slice(0, 80);
-    }
-    if (markdown !== undefined) {
-      if (typeof markdown !== "string") return res.status(400).json({ error: "Invalid markdown" });
-      updates.markdown = markdown.slice(0, 100_000);
-    }
-    if (Object.keys(updates).length === 0) return res.status(400).json({ error: "No updates provided" });
-    updates.updated_at = new Date().toISOString();
+      const { name, markdown } = req.body || {};
+      const updates: Record<string, unknown> = {};
 
-    const { data, error } = await supabase.from("project_assets")
-      .update(updates).eq("id", id).eq("user_id", auth.userId).select("*").single();
-    if (error || !data) return res.status(404).json({ error: "Asset not found" });
-    return res.json({ asset: data });
+      if (name !== undefined) {
+        if (typeof name !== "string" || !name.trim()) return res.status(400).json({ error: "Invalid name" });
+        updates.name = name.trim().slice(0, 80);
+      }
+      if (markdown !== undefined) {
+        if (typeof markdown !== "string") return res.status(400).json({ error: "Invalid markdown" });
+        updates.markdown = markdown.slice(0, 100_000);
+      }
+      if (Object.keys(updates).length === 0) return res.status(400).json({ error: "No updates provided" });
+      updates.updated_at = new Date().toISOString();
+
+      const { data, error } = await supabase.from("project_assets")
+        .update(updates).eq("id", id).eq("user_id", auth.userId).select("*").single();
+      if (error || !data) return res.status(404).json({ error: "Asset not found" });
+      return res.json({ asset: data });
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      console.error("Update project asset error:", err);
+      return res.status(500).json({ error: "Failed to update asset" });
+    }
   }
 
   // DELETE = remove asset (links cascade)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { isLongTermMemoryItem, type CanvasProject, type DashboardCanvas } from "../types";
 import ProjectAssetsPanel from "./ProjectAssetsPanel";
 import { useProjectAssets } from "../hooks/useProjectAssets";
@@ -67,6 +67,12 @@ export default function DashboardCanvasTreeView({
   search,
   onOpenFolder,
   onOpenCanvas,
+  canUseProjectAssets = true,
+  canUseProjectAssetLinks = true,
+  projectAssetsLockedBadge,
+  assetLinksLockedBadge,
+  onProjectAssetsLocked,
+  onAssetLinksLocked,
 }: {
   rootProject: CanvasProject;
   folders: CanvasProject[];
@@ -75,6 +81,12 @@ export default function DashboardCanvasTreeView({
   search: string;
   onOpenFolder: (projectId: string) => void;
   onOpenCanvas: (canvasId: string) => void;
+  canUseProjectAssets?: boolean;
+  canUseProjectAssetLinks?: boolean;
+  projectAssetsLockedBadge?: ReactNode;
+  assetLinksLockedBadge?: ReactNode;
+  onProjectAssetsLocked?: () => void;
+  onAssetLinksLocked?: () => void;
 }) {
   const treeRef = useRef<HTMLElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -87,7 +99,7 @@ export default function DashboardCanvasTreeView({
   const [isInteracting, setIsInteracting] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => loadExpandedFolders(rootProject.id));
 
-  // ── Project Assets (local-only prototype): read-only relationship view ──
+  // ── Project Assets: read-only relationship view ──
   const [showAssets, setShowAssets] = useState(false);
   const [hoveredAssetId, setHoveredAssetId] = useState<string | null>(null);
   const assetRowRefs = useRef(new Map<string, HTMLElement>());
@@ -105,7 +117,15 @@ export default function DashboardCanvasTreeView({
   );
   const assetScopes = useMemo(() => [assetRootId], [assetRootId]);
 
-  const projectAssets = useProjectAssets(assetScopes, { enabled: showAssets });
+  const projectAssets = useProjectAssets(assetScopes, { enabled: showAssets && canUseProjectAssets });
+  const visibleAssetLinks = useMemo(
+    () => (canUseProjectAssetLinks ? projectAssets.links : []),
+    [canUseProjectAssetLinks, projectAssets.links],
+  );
+
+  useEffect(() => {
+    if (!canUseProjectAssets && showAssets) setShowAssets(false);
+  }, [canUseProjectAssets, showAssets]);
   const canvasTitles = useMemo(
     () => new Map(canvases.map((canvas) => [canvas.id, canvas.title])),
     [canvases],
@@ -233,17 +253,17 @@ export default function DashboardCanvasTreeView({
 
   const canvasLinkCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const link of projectAssets.links) {
+    for (const link of visibleAssetLinks) {
       counts.set(link.canvasId, (counts.get(link.canvasId) ?? 0) + 1);
     }
     return counts;
-  }, [projectAssets.links]);
+  }, [visibleAssetLinks]);
 
   // One line per asset↔canvas pair, with the number of node links it bundles.
   const assetCanvasPairs = useMemo(() => {
     const accentById = new Map(projectAssets.assets.map((asset) => [asset.id, asset.accent]));
     const pairs = new Map<string, { assetId: string; canvasId: string; count: number; accent: ProjectAssetAccent }>();
-    for (const link of projectAssets.links) {
+    for (const link of visibleAssetLinks) {
       const accent = accentById.get(link.assetId);
       if (!accent) continue;
       const key = `${link.assetId}:${link.canvasId}`;
@@ -252,7 +272,7 @@ export default function DashboardCanvasTreeView({
       else pairs.set(key, { assetId: link.assetId, canvasId: link.canvasId, count: 1, accent });
     }
     return Array.from(pairs.entries()).map(([key, pair]) => ({ key, ...pair }));
-  }, [projectAssets.assets, projectAssets.links]);
+  }, [projectAssets.assets, visibleAssetLinks]);
 
   const [assetMeasureTick, setAssetMeasureTick] = useState(0);
 
@@ -444,12 +464,23 @@ export default function DashboardCanvasTreeView({
         <button
           type="button"
           className={showAssets ? "is-selected" : ""}
-          onClick={() => setShowAssets((current) => !current)}
+          onClick={() => {
+            if (!canUseProjectAssets) {
+              onProjectAssetsLocked?.();
+              return;
+            }
+            setShowAssets((current) => !current);
+          }}
           aria-label="Project assets"
           aria-pressed={showAssets}
           title="Project assets"
         >
           <span className="material-symbols-outlined">hub</span>
+          {!canUseProjectAssets && (
+            <span className="dashboard-tree-control-plan-badge">
+              {projectAssetsLockedBadge}
+            </span>
+          )}
         </button>
       </div>
 
@@ -539,13 +570,16 @@ export default function DashboardCanvasTreeView({
             variant="dashboard"
             className="w-full max-h-full"
             assets={projectAssets.assets}
-            links={projectAssets.links}
+            links={visibleAssetLinks}
             loading={projectAssets.loading}
             notice={projectAssets.error}
             onDismissNotice={projectAssets.clearError}
             canvasTitles={canvasTitles}
             canvasOptions={assetCanvasOptions}
             folderOptions={assetFolderOptions}
+            linkingAvailable={canUseProjectAssetLinks}
+            linkingLockedBadge={assetLinksLockedBadge}
+            onLinkingLocked={onAssetLinksLocked}
             onRegisterAsset={projectAssets.registerAsset}
             onUpdateAsset={projectAssets.updateAsset}
             onOpenAssetTarget={(asset: ProjectAsset) => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ASSET_ACCENT_TILE,
   ASSET_TYPE_META,
@@ -25,9 +25,12 @@ interface ProjectAssetsPanelProps {
   /** Canvases/folders inside the root project tree, offered as link targets. */
   canvasOptions?: AssetTargetOption[];
   folderOptions?: AssetTargetOption[];
+  linkingAvailable?: boolean;
+  linkingLockedBadge?: ReactNode;
   linkingEnabled?: boolean;
   armedAssetId?: string | null;
   onToggleLinking?: () => void;
+  onLinkingLocked?: () => void;
   onArmAsset?: (assetId: string) => void;
   onRegisterAsset: (input: RegisterProjectAssetInput) => void;
   onUpdateAsset: (asset: ProjectAsset, patch: Partial<Pick<ProjectAsset, "name" | "markdown">>) => void;
@@ -55,9 +58,12 @@ export default function ProjectAssetsPanel({
   canvasTitles,
   canvasOptions = [],
   folderOptions = [],
+  linkingAvailable = true,
+  linkingLockedBadge,
   linkingEnabled = false,
   armedAssetId = null,
   onToggleLinking,
+  onLinkingLocked,
   onArmAsset,
   onRegisterAsset,
   onUpdateAsset,
@@ -153,7 +159,7 @@ export default function ProjectAssetsPanel({
 
   function handleRowClick(asset: ProjectAsset) {
     if (isEditing) return;
-    if (isWorkspace && linkingEnabled) {
+    if (isWorkspace && linkingAvailable && linkingEnabled) {
       onArmAsset?.(asset.id);
       return;
     }
@@ -248,13 +254,22 @@ export default function ProjectAssetsPanel({
 
           {isWorkspace && (
             <div className="mx-4 mt-3 shrink-0 rounded-xl bg-surface-container-high/55 px-3 py-2 flex items-center justify-between gap-3">
-              <span className="text-xs font-bold text-on-surface">Asset linking</span>
+              <span className="min-w-0 flex items-center gap-2 text-xs font-bold text-on-surface">
+                <span className="truncate">Asset linking</span>
+                {!linkingAvailable && linkingLockedBadge}
+              </span>
               <button
                 role="switch"
-                aria-checked={linkingEnabled}
+                aria-checked={linkingAvailable && linkingEnabled}
                 aria-label="Toggle asset linking"
-                onClick={() => onToggleLinking?.()}
-                className={`w-8 h-[18px] rounded-full px-0.5 flex items-center transition-colors ${linkingEnabled ? "bg-primary justify-end" : "bg-outline-variant/30 justify-start"}`}
+                onClick={() => {
+                  if (!linkingAvailable) {
+                    onLinkingLocked?.();
+                    return;
+                  }
+                  onToggleLinking?.();
+                }}
+                className={`w-8 h-[18px] rounded-full px-0.5 flex items-center transition-colors ${linkingAvailable && linkingEnabled ? "bg-primary justify-end" : "bg-outline-variant/30 justify-start"}`}
               >
                 <span className="w-3.5 h-3.5 rounded-full bg-white" />
               </button>
@@ -292,7 +307,7 @@ export default function ProjectAssetsPanel({
               assets.map((asset) => {
                 const isArmed = armedAssetId === asset.id;
                 const canvasCount = isWorkspace && currentCanvasId ? countLinks(asset.id, currentCanvasId) : 0;
-                const isArmable = isWorkspace && linkingEnabled && !isEditing;
+                const isArmable = isWorkspace && linkingAvailable && linkingEnabled && !isEditing;
                 const rowActionIcon = isArmable
                   ? (isArmed ? "close" : "add_link")
                   : asset.type === "markdown" ? "edit_note" : "open_in_new";
@@ -451,7 +466,13 @@ export default function ProjectAssetsPanel({
                           {asset?.name ?? link.assetId} → {targetLabel}
                         </code>
                         <button
-                          onClick={() => onToggleLinkStatus(link)}
+                          onClick={() => {
+                            if (!linkingAvailable) {
+                              onLinkingLocked?.();
+                              return;
+                            }
+                            onToggleLinkStatus(link);
+                          }}
                           className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide transition-colors ${
                             link.status === "pending" ? "bg-[#fff0d1]/90 text-[#9a5a00]" : "bg-[#d5f6e1]/90 text-[#116b34]"
                           }`}
