@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
 import { getCanvasAccess, hasCapability, withAccessMetadata } from "../../lib/project-access.js";
+import { broadcastCanvasEvent } from "../../lib/realtime-broadcast.js";
 import {
   extractMermaidExternalContext,
   setMermaidExternalContext,
@@ -81,6 +82,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (commitError) {
       console.error("Create external context commit error:", commitError);
     }
+
+    await broadcastCanvasEvent(canvasId, "updated", null, { updatedAt: now });
 
     return res.status(200).json({
       changed: true,

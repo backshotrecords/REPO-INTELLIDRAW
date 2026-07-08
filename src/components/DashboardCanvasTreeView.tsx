@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { isLongTermMemoryItem, type CanvasProject, type DashboardCanvas } from "../types";
+import ProjectAssetsPanel from "./ProjectAssetsPanel";
+import { useProjectAssets } from "../hooks/useProjectAssets";
+import {
+  ASSET_ACCENT_STROKE,
+  collectProjectTreeIds,
+  resolveRootProjectId,
+  type ProjectAsset,
+  type ProjectAssetAccent,
+} from "../lib/projectAssets";
 
 const TREE_WORLD_WIDTH = 1800;
 const TREE_WORLD_HEIGHT = 1100;
@@ -39,6 +48,17 @@ type TreeItem =
 type PointerPoint = { x: number; y: number };
 type TreeEdge = { id: string; from: PointerPoint; to: PointerPoint };
 
+type AssetLineGeometry = {
+  key: string;
+  assetId: string;
+  accent: ProjectAssetAccent;
+  count: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+};
+
 export default function DashboardCanvasTreeView({
   rootProject,
   folders,
@@ -58,6 +78,7 @@ export default function DashboardCanvasTreeView({
 }) {
   const treeRef = useRef<HTMLElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
   const activePointers = useRef(new Map<number, PointerPoint>());
   const panStart = useRef<{ pointerId: number; x: number; y: number; pan: PointerPoint } | null>(null);
   const pinchStart = useRef<{ distance: number; zoom: number; pan: PointerPoint; center: PointerPoint } | null>(null);
@@ -65,6 +86,45 @@ export default function DashboardCanvasTreeView({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isInteracting, setIsInteracting] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => loadExpandedFolders(rootProject.id));
+
+  // ── Project Assets (local-only prototype): read-only relationship view ──
+  const [showAssets, setShowAssets] = useState(false);
+  const [hoveredAssetId, setHoveredAssetId] = useState<string | null>(null);
+  const assetRowRefs = useRef(new Map<string, HTMLElement>());
+  const [assetLineGeometry, setAssetLineGeometry] = useState<AssetLineGeometry[]>([]);
+
+  // Assets are shared across the whole ROOT project tree — the folder shown
+  // here may itself be a subfolder, so walk up to the true root first.
+  const assetRootId = useMemo(
+    () => resolveRootProjectId(rootProject.id, [...folders, rootProject]),
+    [rootProject, folders],
+  );
+  const assetTreeIds = useMemo(
+    () => collectProjectTreeIds(assetRootId, folders),
+    [assetRootId, folders],
+  );
+  const assetScopes = useMemo(() => [assetRootId], [assetRootId]);
+
+  const projectAssets = useProjectAssets(assetScopes, { enabled: showAssets });
+  const canvasTitles = useMemo(
+    () => new Map(canvases.map((canvas) => [canvas.id, canvas.title])),
+    [canvases],
+  );
+  const assetFolderOptions = useMemo(() => {
+    const options = folders
+      .filter((folder) => assetTreeIds.has(folder.id))
+      .map((folder) => ({ id: folder.id, title: folder.title }));
+    if (!options.some((option) => option.id === rootProject.id) && assetTreeIds.has(rootProject.id)) {
+      options.unshift({ id: rootProject.id, title: rootProject.title });
+    }
+    return options;
+  }, [folders, assetTreeIds, rootProject.id, rootProject.title]);
+  const assetCanvasOptions = useMemo(
+    () => canvases
+      .filter((canvas) => canvas.project_id && assetTreeIds.has(canvas.project_id))
+      .map((canvas) => ({ id: canvas.id, title: canvas.title })),
+    [canvases, assetTreeIds],
+  );
 
   const layout = useMemo(() => {
     const depthColumns = new Map<number, TreeItem[]>();
@@ -170,6 +230,73 @@ export default function DashboardCanvasTreeView({
   useEffect(() => {
     saveExpandedFolders(rootProject.id, expandedFolders);
   }, [expandedFolders, rootProject.id]);
+
+  const canvasLinkCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const link of projectAssets.links) {
+      counts.set(link.canvasId, (counts.get(link.canvasId) ?? 0) + 1);
+    }
+    return counts;
+  }, [projectAssets.links]);
+
+  // One line per asset↔canvas pair, with the number of node links it bundles.
+  const assetCanvasPairs = useMemo(() => {
+    const accentById = new Map(projectAssets.assets.map((asset) => [asset.id, asset.accent]));
+    const pairs = new Map<string, { assetId: string; canvasId: string; count: number; accent: ProjectAssetAccent }>();
+    for (const link of projectAssets.links) {
+      const accent = accentById.get(link.assetId);
+      if (!accent) continue;
+      const key = `${link.assetId}:${link.canvasId}`;
+      const existing = pairs.get(key);
+      if (existing) existing.count += 1;
+      else pairs.set(key, { assetId: link.assetId, canvasId: link.canvasId, count: 1, accent });
+    }
+    return Array.from(pairs.entries()).map(([key, pair]) => ({ key, ...pair }));
+  }, [projectAssets.assets, projectAssets.links]);
+
+  const [assetMeasureTick, setAssetMeasureTick] = useState(0);
+
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (!tree || !showAssets) return;
+    const observer = new ResizeObserver(() => setAssetMeasureTick((tick) => tick + 1));
+    observer.observe(tree);
+    return () => observer.disconnect();
+  }, [showAssets]);
+
+  useLayoutEffect(() => {
+    const tree = treeRef.current;
+    const world = worldRef.current;
+    if (!showAssets || !tree || !world) {
+      setAssetLineGeometry([]);
+      return;
+    }
+
+    const treeRect = tree.getBoundingClientRect();
+    const worldRect = world.getBoundingClientRect();
+    const canvasNodesById = new Map(
+      layout.children.filter((item) => item.kind === "canvas").map((item) => [item.id, item]),
+    );
+
+    const nextGeometry: AssetLineGeometry[] = [];
+    for (const pair of assetCanvasPairs) {
+      const rowElement = assetRowRefs.current.get(pair.assetId);
+      const node = canvasNodesById.get(pair.canvasId);
+      if (!rowElement || !node) continue;
+      const rowRect = rowElement.getBoundingClientRect();
+      nextGeometry.push({
+        key: pair.key,
+        assetId: pair.assetId,
+        accent: pair.accent,
+        count: pair.count,
+        x1: rowRect.left - treeRect.left,
+        y1: rowRect.top + rowRect.height / 2 - treeRect.top,
+        x2: worldRect.left - treeRect.left + (node.x + CANVAS_NODE.width) * zoom,
+        y2: worldRect.top - treeRect.top + (node.y + CANVAS_NODE.height / 2) * zoom,
+      });
+    }
+    setAssetLineGeometry(nextGeometry);
+  }, [showAssets, assetCanvasPairs, layout, pan, zoom, assetMeasureTick]);
 
   const clampZoom = useCallback((value: number) => {
     return Math.min(1.9, Math.max(0.42, value));
@@ -314,6 +441,16 @@ export default function DashboardCanvasTreeView({
           <span className="material-symbols-outlined">center_focus_strong</span>
         </button>
         <span>{Math.round(zoom * 100)}%</span>
+        <button
+          type="button"
+          className={showAssets ? "is-selected" : ""}
+          onClick={() => setShowAssets((current) => !current)}
+          aria-label="Project assets"
+          aria-pressed={showAssets}
+          title="Project assets"
+        >
+          <span className="material-symbols-outlined">hub</span>
+        </button>
       </div>
 
       <div
@@ -325,6 +462,7 @@ export default function DashboardCanvasTreeView({
         onPointerCancel={handlePointerUp}
       >
         <div
+          ref={worldRef}
           className="dashboard-tree-world"
           style={{
             width: layout.worldWidth,
@@ -342,7 +480,12 @@ export default function DashboardCanvasTreeView({
           {layout.children.map((node) => node.kind === "folder" ? (
             <FolderTreeNode key={node.key} node={node} onOpen={() => onOpenFolder(node.id)} onToggleExpand={() => toggleExpandedFolder(node.id)} />
           ) : (
-            <CanvasTreeNode key={node.key} node={node} onOpen={() => onOpenCanvas(node.id)} />
+            <CanvasTreeNode
+              key={node.key}
+              node={node}
+              onOpen={() => onOpenCanvas(node.id)}
+              assetLinkCount={showAssets ? canvasLinkCounts.get(node.id) ?? 0 : 0}
+            />
           ))}
 
           {layout.children.length === 0 && (
@@ -354,6 +497,74 @@ export default function DashboardCanvasTreeView({
           )}
         </div>
       </div>
+
+      {/* Asset-to-canvas connection lines (screen space, hidden when panel closed) */}
+      {showAssets && assetLineGeometry.length > 0 && (
+        <svg className="absolute inset-0 w-full h-full z-[6] overflow-visible pointer-events-none" aria-hidden="true">
+          {assetLineGeometry.map((line) => {
+            const stroke = ASSET_ACCENT_STROKE[line.accent];
+            const bend = Math.max(60, Math.abs(line.x1 - line.x2) * 0.42);
+            const isHighlighted = hoveredAssetId === line.assetId;
+            return (
+              <g key={line.key} opacity={hoveredAssetId && !isHighlighted ? 0.25 : 1}>
+                <path
+                  d={`M ${line.x1} ${line.y1} C ${line.x1 - bend} ${line.y1}, ${line.x2 + bend} ${line.y2}, ${line.x2} ${line.y2}`}
+                  fill="none"
+                  stroke={stroke}
+                  strokeWidth={isHighlighted ? 3.5 : 2}
+                  strokeLinecap="round"
+                  opacity={0.9}
+                  style={{ transition: "stroke-width 160ms ease" }}
+                />
+                <circle cx={line.x2} cy={line.y2} r={4} fill={stroke} />
+                <circle cx={line.x1} cy={line.y1} r={3.5} fill={stroke} />
+                {line.count > 1 && (
+                  <g transform={`translate(${(line.x1 + line.x2) / 2}, ${(line.y1 + line.y2) / 2})`}>
+                    <circle r={9} fill="#ffffff" stroke={stroke} strokeWidth={1.5} />
+                    <text textAnchor="middle" dominantBaseline="central" fontSize={9} fontWeight={800} fill={stroke}>
+                      {line.count}
+                    </text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      )}
+
+      {/* Project Assets panel (read-only in the tree view; link on the canvas) */}
+      {showAssets && (
+        <div className="absolute right-3 top-3 z-10 w-[320px] max-w-[calc(100%-1.5rem)] max-h-[calc(100%-1.5rem)] flex">
+          <ProjectAssetsPanel
+            variant="dashboard"
+            className="w-full max-h-full"
+            assets={projectAssets.assets}
+            links={projectAssets.links}
+            loading={projectAssets.loading}
+            notice={projectAssets.error}
+            onDismissNotice={projectAssets.clearError}
+            canvasTitles={canvasTitles}
+            canvasOptions={assetCanvasOptions}
+            folderOptions={assetFolderOptions}
+            onRegisterAsset={projectAssets.registerAsset}
+            onUpdateAsset={projectAssets.updateAsset}
+            onOpenAssetTarget={(asset: ProjectAsset) => {
+              if (!asset.targetId) return;
+              if (asset.type === "canvas") onOpenCanvas(asset.targetId);
+              else onOpenFolder(asset.targetId);
+            }}
+            onRemoveAsset={projectAssets.removeAsset}
+            onRemoveLink={projectAssets.removeLink}
+            onToggleLinkStatus={projectAssets.toggleLinkStatus}
+            onClose={() => setShowAssets(false)}
+            registerRowRef={(assetId, element) => {
+              if (element) assetRowRefs.current.set(assetId, element);
+              else assetRowRefs.current.delete(assetId);
+            }}
+            onHoverAsset={setHoveredAssetId}
+          />
+        </div>
+      )}
     </section>
   );
 }
@@ -415,7 +626,15 @@ function FolderTreeNode({
   );
 }
 
-function CanvasTreeNode({ node, onOpen }: { node: Extract<TreeItem, { kind: "canvas" }>; onOpen: () => void }) {
+function CanvasTreeNode({
+  node,
+  onOpen,
+  assetLinkCount = 0,
+}: {
+  node: Extract<TreeItem, { kind: "canvas" }>;
+  onOpen: () => void;
+  assetLinkCount?: number;
+}) {
   return (
     <button
       type="button"
@@ -425,6 +644,12 @@ function CanvasTreeNode({ node, onOpen }: { node: Extract<TreeItem, { kind: "can
       onPointerDown={(event) => event.stopPropagation()}
     >
       <span className="dashboard-tree-node-port input" aria-hidden="true" />
+      {assetLinkCount > 0 && (
+        <span className="dashboard-tree-asset-badge" title={`${assetLinkCount} linked asset node${assetLinkCount === 1 ? "" : "s"}`}>
+          <span className="material-symbols-outlined" aria-hidden="true">link</span>
+          {assetLinkCount}
+        </span>
+      )}
       <span className="dashboard-tree-canvas-icon">
         <span className="material-symbols-outlined">account_tree</span>
       </span>

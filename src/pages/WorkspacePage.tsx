@@ -9,8 +9,13 @@ import ProfileMenu from "../components/ProfileMenu";
 import VoiceMicButton, { type VoiceQueueChunk, type VoiceTranscriptChunk } from "../components/VoiceMicButton";
 import AgentGitLog from "../components/AgentGitLog";
 import CanvasSkillsPanel from "../components/CanvasSkillsPanel";
+import ProjectAssetsPanel from "../components/ProjectAssetsPanel";
+import CanvasAssetLinkLayer from "../components/CanvasAssetLinkLayer";
+import { useProjectAssets } from "../hooks/useProjectAssets";
 import PlanBadge from "../components/PlanBadge";
-import { NetworkError, apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext, apiTranscribeAudio } from "../lib/api";
+import { NetworkError, apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext, apiTranscribeAudio, apiListProjects, apiListCanvases } from "../lib/api";
+import { resolveRootProjectId, collectProjectTreeIds, type ProjectAsset } from "../lib/projectAssets";
+import type { AssetTargetOption } from "../components/ProjectAssetsPanel";
 import { getSoundSettings, fetchSoundSettings } from "../lib/soundSettings";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { fetchChatSettings } from "../lib/chatSettings";
@@ -22,6 +27,7 @@ import {
   type ChatSendPayload,
   type OfflineOperation,
   type TranscriptionPayload,
+  getCanvasSaveOperation,
   getOfflineBlob,
   getOfflineOperations,
   markOfflineOperationRetrying,
@@ -30,6 +36,7 @@ import {
   upsertCanvasSaveOperation,
   upsertOfflineOperation,
 } from "../lib/offlineQueue";
+import { useCanvasRealtime, type CanvasRealtimeEvent } from "../hooks/useCanvasRealtime";
 import { parseMermaidAST, getScopeViewCode, getRootViewWithCollapseState, getScopePath, findNearestAncestor, extractScopeCode, findNodeScope } from "../utils/mermaidParser";
 import { getRenderedClusterSubgraphId } from "../utils/mermaidDom";
 import { clearMermaidExternalContext } from "../utils/mermaidContext";
@@ -231,7 +238,12 @@ export default function WorkspacePage() {
   useEffect(() => { meetingSideChatterStopChunksRef.current = meetingSideChatterStopChunks; }, [meetingSideChatterStopChunks]);
   useEffect(() => { activeScopeIdRef.current = activeScopeId; }, [activeScopeId]);
   useEffect(() => { scopePathRef.current = scopePath; }, [scopePath]);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  // Re-arm on mount so StrictMode's dev double-mount doesn't leave this
+  // permanently false after the first cleanup.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // ── Re-parse AST when mermaidCode changes ──
   useEffect(() => {
@@ -404,8 +416,17 @@ export default function WorkspacePage() {
     }
   }, [isChatLogVisible]);
   const [showSkillsPanel, setShowSkillsPanel] = useState(false);
+
+  // ── Project Assets (local-only prototype) ──
+  const [showAssetsPanel, setShowAssetsPanel] = useState(false);
+  const [assetLinkingEnabled, setAssetLinkingEnabled] = useState(false);
+  const [armedAssetId, setArmedAssetId] = useState<string | null>(null);
+  const [hoveredAssetId, setHoveredAssetId] = useState<string | null>(null);
+  const assetRowRefs = useRef(new Map<string, HTMLElement>());
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
+  const editingTitleRef = useRef(false);
+  useEffect(() => { editingTitleRef.current = editingTitle; }, [editingTitle]);
   const [isFixing, setIsFixing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
@@ -450,6 +471,88 @@ export default function WorkspacePage() {
   const codeOnEnterRef = useRef("");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitingRef = useRef(false);
+
+  // ── Project Assets registry ──
+  // Assets are shared across the whole ROOT project tree: resolve the canvas's
+  // top-level ancestor folder and collect link targets (canvases/folders in
+  // that tree) once the panel is opened.
+  const [assetTree, setAssetTree] = useState<{
+    forProjectId: string | null;
+    rootId: string | null;
+    folderOptions: AssetTargetOption[];
+    canvasOptions: AssetTargetOption[];
+  } | null>(null);
+
+  const canvasProjectId = dashboardReturnCanvas?.project_id ?? null;
+
+  useEffect(() => {
+    if (!showAssetsPanel) return;
+    if (assetTree && assetTree.forProjectId === canvasProjectId) return;
+    if (!canvasProjectId) {
+      setAssetTree({ forProjectId: null, rootId: null, folderOptions: [], canvasOptions: [] });
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [projects, allCanvases] = await Promise.all([apiListProjects(), apiListCanvases()]);
+        if (cancelled) return;
+        const rootId = resolveRootProjectId(canvasProjectId, projects);
+        const treeIds = collectProjectTreeIds(rootId, projects);
+        setAssetTree({
+          forProjectId: canvasProjectId,
+          rootId,
+          folderOptions: projects
+            .filter((project) => treeIds.has(project.id))
+            .map((project) => ({ id: project.id, title: project.title })),
+          canvasOptions: allCanvases
+            .filter((canvas) => canvas.project_id && treeIds.has(canvas.project_id) && canvas.id !== canvasIdRef.current)
+            .map((canvas) => ({ id: canvas.id, title: canvas.title })),
+        });
+      } catch (err) {
+        console.error("Failed to load project tree for assets:", err);
+        if (!cancelled) {
+          setAssetTree({ forProjectId: canvasProjectId, rootId: canvasProjectId, folderOptions: [], canvasOptions: [] });
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showAssetsPanel, canvasProjectId, assetTree]);
+
+  const assetScope = assetTree && assetTree.forProjectId === canvasProjectId
+    ? assetTree.rootId
+    : canvasProjectId;
+  // Wait for the root resolution before fetching so we never query a child
+  // folder's (empty) scope; unfiled canvases have no tree to resolve.
+  const assetScopeReady = canvasProjectId === null || assetTree?.forProjectId === canvasProjectId;
+  const projectAssets = useProjectAssets([assetScope], { enabled: showAssetsPanel && assetScopeReady });
+  const canvasAssetLinks = useMemo(
+    () => (canvasId ? projectAssets.links.filter((link) => link.canvasId === canvasId) : []),
+    [projectAssets.links, canvasId],
+  );
+
+  const handleOpenAssetTarget = useCallback((asset: ProjectAsset) => {
+    if (!asset.targetId) return;
+    if (asset.type === "canvas") navigate(`/canvas/${asset.targetId}`);
+    else if (asset.type === "project") navigate(`/dashboard?project=${asset.targetId}`);
+  }, [navigate]);
+
+  const handleAssetNodeToggle = useCallback((nodeId: string) => {
+    if (!armedAssetId || !canvasId) return;
+    const armedAsset = projectAssets.assets.find((asset) => asset.id === armedAssetId);
+    if (!armedAsset) return;
+    projectAssets.toggleNodeLink(armedAsset, canvasId, nodeId);
+  }, [armedAssetId, canvasId, projectAssets]);
+
+  // Esc cancels an armed asset before it cancels anything else
+  useEffect(() => {
+    if (!armedAssetId) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setArmedAssetId(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [armedAssetId]);
 
   // Fetch global sound config from server on mount (populates in-memory cache)
   useEffect(() => {
@@ -709,6 +812,70 @@ export default function WorkspacePage() {
       navigate("/dashboard");
     }
   }, [applyCachedProjectContextToOpenCanvas, navigate, refreshProjectContextInBackground]);
+
+  // ── Realtime multi-window sync ──
+  // Broadcast events are untrusted refetch hints (the channels are public):
+  // all data comes from the authed REST API, never from the event payload.
+  const remoteRefreshSeqRef = useRef(0);
+  const handleRemoteCanvasEvent = useCallback(async (event: CanvasRealtimeEvent) => {
+    const targetCanvasId = canvasIdRef.current;
+    if (!targetCanvasId || exitingRef.current || !mountedRef.current) return;
+    const seq = ++remoteRefreshSeqRef.current;
+    const isStale = () =>
+      !mountedRef.current ||
+      exitingRef.current ||
+      seq !== remoteRefreshSeqRef.current ||
+      canvasIdRef.current !== targetCanvasId;
+
+    if (event.type === "commit") {
+      try {
+        const commitsList = await apiGetCommits(targetCanvasId);
+        if (!isStale()) setCommits(commitsList || []);
+      } catch { /* hint only — next event or catch-up retries */ }
+      return;
+    }
+
+    try {
+      const [canvas, commitsList] = await Promise.all([
+        apiGetCanvas(targetCanvasId),
+        apiGetCommits(targetCanvasId).catch(() => null),
+      ]);
+      if (isStale()) return;
+
+      if (commitsList) setCommits(commitsList);
+      setIsPublic(canvas.is_public || false);
+      setDashboardReturnCanvas(getCanvasReturnContext(canvas));
+      if (!editingTitleRef.current) setTitle(canvas.title);
+
+      // Unsaved local edits (debounce pending, PUT in flight, or queued
+      // offline): keep local code/chat — our own save re-broadcasts after.
+      const dirty = getCanvasSaveOperation(targetCanvasId) !== null;
+
+      if (!chatLoadingRef.current && !dirty) {
+        setChatHistory(canvas.chat_history || []);
+      }
+
+      const remoteCode = canvas.mermaid_code;
+      if (previewModeRef.current) {
+        // Browsing an old version: track the new latest without clobbering
+        // the previewed snapshot on canvas.
+        latestMermaidCodeRef.current = remoteCode;
+      } else if (!dirty && remoteCode !== mermaidCodeRef.current) {
+        setMermaidCode(remoteCode);
+        latestMermaidCodeRef.current = remoteCode;
+      }
+    } catch (err) {
+      if (err instanceof NetworkError || isStale()) return;
+      // A 'deleted' event is only trusted once the authed refetch fails —
+      // the broadcast itself is spoofable.
+      if (event.type === "deleted") {
+        alert("This canvas was deleted in another window.");
+        navigate("/dashboard");
+      }
+    }
+  }, [navigate]);
+
+  useCanvasRealtime(canvasId, handleRemoteCanvasEvent);
 
   const createNewCanvas = useCallback(async () => {
     setIsInitialCanvasDataReady(false);
@@ -2504,7 +2671,7 @@ ${transcript}
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerUp}
               onPointerLeave={handlePointerLeave}
-              style={{ cursor: isPanningVisual ? "grabbing" : "grab" }}
+              style={{ cursor: isPanningVisual ? "grabbing" : armedAssetId ? "crosshair" : "grab" }}
             >
               {/* Zoom controls */}
               {!isInitialWorkspaceLoading && (
@@ -2548,6 +2715,25 @@ ${transcript}
                   <span className="material-symbols-outlined text-xl">auto_awesome</span>
                   {!canUseSkills && <PlanBadge planId={getRequiredPlan("skills.attach_canvas")} className="mt-1" />}
                 </button>
+                {/* Project Assets Button */}
+                {canvasId && (
+                <button
+                  onClick={() => {
+                    setShowAssetsPanel(prev => {
+                      const next = !prev;
+                      if (!next) {
+                        setArmedAssetId(null);
+                        setAssetLinkingEnabled(false);
+                      }
+                      return next;
+                    });
+                  }}
+                  className={`p-3 bg-white shadow-xl border border-outline-variant/30 rounded-full hover:bg-surface-container text-on-surface-variant text-xl transition-all flex flex-col items-center ${showAssetsPanel ? "ring-2 ring-primary text-primary" : ""}`}
+                  title="Project Assets"
+                >
+                  <span className="material-symbols-outlined text-xl">hub</span>
+                </button>
+                )}
               </div>
               )}
 
@@ -2600,6 +2786,69 @@ ${transcript}
                 />
                 )}
               </div>
+
+              {/* Project asset-to-node connection lines (screen-space overlay) */}
+              {showAssetsPanel && canvasId && (
+                <CanvasAssetLinkLayer
+                  canvasAreaRef={canvasRef}
+                  links={canvasAssetLinks}
+                  assets={projectAssets.assets}
+                  armedAssetId={armedAssetId}
+                  hoveredAssetId={hoveredAssetId}
+                  rowRefs={assetRowRefs}
+                  pan={pan}
+                  zoom={zoom}
+                  diagramCode={filteredCode}
+                  onToggleNodeLink={handleAssetNodeToggle}
+                  onRemoveLink={projectAssets.removeLink}
+                />
+              )}
+
+              {/* Project Assets panel */}
+              {showAssetsPanel && canvasId && (
+                <div data-assets-panel className="absolute right-4 top-4 z-40 w-[340px] max-w-[calc(100%-2rem)] max-h-[calc(100%-6rem)] flex">
+                  <ProjectAssetsPanel
+                    variant="workspace"
+                    className="w-full max-h-full"
+                    assets={projectAssets.assets}
+                    links={projectAssets.links}
+                    loading={projectAssets.loading || !assetScopeReady}
+                    notice={projectAssets.error}
+                    onDismissNotice={projectAssets.clearError}
+                    currentCanvasId={canvasId}
+                    canvasOptions={assetTree?.canvasOptions ?? []}
+                    folderOptions={assetTree?.folderOptions ?? []}
+                    onUpdateAsset={projectAssets.updateAsset}
+                    onOpenAssetTarget={handleOpenAssetTarget}
+                    linkingEnabled={assetLinkingEnabled}
+                    armedAssetId={armedAssetId}
+                    onToggleLinking={() => {
+                      setAssetLinkingEnabled(prev => {
+                        if (prev) setArmedAssetId(null);
+                        return !prev;
+                      });
+                    }}
+                    onArmAsset={(assetId) => setArmedAssetId(prev => (prev === assetId ? null : assetId))}
+                    onRegisterAsset={projectAssets.registerAsset}
+                    onRemoveAsset={(asset) => {
+                      projectAssets.removeAsset(asset);
+                      setArmedAssetId(prev => (prev === asset.id ? null : prev));
+                    }}
+                    onRemoveLink={projectAssets.removeLink}
+                    onToggleLinkStatus={projectAssets.toggleLinkStatus}
+                    onClose={() => {
+                      setShowAssetsPanel(false);
+                      setArmedAssetId(null);
+                      setAssetLinkingEnabled(false);
+                    }}
+                    registerRowRef={(assetId, element) => {
+                      if (element) assetRowRefs.current.set(assetId, element);
+                      else assetRowRefs.current.delete(assetId);
+                    }}
+                    onHoverAsset={setHoveredAssetId}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Node Action Overlay — rendered OUTSIDE the canvas div to escape overflow:hidden */}

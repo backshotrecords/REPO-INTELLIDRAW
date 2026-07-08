@@ -16,6 +16,14 @@ import type {
   SkillTriggerMode,
   SubscriptionPlanId,
 } from "../types";
+import { realtimeClientId } from "./supabase";
+import {
+  UNFILED_ASSET_SCOPE,
+  type ProjectAsset,
+  type ProjectAssetLink,
+  type ProjectAssetLinkStatus,
+  type RegisterProjectAssetInput,
+} from "./projectAssets";
 
 const API_BASE = "/api";
 const PREVIEW_CODE_BATCH_SIZE = 100;
@@ -256,7 +264,7 @@ export async function apiUpdateCanvas(
 ) {
   const res = await apiFetch(`/canvases/${id}`, {
     method: "PUT",
-    body: JSON.stringify(updates),
+    body: JSON.stringify({ ...updates, senderClientId: realtimeClientId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to update canvas");
@@ -428,7 +436,7 @@ export async function apiCreateCommit(
 ) {
   const res = await apiFetch("/canvases/commits", {
     method: "POST",
-    body: JSON.stringify({ canvasId, mermaidCode, source, commitMessage }),
+    body: JSON.stringify({ canvasId, mermaidCode, source, commitMessage, senderClientId: realtimeClientId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to create commit");
@@ -645,7 +653,7 @@ export async function apiGetActiveRules(): Promise<string[]> {
 export async function apiPublishCanvas(id: string, isPublic: boolean) {
   const res = await apiFetch(`/canvases/${id}`, {
     method: "PUT",
-    body: JSON.stringify({ isPublic }),
+    body: JSON.stringify({ isPublic, senderClientId: realtimeClientId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to update publish state");
@@ -1388,4 +1396,150 @@ export async function apiSubmitExitInterview(
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to submit exit interview");
   return data;
+}
+
+// ===== Project Assets (registered per ROOT project folder) =====
+
+interface ProjectAssetRow {
+  id: string;
+  root_project_id: string | null;
+  type: ProjectAsset["type"];
+  name: string;
+  markdown: string | null;
+  target_id: string | null;
+  accent: ProjectAsset["accent"];
+  created_at: string;
+  updated_at: string;
+}
+
+interface ProjectAssetLinkRow {
+  id: string;
+  asset_id: string;
+  canvas_id: string;
+  node_id: string;
+  status: ProjectAssetLinkStatus;
+  created_at: string;
+}
+
+function mapProjectAssetRow(row: ProjectAssetRow): ProjectAsset {
+  return {
+    id: row.id,
+    scope: row.root_project_id ?? UNFILED_ASSET_SCOPE,
+    type: row.type,
+    name: row.name,
+    markdown: row.markdown ?? undefined,
+    targetId: row.target_id ?? undefined,
+    accent: row.accent,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function mapProjectAssetLinkRow(row: ProjectAssetLinkRow, scope: string): ProjectAssetLink {
+  return {
+    id: row.id,
+    scope,
+    assetId: row.asset_id,
+    canvasId: row.canvas_id,
+    nodeId: row.node_id,
+    status: row.status,
+    created_at: row.created_at,
+  };
+}
+
+function assetScopeToRootProjectId(scope: string | null | undefined): string | null {
+  return scope && scope !== UNFILED_ASSET_SCOPE ? scope : null;
+}
+
+export async function apiListProjectAssets(
+  scope: string | null | undefined,
+): Promise<{ assets: ProjectAsset[]; links: ProjectAssetLink[] }> {
+  const rootProjectId = assetScopeToRootProjectId(scope);
+  const query = rootProjectId ? `?rootProjectId=${encodeURIComponent(rootProjectId)}` : "";
+  const res = await apiFetch(`/assets${query}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to fetch project assets");
+  const scopeKey = rootProjectId ?? UNFILED_ASSET_SCOPE;
+  return {
+    assets: ((data.assets || []) as ProjectAssetRow[]).map(mapProjectAssetRow),
+    links: ((data.links || []) as ProjectAssetLinkRow[]).map((row) => mapProjectAssetLinkRow(row, scopeKey)),
+  };
+}
+
+export async function apiCreateProjectAsset(
+  scope: string | null | undefined,
+  input: RegisterProjectAssetInput,
+): Promise<ProjectAsset> {
+  const res = await apiFetch("/assets", {
+    method: "POST",
+    body: JSON.stringify({
+      root_project_id: assetScopeToRootProjectId(scope),
+      type: input.type,
+      name: input.name,
+      markdown: input.markdown,
+      target_id: input.targetId,
+      accent: input.accent,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to register asset");
+  return mapProjectAssetRow(data.asset as ProjectAssetRow);
+}
+
+export async function apiUpdateProjectAsset(
+  assetId: string,
+  patch: Partial<Pick<ProjectAsset, "name" | "markdown">>,
+): Promise<ProjectAsset> {
+  const res = await apiFetch(`/assets/${assetId}`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to update asset");
+  return mapProjectAssetRow(data.asset as ProjectAssetRow);
+}
+
+export async function apiDeleteProjectAsset(assetId: string): Promise<void> {
+  const res = await apiFetch(`/assets/${assetId}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Failed to delete asset");
+  }
+}
+
+export async function apiCreateProjectAssetLink(
+  assetId: string,
+  canvasId: string,
+  nodeId: string,
+  scope: string,
+): Promise<ProjectAssetLink> {
+  const res = await apiFetch("/assets/links", {
+    method: "POST",
+    body: JSON.stringify({ asset_id: assetId, canvas_id: canvasId, node_id: nodeId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to link asset");
+  return mapProjectAssetLinkRow(data.link as ProjectAssetLinkRow, scope);
+}
+
+export async function apiUpdateProjectAssetLinkStatus(
+  linkId: string,
+  status: ProjectAssetLinkStatus,
+): Promise<void> {
+  const res = await apiFetch(`/assets/links/${linkId}`, {
+    method: "PUT",
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Failed to update link");
+  }
+}
+
+export async function apiDeleteProjectAssetLink(linkId: string): Promise<void> {
+  const res = await apiFetch(`/assets/links/${linkId}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Failed to remove link");
+  }
 }

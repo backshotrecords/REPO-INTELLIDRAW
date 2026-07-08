@@ -5,6 +5,7 @@ import SubgraphCollapseOverlay from "../components/SubgraphCollapseOverlay";
 import { apiGetPublicCanvas } from "../lib/api";
 import { getCanvasSettings, fetchCanvasSettings } from "../lib/canvasSettings";
 import { parseMermaidAST, getRootViewWithCollapseState } from "../utils/mermaidParser";
+import { useCanvasRealtime } from "../hooks/useCanvasRealtime";
 
 export default function PublicViewPage() {
   const { id } = useParams<{ id: string }>();
@@ -81,32 +82,45 @@ export default function PublicViewPage() {
     return Math.hypot(dx, dy);
   };
 
-  useEffect(() => {
-    fetchCanvasSettings();
+  const loadPublicCanvas = useCallback(async (options?: { refresh?: boolean }) => {
     if (!id) return;
+    try {
+      const canvas = await apiGetPublicCanvas(id);
+      const nextCode = canvas.mermaid_code || "";
+      setTitle(canvas.title);
+      setMermaidCode(nextCode);
 
-    const loadPublicCanvas = async () => {
-      try {
-        const canvas = await apiGetPublicCanvas(id);
-        const nextCode = canvas.mermaid_code || "";
-        setTitle(canvas.title);
-        setMermaidCode(nextCode);
-
+      // Only reset collapse state on the initial load — a live refresh must
+      // not collapse groups the viewer has expanded.
+      if (!options?.refresh) {
         try {
           const ast = parseMermaidAST(nextCode);
           setCollapsedSubgraphIds(new Set(ast.allSubgraphsFlat.keys()));
         } catch {
           setCollapsedSubgraphIds(new Set());
         }
-      } catch {
-        setNotFound(true);
-      } finally {
-        setLoading(false);
       }
-    };
-
-    loadPublicCanvas();
+      setNotFound(false);
+    } catch (err) {
+      // apiGetPublicCanvas uses plain fetch: network failures reject with
+      // TypeError. During a live refresh, keep the current view on a blip.
+      if (options?.refresh && err instanceof TypeError) return;
+      setNotFound(true);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
+
+  useEffect(() => {
+    fetchCanvasSettings();
+    loadPublicCanvas();
+  }, [loadPublicCanvas]);
+
+  // Live-update the public view when the canvas changes elsewhere.
+  const handleRemoteCanvasEvent = useCallback(() => {
+    void loadPublicCanvas({ refresh: true });
+  }, [loadPublicCanvas]);
+  useCanvasRealtime(id ?? null, handleRemoteCanvasEvent);
 
   // ── Native wheel listener via callback ref ──
   // Re-attaches whenever React mounts a new canvas DOM element
