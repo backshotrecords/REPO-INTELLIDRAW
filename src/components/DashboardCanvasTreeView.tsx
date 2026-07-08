@@ -251,28 +251,54 @@ export default function DashboardCanvasTreeView({
     saveExpandedFolders(rootProject.id, expandedFolders);
   }, [expandedFolders, rootProject.id]);
 
-  const canvasLinkCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const link of visibleAssetLinks) {
-      counts.set(link.canvasId, (counts.get(link.canvasId) ?? 0) + 1);
-    }
-    return counts;
-  }, [visibleAssetLinks]);
+  // Resolve every link to the DEEPEST node currently visible on the path down
+  // to its canvas: the canvas node when it's shown, otherwise the nearest
+  // visible ancestor folder (a collapsed child folder stands in for everything
+  // inside it). Expanding a folder re-resolves anchors one level deeper, so a
+  // link is never hidden — only shown at the tree's current resolution.
+  // Links whose canvas lives outside the shown subtree resolve to null.
+  const assetAnchorData = useMemo(() => {
+    const visibleItems = [layout.root, ...layout.children];
+    const visibleCanvasIds = new Set(visibleItems.filter((item) => item.kind === "canvas").map((item) => item.id));
+    const visibleFolderIds = new Set(visibleItems.filter((item) => item.kind === "folder").map((item) => item.id));
+    const canvasById = new Map(canvases.map((canvas) => [canvas.id, canvas]));
+    const folderById = new Map(folders.map((folder) => [folder.id, folder]));
 
-  // One line per asset↔canvas pair, with the number of node links it bundles.
-  const assetCanvasPairs = useMemo(() => {
+    function resolveAnchorKey(canvasId: string): string | null {
+      if (visibleCanvasIds.has(canvasId)) return `canvas:${canvasId}`;
+      let folderId = canvasById.get(canvasId)?.project_id ?? null;
+      const visited = new Set<string>();
+      while (folderId && !visited.has(folderId)) {
+        visited.add(folderId);
+        // Visibility is monotone up the ancestry, so the first visible
+        // ancestor found while walking up is the deepest visible one.
+        if (visibleFolderIds.has(folderId)) return `folder:${folderId}`;
+        folderId = folderById.get(folderId)?.parent_project_id ?? null;
+      }
+      return null;
+    }
+
     const accentById = new Map(projectAssets.assets.map((asset) => [asset.id, asset.accent]));
-    const pairs = new Map<string, { assetId: string; canvasId: string; count: number; accent: ProjectAssetAccent }>();
+    const pairs = new Map<string, { assetId: string; anchorKey: string; count: number; accent: ProjectAssetAccent }>();
+    const anchorCounts = new Map<string, number>();
+
     for (const link of visibleAssetLinks) {
       const accent = accentById.get(link.assetId);
       if (!accent) continue;
-      const key = `${link.assetId}:${link.canvasId}`;
-      const existing = pairs.get(key);
+      const anchorKey = resolveAnchorKey(link.canvasId);
+      if (!anchorKey) continue;
+      anchorCounts.set(anchorKey, (anchorCounts.get(anchorKey) ?? 0) + 1);
+      const pairKey = `${link.assetId}:${anchorKey}`;
+      const existing = pairs.get(pairKey);
       if (existing) existing.count += 1;
-      else pairs.set(key, { assetId: link.assetId, canvasId: link.canvasId, count: 1, accent });
+      else pairs.set(pairKey, { assetId: link.assetId, anchorKey, count: 1, accent });
     }
-    return Array.from(pairs.entries()).map(([key, pair]) => ({ key, ...pair }));
-  }, [projectAssets.assets, visibleAssetLinks]);
+
+    return {
+      pairs: Array.from(pairs.entries()).map(([key, pair]) => ({ key, ...pair })),
+      anchorCounts,
+    };
+  }, [layout, canvases, folders, projectAssets.assets, visibleAssetLinks]);
 
   const [assetMeasureTick, setAssetMeasureTick] = useState(0);
 
@@ -294,15 +320,16 @@ export default function DashboardCanvasTreeView({
 
     const treeRect = tree.getBoundingClientRect();
     const worldRect = world.getBoundingClientRect();
-    const canvasNodesById = new Map(
-      layout.children.filter((item) => item.kind === "canvas").map((item) => [item.id, item]),
+    const nodesByKey = new Map(
+      [layout.root, ...layout.children].map((item) => [item.key, item]),
     );
 
     const nextGeometry: AssetLineGeometry[] = [];
-    for (const pair of assetCanvasPairs) {
+    for (const pair of assetAnchorData.pairs) {
       const rowElement = assetRowRefs.current.get(pair.assetId);
-      const node = canvasNodesById.get(pair.canvasId);
+      const node = nodesByKey.get(pair.anchorKey);
       if (!rowElement || !node) continue;
+      const size = node.kind === "folder" ? FOLDER_NODE : CANVAS_NODE;
       const rowRect = rowElement.getBoundingClientRect();
       nextGeometry.push({
         key: pair.key,
@@ -311,12 +338,12 @@ export default function DashboardCanvasTreeView({
         count: pair.count,
         x1: rowRect.left - treeRect.left,
         y1: rowRect.top + rowRect.height / 2 - treeRect.top,
-        x2: worldRect.left - treeRect.left + (node.x + CANVAS_NODE.width) * zoom,
-        y2: worldRect.top - treeRect.top + (node.y + CANVAS_NODE.height / 2) * zoom,
+        x2: worldRect.left - treeRect.left + (node.x + size.width) * zoom,
+        y2: worldRect.top - treeRect.top + (node.y + size.height / 2) * zoom,
       });
     }
     setAssetLineGeometry(nextGeometry);
-  }, [showAssets, assetCanvasPairs, layout, pan, zoom, assetMeasureTick]);
+  }, [showAssets, assetAnchorData, layout, pan, zoom, assetMeasureTick]);
 
   const clampZoom = useCallback((value: number) => {
     return Math.min(1.9, Math.max(0.42, value));
@@ -507,15 +534,26 @@ export default function DashboardCanvasTreeView({
             ))}
           </svg>
 
-          <FolderTreeNode node={layout.root} isRoot onOpen={() => onOpenFolder(layout.root.id)} />
+          <FolderTreeNode
+            node={layout.root}
+            isRoot
+            onOpen={() => onOpenFolder(layout.root.id)}
+            assetLinkCount={showAssets ? assetAnchorData.anchorCounts.get(layout.root.key) ?? 0 : 0}
+          />
           {layout.children.map((node) => node.kind === "folder" ? (
-            <FolderTreeNode key={node.key} node={node} onOpen={() => onOpenFolder(node.id)} onToggleExpand={() => toggleExpandedFolder(node.id)} />
+            <FolderTreeNode
+              key={node.key}
+              node={node}
+              onOpen={() => onOpenFolder(node.id)}
+              onToggleExpand={() => toggleExpandedFolder(node.id)}
+              assetLinkCount={showAssets ? assetAnchorData.anchorCounts.get(node.key) ?? 0 : 0}
+            />
           ) : (
             <CanvasTreeNode
               key={node.key}
               node={node}
               onOpen={() => onOpenCanvas(node.id)}
-              assetLinkCount={showAssets ? canvasLinkCounts.get(node.id) ?? 0 : 0}
+              assetLinkCount={showAssets ? assetAnchorData.anchorCounts.get(node.key) ?? 0 : 0}
             />
           ))}
 
@@ -608,11 +646,13 @@ function FolderTreeNode({
   isRoot,
   onOpen,
   onToggleExpand,
+  assetLinkCount = 0,
 }: {
   node: Extract<TreeItem, { kind: "folder" }>;
   isRoot?: boolean;
   onOpen: () => void;
   onToggleExpand?: () => void;
+  assetLinkCount?: number;
 }) {
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -632,6 +672,12 @@ function FolderTreeNode({
     >
       {node.childCount > 0 && <span className="dashboard-tree-node-port output" aria-hidden="true" />}
       {!isRoot && <span className="dashboard-tree-node-port input" aria-hidden="true" />}
+      {assetLinkCount > 0 && (
+        <span className="dashboard-tree-asset-badge" title={`${assetLinkCount} asset link${assetLinkCount === 1 ? "" : "s"} inside this folder`}>
+          <span className="material-symbols-outlined" aria-hidden="true">link</span>
+          {assetLinkCount}
+        </span>
+      )}
       <span className="dashboard-tree-folder-icon">
         <span className="material-symbols-outlined fill">folder</span>
       </span>
