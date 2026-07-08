@@ -196,6 +196,8 @@ export default function WorkspacePage() {
   const canPublishCanvas = hasFeature("canvas.publish_public");
   const canUseSkills = hasFeature("skills.attach_canvas");
   const canUseContextualSkills = hasFeature("skills.trigger_contextual");
+  const canUseProjectAssets = hasFeature("project.assets");
+  const canUseProjectAssetLinks = hasFeature("project.asset_links");
   const { openUpgradePrompt } = useUpgradePrompt();
 
   const requiredPlanMessage = useCallback((featureKey: string, label: string) => {
@@ -423,6 +425,22 @@ export default function WorkspacePage() {
   const [armedAssetId, setArmedAssetId] = useState<string | null>(null);
   const [hoveredAssetId, setHoveredAssetId] = useState<string | null>(null);
   const assetRowRefs = useRef(new Map<string, HTMLElement>());
+
+  useEffect(() => {
+    if (!canUseProjectAssets && showAssetsPanel) {
+      setShowAssetsPanel(false);
+      setArmedAssetId(null);
+      setAssetLinkingEnabled(false);
+    }
+  }, [canUseProjectAssets, showAssetsPanel]);
+
+  useEffect(() => {
+    if (!canUseProjectAssetLinks) {
+      setArmedAssetId(null);
+      setAssetLinkingEnabled(false);
+    }
+  }, [canUseProjectAssetLinks]);
+
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const editingTitleRef = useRef(false);
@@ -525,10 +543,10 @@ export default function WorkspacePage() {
   // Wait for the root resolution before fetching so we never query a child
   // folder's (empty) scope; unfiled canvases have no tree to resolve.
   const assetScopeReady = canvasProjectId === null || assetTree?.forProjectId === canvasProjectId;
-  const projectAssets = useProjectAssets([assetScope], { enabled: showAssetsPanel && assetScopeReady });
+  const projectAssets = useProjectAssets([assetScope], { enabled: showAssetsPanel && canUseProjectAssets && assetScopeReady });
   const canvasAssetLinks = useMemo(
-    () => (canvasId ? projectAssets.links.filter((link) => link.canvasId === canvasId) : []),
-    [projectAssets.links, canvasId],
+    () => (canvasId && canUseProjectAssetLinks ? projectAssets.links.filter((link) => link.canvasId === canvasId) : []),
+    [projectAssets.links, canvasId, canUseProjectAssetLinks],
   );
 
   const handleOpenAssetTarget = useCallback((asset: ProjectAsset) => {
@@ -539,10 +557,14 @@ export default function WorkspacePage() {
 
   const handleAssetNodeToggle = useCallback((nodeId: string) => {
     if (!armedAssetId || !canvasId) return;
+    if (!canUseProjectAssetLinks) {
+      addPlanNotice("project.asset_links", "Asset links");
+      return;
+    }
     const armedAsset = projectAssets.assets.find((asset) => asset.id === armedAssetId);
     if (!armedAsset) return;
     projectAssets.toggleNodeLink(armedAsset, canvasId, nodeId);
-  }, [armedAssetId, canvasId, projectAssets]);
+  }, [addPlanNotice, armedAssetId, canvasId, canUseProjectAssetLinks, projectAssets]);
 
   // Esc cancels an armed asset before it cancels anything else
   useEffect(() => {
@@ -2719,6 +2741,10 @@ ${transcript}
                 {canvasId && (
                 <button
                   onClick={() => {
+                    if (!canUseProjectAssets) {
+                      addPlanNotice("project.assets", "Project Assets");
+                      return;
+                    }
                     setShowAssetsPanel(prev => {
                       const next = !prev;
                       if (!next) {
@@ -2729,9 +2755,10 @@ ${transcript}
                     });
                   }}
                   className={`p-3 bg-white shadow-xl border border-outline-variant/30 rounded-full hover:bg-surface-container text-on-surface-variant text-xl transition-all flex flex-col items-center ${showAssetsPanel ? "ring-2 ring-primary text-primary" : ""}`}
-                  title="Project Assets"
+                  title={canUseProjectAssets ? "Project Assets" : requiredPlanMessage("project.assets", "Project Assets")}
                 >
                   <span className="material-symbols-outlined text-xl">hub</span>
+                  {!canUseProjectAssets && <PlanBadge planId={getRequiredPlan("project.assets")} className="mt-1" />}
                 </button>
                 )}
               </div>
@@ -2788,7 +2815,7 @@ ${transcript}
               </div>
 
               {/* Project asset-to-node connection lines (screen-space overlay) */}
-              {showAssetsPanel && canvasId && (
+              {showAssetsPanel && canvasId && canUseProjectAssetLinks && (
                 <CanvasAssetLinkLayer
                   canvasAreaRef={canvasRef}
                   links={canvasAssetLinks}
@@ -2811,7 +2838,7 @@ ${transcript}
                     variant="workspace"
                     className="w-full max-h-full"
                     assets={projectAssets.assets}
-                    links={projectAssets.links}
+                    links={canUseProjectAssetLinks ? projectAssets.links : []}
                     loading={projectAssets.loading || !assetScopeReady}
                     notice={projectAssets.error}
                     onDismissNotice={projectAssets.clearError}
@@ -2820,9 +2847,16 @@ ${transcript}
                     folderOptions={assetTree?.folderOptions ?? []}
                     onUpdateAsset={projectAssets.updateAsset}
                     onOpenAssetTarget={handleOpenAssetTarget}
-                    linkingEnabled={assetLinkingEnabled}
+                    linkingAvailable={canUseProjectAssetLinks}
+                    linkingLockedBadge={<PlanBadge planId={getRequiredPlan("project.asset_links")} />}
+                    onLinkingLocked={() => addPlanNotice("project.asset_links", "Asset links")}
+                    linkingEnabled={assetLinkingEnabled && canUseProjectAssetLinks}
                     armedAssetId={armedAssetId}
                     onToggleLinking={() => {
+                      if (!canUseProjectAssetLinks) {
+                        addPlanNotice("project.asset_links", "Asset links");
+                        return;
+                      }
                       setAssetLinkingEnabled(prev => {
                         if (prev) setArmedAssetId(null);
                         return !prev;

@@ -1,6 +1,12 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../../lib/auth.js";
 import { supabase } from "../../lib/db.js";
+import {
+  isEntitlementError,
+  recordFeatureUsage,
+  requireFeatureQuota,
+  sendEntitlementError,
+} from "../../lib/entitlements.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await authenticateRequest(req);
@@ -17,6 +23,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .select("id").eq("id", asset_id).eq("user_id", auth.userId).single();
     if (!asset) return res.status(404).json({ error: "Asset not found" });
 
+    try {
+      const { count } = await supabase
+        .from("project_asset_links")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", auth.userId);
+      await requireFeatureQuota(auth.userId, "project.asset_links", count || 0);
+    } catch (err) {
+      if (isEntitlementError(err)) return sendEntitlementError(res, err);
+      console.error("Project asset link quota check error:", err);
+      return res.status(500).json({ error: "Failed to check asset link quota" });
+    }
+
     const { data, error } = await supabase.from("project_asset_links")
       .insert({
         asset_id,
@@ -32,6 +50,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error.code === "23503") return res.status(404).json({ error: "Canvas not found" });
       return res.status(500).json({ error: error.message || "Failed to create link" });
     }
+
+    await recordFeatureUsage(auth.userId, "project.asset_links", 1, {
+      assetId: asset_id,
+      canvasId: canvas_id,
+    });
 
     return res.status(201).json({ link: data });
   }

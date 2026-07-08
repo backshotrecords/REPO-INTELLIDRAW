@@ -18,6 +18,8 @@ export type FeatureKey =
   | "history.version_tree"
   | "project.create"
   | "project.context"
+  | "project.assets"
+  | "project.asset_links"
   | "project.share_groups"
   | "dashboard.tree_view"
   | "export.markdown"
@@ -103,6 +105,20 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     key: "project.context",
     label: "Project context",
     description: "Generate inherited project context for canvases.",
+    category: "Projects",
+    defaultPlan: "pro",
+  },
+  {
+    key: "project.assets",
+    label: "Project assets",
+    description: "Register reusable markdown, canvas, and folder assets inside project trees.",
+    category: "Projects",
+    defaultPlan: "pro",
+  },
+  {
+    key: "project.asset_links",
+    label: "Asset-node links",
+    description: "Link project assets to canvas nodes and track relationship metadata.",
     category: "Projects",
     defaultPlan: "pro",
   },
@@ -652,6 +668,8 @@ export async function isFeatureEnabled(userId: string, key: FeatureKey) {
 const LIVE_USAGE_COUNTERS: Partial<Record<FeatureKey, { table: string; ownerColumn: string; filters?: Record<string, string> }>> = {
   "canvas.create": { table: "canvases", ownerColumn: "user_id" },
   "project.create": { table: "canvas_projects", ownerColumn: "user_id" },
+  "project.assets": { table: "project_assets", ownerColumn: "user_id" },
+  "project.asset_links": { table: "project_asset_links", ownerColumn: "user_id" },
   "skills.create": { table: "skill_notes", ownerColumn: "owner_id" },
   "groups.create": { table: "user_groups", ownerColumn: "owner_id" },
   "skills.install_marketplace": { table: "skill_installations", ownerColumn: "user_id", filters: { status: "active" } },

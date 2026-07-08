@@ -190,6 +190,8 @@ export default function DashboardPage() {
   const canExportMarkdown = hasFeature("export.markdown");
   const canExportPng = hasFeature("export.png");
   const canExportZip = hasFeature("export.zip");
+  const canUseProjectAssets = hasFeature("project.assets");
+  const canUseProjectAssetLinks = hasFeature("project.asset_links");
   const showCanvasTreeView = Boolean(activeProject && fileViewMode === "tree" && canUseTreeView);
   const movingCanvas = movingCanvasId ? canvases.find((canvas) => canvas.id === movingCanvasId) ?? null : null;
   const movingProject = movingProjectId ? projects.find((project) => project.id === movingProjectId) ?? null : null;
@@ -952,6 +954,12 @@ export default function DashboardPage() {
                 search={search}
                 onOpenFolder={navigateToProject}
                 onOpenCanvas={(canvasId) => navigate(`/canvas/${canvasId}`)}
+                canUseProjectAssets={canUseProjectAssets}
+                canUseProjectAssetLinks={canUseProjectAssetLinks}
+                projectAssetsLockedBadge={<PlanBadge planId={getRequiredPlan("project.assets")} />}
+                assetLinksLockedBadge={<PlanBadge planId={getRequiredPlan("project.asset_links")} />}
+                onProjectAssetsLocked={() => openUpgradeFor("project.assets", "Project Assets")}
+                onAssetLinksLocked={() => openUpgradeFor("project.asset_links", "Asset links")}
               />
             ) : visibleCanvases.length === 0 ? (
               <EmptyState

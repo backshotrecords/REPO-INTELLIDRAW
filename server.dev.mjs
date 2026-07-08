@@ -29,6 +29,44 @@ const JWT_SECRET = new TextEncoder().encode(JWT_SECRET_STR);
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || "intellidraw-aes256-secret-key-change-in-prod";
 
+// Mirrors api/lib/realtime-broadcast.ts (this file can't import the TS
+// helper): notifies open canvas windows via Supabase Realtime broadcast.
+async function broadcastCanvasEvent(canvasId, event, senderClientId, extra) {
+  if (!supabaseUrl || !supabaseKey) return;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2000);
+  try {
+    const res = await fetch(`${supabaseUrl.replace(/\/+$/, "")}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            topic: `canvas:${canvasId}`,
+            event,
+            payload: {
+              canvasId,
+              senderClientId: typeof senderClientId === "string" ? senderClientId : null,
+              ...extra,
+            },
+            private: false,
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) console.error(`Canvas broadcast failed (HTTP ${res.status}) for canvas ${canvasId}`);
+  } catch (err) {
+    console.error("Canvas broadcast error:", err);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 // ============================================================
 // Crypto helpers
 // ============================================================
@@ -298,7 +336,7 @@ app.get("/api/canvases/:id", requireAuth(async (req, res) => {
 }));
 
 app.put("/api/canvases/:id", requireAuth(async (req, res) => {
-  const { title, mermaidCode, chatHistory } = req.body || {};
+  const { title, mermaidCode, chatHistory, senderClientId } = req.body || {};
   try {
     const updateData = { updated_at: new Date().toISOString() };
     if (title !== undefined) updateData.title = title;
@@ -311,6 +349,7 @@ app.put("/api/canvases/:id", requireAuth(async (req, res) => {
       .select("*").single();
 
     if (error || !data) return res.status(404).json({ error: "Canvas not found or update failed" });
+    await broadcastCanvasEvent(req.params.id, "updated", senderClientId, { updatedAt: updateData.updated_at });
     return res.status(200).json({ canvas: data });
   } catch (err) {
     return res.status(500).json({ error: "Internal server error" });
@@ -324,6 +363,7 @@ app.delete("/api/canvases/:id", requireAuth(async (req, res) => {
       .eq("id", req.params.id).eq("user_id", req.auth.userId);
 
     if (error) return res.status(500).json({ error: "Failed to delete canvas" });
+    await broadcastCanvasEvent(req.params.id, "deleted");
     return res.status(200).json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: "Internal server error" });
@@ -1639,7 +1679,7 @@ app.post("/api/groups/:id/members", requireAuth(async (req, res) => {
   } catch (err) { return res.status(500).json({ error: "Internal server error" }); }
 }));
 
-app.delete("/api/groups/:id/members/:userId?", requireAuth(async (req, res) => {
+app.delete("/api/groups/:id/members{/:userId}", requireAuth(async (req, res) => {
   try {
     const userId = req.params.userId || req.body?.userId;
     if (!userId) return res.status(400).json({ error: "userId is required" });

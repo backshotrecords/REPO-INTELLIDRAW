@@ -1713,6 +1713,10 @@
 }
 
 .dashboard-tree-controls button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 36px;
   height: 36px;
   border: 0;
@@ -1734,6 +1738,18 @@
 .dashboard-tree-controls button.is-selected {
   background: #041627;
   color: #ffffff;
+}
+
+.dashboard-tree-control-plan-badge {
+  position: absolute;
+  top: -8px;
+  right: -14px;
+  transform: scale(0.72);
+  transform-origin: top right;
+}
+
+.dashboard-tree-control-plan-badge span {
+  color: inherit;
 }
 
 .dashboard-tree-asset-badge {
