@@ -5,6 +5,7 @@ import { normalizeProjectId, touchProjectAncestors } from "../lib/canvas-project
 import { deleteCanvasForUser } from "../lib/canvas-lifecycle.js";
 import { isEntitlementError, recordFeatureUsage, requireFeatureQuota, sendEntitlementError } from "../lib/entitlements.js";
 import { canOwn, getCanvasAccess, getProjectAccess, hasCapability, withAccessMetadata } from "../lib/project-access.js";
+import { broadcastCanvasEvent } from "../lib/realtime-broadcast.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -34,7 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // PUT /api/canvases/[id] — Update a canvas
   if (req.method === "PUT") {
-    const { title, mermaidCode, chatHistory, isPublic, projectId, manuallyArchived } = req.body || {};
+    const { title, mermaidCode, chatHistory, isPublic, projectId, manuallyArchived, senderClientId } = req.body || {};
 
     try {
       const access = await getCanvasAccess(canvasId, userId);
@@ -126,6 +127,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
+      await broadcastCanvasEvent(canvasId, "updated", senderClientId, { updatedAt: now });
+
       return res.status(200).json({ canvas: withAccessMetadata(data as Record<string, unknown>, access.projectAccess ?? access) });
     } catch (err) {
       if (isEntitlementError(err)) return sendEntitlementError(res, err);
@@ -143,6 +146,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(403).json({ error: "You do not have permission to delete this canvas" });
       }
       const result = await deleteCanvasForUser({ canvasId, userId: access.ownerUserId });
+      await broadcastCanvasEvent(canvasId, "deleted");
       return res.status(200).json({ success: true, ...result });
     } catch (err) {
       console.error("Delete canvas error:", err);

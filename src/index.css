@@ -1731,6 +1731,31 @@
   transform: scale(0.94);
 }
 
+.dashboard-tree-controls button.is-selected {
+  background: #041627;
+  color: #ffffff;
+}
+
+.dashboard-tree-asset-badge {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: #041627;
+  color: #ffffff;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.dashboard-tree-asset-badge .material-symbols-outlined {
+  font-size: 12px;
+}
+
 .dashboard-tree-controls span:not(.material-symbols-outlined) {
   font-size: 11px;
   font-weight: 800;

@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest } from "../lib/auth.js";
 import { supabase } from "../lib/db.js";
 import { getCanvasAccess, hasCapability } from "../lib/project-access.js";
+import { broadcastCanvasEvent } from "../lib/realtime-broadcast.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authPayload = await authenticateRequest(req);
@@ -43,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // POST /api/canvases/commits — Create a new commit
   if (req.method === "POST") {
-    const { canvasId, mermaidCode, source, commitMessage } = req.body || {};
+    const { canvasId, mermaidCode, source, commitMessage, senderClientId } = req.body || {};
 
     if (!canvasId || !mermaidCode) {
       return res.status(400).json({ error: "canvasId and mermaidCode are required" });
@@ -72,6 +73,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.error("Create commit error:", error);
         return res.status(500).json({ error: "Failed to create commit" });
       }
+
+      await broadcastCanvasEvent(canvasId, "commit", senderClientId);
 
       return res.status(201).json({ commit: data });
     } catch (err) {
