@@ -457,12 +457,26 @@ export default function AgentGitLog({
                               <div className={`text-on-surface-variant text-sm leading-relaxed transition-opacity duration-300 ${
                                 expandedPills[interaction.id] ? "opacity-0 absolute pointer-events-none" : "opacity-100 relative"
                               }`}>
-                                <div className="truncate">{interaction.userMessage.content}</div>
+                                <div className="flex min-w-0 items-center gap-2">
+                                  {interaction.userMessage.attachment && (
+                                    <span className="inline-flex max-w-[48%] shrink-0 items-center gap-1 rounded-md border border-primary/15 bg-primary/5 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                      <span className="material-symbols-outlined text-[12px]">attach_file</span>
+                                      <span className="truncate">{interaction.userMessage.attachment.name}</span>
+                                    </span>
+                                  )}
+                                  <span className="truncate">{interaction.userMessage.content}</span>
+                                </div>
                               </div>
                               <div className={`text-on-surface-variant text-sm leading-relaxed whitespace-pre-wrap break-words transition-opacity duration-300 ${
                                 expandedPills[interaction.id] ? "opacity-100 relative pb-1" : "opacity-0 absolute pointer-events-none top-0 left-0 w-full"
                               }`}>
-                                {interaction.userMessage.content}
+                                {interaction.userMessage.attachment && (
+                                  <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-primary/15 bg-primary/5 px-2 py-1 text-[11px] font-semibold text-primary">
+                                    <span className="material-symbols-outlined text-sm">attach_file</span>
+                                    <span className="truncate">{interaction.userMessage.attachment.name}</span>
+                                  </div>
+                                )}
+                                <div>{interaction.userMessage.content}</div>
                               </div>
                             </div>
                             {sideChatterMetrics && (

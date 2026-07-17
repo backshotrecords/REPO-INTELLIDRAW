@@ -2,6 +2,7 @@ import type {
   CanvasCommit,
   CanvasPreviewCode,
   CanvasProject,
+  ChatMessage,
   CollaborationCapability,
   CollaborationCapabilityDefinition,
   CollaborationRole,
@@ -448,7 +449,7 @@ export async function apiCreateCommit(
 export async function apiChat(
   message: string,
   mermaidCode: string,
-  chatHistory: Array<{ role: string; content: string }>,
+  chatHistory: ChatMessage[],
   canvasId?: string,
   activeScopeId?: string | null,
   scopePath?: string[],
@@ -461,7 +462,12 @@ export async function apiChat(
 }> {
   // Send only what the server reads — full ChatMessage objects carry
   // mermaidSnapshot and other fields that bloat the request body.
-  const slimHistory = chatHistory.map(({ role, content }) => ({ role, content }));
+  const slimHistory = chatHistory.map(({ role, content, attachment }) => ({
+    role,
+    content: attachment
+      ? `[Attached file: ${attachment.name}]\n${content}`
+      : content,
+  }));
   const res = await apiFetch("/chat", {
     method: "POST",
     body: JSON.stringify({ message, mermaidCode, chatHistory: slimHistory, canvasId, activeScopeId, scopePath, source }),
@@ -476,11 +482,13 @@ export async function apiChat(
 export async function apiUploadFile(
   fileData: string,
   fileName: string,
-  fileType: string
+  fileType: string,
+  message: string,
+  mermaidCode: string
 ) {
   const res = await apiFetch("/upload", {
     method: "POST",
-    body: JSON.stringify({ fileData, fileName, fileType }),
+    body: JSON.stringify({ fileData, fileName, fileType, message, mermaidCode }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Upload failed");

@@ -10,6 +10,10 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  attachment?: {
+    name: string;
+    type: string;
+  };
   causedCrash?: boolean;
   mermaidSnapshot?: string;
   versionSource?: "ai_chat" | "manual" | "auto_fix" | "upload" | "restore" | "project_context" | "meeting_transcribe";

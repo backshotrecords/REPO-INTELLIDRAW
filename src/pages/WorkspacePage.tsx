@@ -45,9 +45,33 @@ import type { ChatMessage, CanvasCommit, DashboardCanvas, MeetingProcessingMetri
 import { isLongTermMemoryItem } from "../types";
 
 const DEFAULT_MERMAID_CODE = "flowchart TD\n    A[Start] --> B[Next Step]";
+const DEFAULT_ATTACHMENT_INSTRUCTION = "Analyze this file and create a Mermaid diagram.";
 
 type DashboardReturnCanvas = Pick<DashboardCanvas, "project_id" | "updated_at" | "manually_archived" | "access_level" | "shared_via_group_name">;
 type AgentLogView = "chat" | "tree";
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const base64 = result.includes(",") ? result.slice(result.indexOf(",") + 1) : "";
+      if (!base64) {
+        reject(new Error("The selected file could not be read."));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(reader.error || new Error("The selected file could not be read."));
+    reader.readAsDataURL(file);
+  });
+}
 
 function getCanvasReturnContext(canvas: DashboardCanvas): DashboardReturnCanvas {
   return {
@@ -181,6 +205,7 @@ export default function WorkspacePage() {
   const scopePathRef = useRef<Array<{ id: string; label: string }>>([]);
   const [showCopyDropdown, setShowCopyDropdown] = useState(false);
   const [chatInput, setChatInput] = useState("");
+  const [pendingAttachment, setPendingAttachment] = useState<File | null>(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [voiceChunkLengthMinutes, setVoiceChunkLengthMinutes] = useState(5);
   const [meetingSilenceStopSeconds, setMeetingSilenceStopSeconds] = useState(120);
@@ -2042,8 +2067,8 @@ ${transcript}
     return registerReconnectHandler(processOfflineQueue);
   }, [processOfflineQueue, registerReconnectHandler]);
 
-  // File upload
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Stage a file in the composer. It is sent only when the user submits the message.
+  const handleFileSelection = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (isReadOnlyCollab) {
       e.target.value = "";
       return;
@@ -2055,39 +2080,87 @@ ${transcript}
     }
     const file = e.target.files?.[0];
     if (!file) return;
+    setPendingAttachment(file);
+    e.target.value = "";
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+
+  const sendAttachmentMessage = async (file: File) => {
+    if (chatLoadingRef.current || isReadOnlyCollab || isOffline) return;
+    if (!canUploadFile) {
+      addPlanNotice("canvas.upload_file", "File upload");
+      return;
+    }
 
     flushPreviewMode();
-    setChatLoading(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const base64 = (reader.result as string).split(",")[1];
-        const result = await apiUploadFile(base64, file.name, file.type);
-
-        const assistantMessage: ChatMessage = {
-          role: "assistant",
-          content: result.response,
-          timestamp: new Date().toISOString(),
-        };
-
-        const updatedHistory = [...chatHistory, assistantMessage];
-        setChatHistory(updatedHistory);
-
-        // Apply directly — version history is the safety net
-        if (result.mermaidCode) {
-          setMermaidCode(result.mermaidCode);
-          playCanvasSound();
-          autoSave(result.mermaidCode, updatedHistory);
-          createCommit(result.mermaidCode, "upload", file.name);
-        }
-      } catch (err) {
-        console.error("Upload failed:", err);
-      } finally {
-        setChatLoading(false);
-      }
+    const message = chatInput.trim() || DEFAULT_ATTACHMENT_INSTRUCTION;
+    const userMessage: ChatMessage = {
+      role: "user",
+      content: message,
+      timestamp: new Date().toISOString(),
+      attachment: {
+        name: file.name,
+        type: file.type || "application/octet-stream",
+      },
     };
-    reader.readAsDataURL(file);
-    e.target.value = "";
+    const newHistory = [...chatHistoryRef.current, userMessage];
+    chatHistoryRef.current = newHistory;
+    chatLoadingRef.current = true;
+    setChatHistory(newHistory);
+    setChatInput("");
+    setPendingAttachment(null);
+    setChatLoading(true);
+
+    try {
+      const base64 = await readFileAsBase64(file);
+      const result = await apiUploadFile(
+        base64,
+        file.name,
+        file.type,
+        message,
+        mermaidCodeRef.current,
+      );
+
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: result.response,
+        timestamp: new Date().toISOString(),
+        versionSource: "upload",
+      };
+      const updatedHistory = [...newHistory, assistantMessage];
+      chatHistoryRef.current = updatedHistory;
+      setChatHistory(updatedHistory);
+
+      const nextCode = result.mermaidCode || mermaidCodeRef.current;
+      if (result.mermaidCode) {
+        setMermaidCode(result.mermaidCode);
+        playCanvasSound();
+        createCommit(result.mermaidCode, "upload", file.name);
+      }
+      autoSave(nextCode, updatedHistory);
+    } catch (err) {
+      console.error("Upload failed:", err);
+      const errorMessage: ChatMessage = {
+        role: "assistant",
+        content: `Something went wrong while analyzing ${file.name}: ${err instanceof Error ? err.message : "Upload failed"}`,
+        timestamp: new Date().toISOString(),
+      };
+      const failedHistory = [...newHistory, errorMessage];
+      chatHistoryRef.current = failedHistory;
+      setChatHistory(failedHistory);
+      autoSave(mermaidCodeRef.current, failedHistory);
+    } finally {
+      chatLoadingRef.current = false;
+      setChatLoading(false);
+    }
+  };
+
+  const sendComposerMessage = () => {
+    if (pendingAttachment) {
+      void sendAttachmentMessage(pendingAttachment);
+      return;
+    }
+    void sendMessage(chatInput);
   };
 
   // Pan/Zoom handlers (wheel is now handled by native listener in useEffect above)
@@ -2988,6 +3061,27 @@ ${transcript}
                 </div>
               )}
 
+              {pendingAttachment && (
+                <div className="px-3 pt-3">
+                  <div className="inline-flex max-w-full items-center gap-2 rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-on-surface-variant">
+                    <span className="material-symbols-outlined shrink-0 text-lg text-primary">attach_file</span>
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-on-surface">{pendingAttachment.name}</p>
+                      <p className="text-[10px] text-on-surface-variant/65">{formatFileSize(pendingAttachment.size)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPendingAttachment(null)}
+                      className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-primary/10 hover:text-primary"
+                      title="Remove attachment"
+                      aria-label={`Remove ${pendingAttachment.name}`}
+                    >
+                      <span className="material-symbols-outlined text-base">close</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Input row */}
               <div className="p-2.5 md:p-3 flex items-end gap-2.5">
 
@@ -3027,7 +3121,7 @@ ${transcript}
                     type="file"
                     className="hidden"
                     accept="image/*,.pdf,.txt,.md,.markdown,.json,.csv,.tsv,.html,.htm,.xml,.rtf,.odt,.doc,.docx,.log,.yaml,.yml"
-                    onChange={handleFileUpload}
+                    onChange={handleFileSelection}
                   />
                 </label>
 
@@ -3060,7 +3154,7 @@ ${transcript}
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         if (isOffline || isReadOnlyCollab) return;
-                        sendMessage(chatInput);
+                        sendComposerMessage();
                       }
                     }}
                     rows={1}
@@ -3100,10 +3194,10 @@ ${transcript}
 
                   {/* Send button */}
                   <button
-                    onClick={() => sendMessage(chatInput)}
-                    disabled={chatLoading || isOffline || isReadOnlyCollab || (canUseChat && !chatInput.trim())}
+                    onClick={sendComposerMessage}
+                    disabled={chatLoading || isOffline || isReadOnlyCollab || (canUseChat && !chatInput.trim() && !pendingAttachment)}
                     className="h-10 w-10 bg-primary text-white rounded-xl flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-30"
-                    title={!canUseChat ? requiredPlanMessage("canvas.ai_chat", "AI canvas chat") : "Send"}
+                    title={pendingAttachment ? `Send with ${pendingAttachment.name}` : !canUseChat ? requiredPlanMessage("canvas.ai_chat", "AI canvas chat") : "Send"}
                   >
                     {chatLoading ? (
                       <span className="spinner border-white/30 border-t-white" style={{ width: 16, height: 16 }} />
@@ -3237,7 +3331,7 @@ ${transcript}
               type="file"
               className="hidden"
               accept="image/*,.pdf,.txt,.md,.markdown,.json,.csv,.tsv,.html,.htm,.xml,.rtf,.odt,.doc,.docx,.log,.yaml,.yml"
-              onChange={handleFileUpload}
+              onChange={handleFileSelection}
             />
           </label>
           <div
