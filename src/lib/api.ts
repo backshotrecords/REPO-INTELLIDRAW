@@ -421,7 +421,7 @@ export async function apiListAgentConnections(projectId?: string): Promise<Agent
 }
 
 export async function apiCreateAgentConnection(input: {
-  projectId: string;
+  projectId?: string;
   name: string;
   accessLevel: "read" | "edit";
   includeSubfolders: boolean;
@@ -459,6 +459,56 @@ export async function apiRevokeAgentConnection(connectionId: string) {
   const res = await apiFetch(`/agent-connections/${connectionId}`, { method: "DELETE" });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to revoke code agent connection");
+  return data as { success: boolean; revokedAt: string };
+}
+
+export async function apiAddAgentConnectionFolder(
+  connectionId: string,
+  input: {
+    projectId: string;
+    accessLevel: "read" | "edit";
+    includeSubfolders: boolean;
+  },
+): Promise<{ folder: AgentConnection["folders"][number] }> {
+  const res = await apiFetch(`/agent-connections/${connectionId}/folders`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to authorize folder");
+  return data;
+}
+
+export async function apiUpdateAgentConnectionFolder(
+  connectionId: string,
+  folderGrantId: string,
+  updates: {
+    accessLevel?: "read" | "edit";
+    includeSubfolders?: boolean;
+  },
+): Promise<{ folder: AgentConnection["folders"][number] }> {
+  const res = await apiFetch(
+    `/agent-connections/${connectionId}/folders/${folderGrantId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    },
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update folder authorization");
+  return data;
+}
+
+export async function apiRevokeAgentConnectionFolder(
+  connectionId: string,
+  folderGrantId: string,
+) {
+  const res = await apiFetch(
+    `/agent-connections/${connectionId}/folders/${folderGrantId}`,
+    { method: "DELETE" },
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to remove folder authorization");
   return data as { success: boolean; revokedAt: string };
 }
 
