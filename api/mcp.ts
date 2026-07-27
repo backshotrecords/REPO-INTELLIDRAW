@@ -536,8 +536,8 @@ function sendHttpError(res: VercelResponse, error: unknown) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
 
@@ -551,7 +551,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       enableJsonResponse: true,
     });
     await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
+    await transport.handleRequest(req, res, req.method === "POST" ? req.body : undefined);
   } catch (error) {
     if (!res.headersSent) return sendHttpError(res, error);
     console.error("MCP response error after headers sent:", error);
