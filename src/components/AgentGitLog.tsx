@@ -40,6 +40,7 @@ function sourceIcon(source?: string): string {
     case "restore": return "restore";
     case "project_context": return "folder_open";
     case "meeting_transcribe": return "groups";
+    case "external_agent": return "smart_toy";
     default: return "history";
   }
 }
@@ -103,9 +104,9 @@ export default function AgentGitLog({
   const showUnreadChatCue = unreadChatCount > 0 && sidebarView !== "chat";
 
   useEffect(() => {
-    if (switchToTreeCommand > 0) {
-      setSidebarView("tree");
-    }
+    if (switchToTreeCommand <= 0) return;
+    const timer = window.setTimeout(() => setSidebarView("tree"), 0);
+    return () => window.clearTimeout(timer);
   }, [switchToTreeCommand]);
 
   useEffect(() => {
@@ -139,7 +140,7 @@ export default function AgentGitLog({
 
     previousChatLengthRef.current = chatHistory.length;
     return () => cancelAnimationFrame(raf);
-  }, [chatHistory.length, chatLoading, sidebarView]);
+  }, [chatHistory.length, chatLoading, commits.length, sidebarView]);
 
   // Group messages into interactions
   const interactions = useMemo<Interaction[]>(() => {
@@ -172,6 +173,13 @@ export default function AgentGitLog({
       timestamp: commit.created_at,
     }));
   }, [commits]);
+
+  const externalAgentCommits = useMemo(
+    () => commits
+      .map((commit, index) => ({ commit, versionNumber: index + 1 }))
+      .filter(({ commit }) => commit.actor_type === "external_agent" || commit.source === "external_agent"),
+    [commits],
+  );
 
   // Get the LATEST mermaidSnapshot from an interaction
   const getInteractionSnapshot = (interaction: Interaction): string | undefined => {
@@ -414,7 +422,7 @@ export default function AgentGitLog({
           {sidebarView === "chat" ? (
             /* ── Chat View ── */
             <div className="flex flex-col gap-6 pt-4">
-              {chatHistory.length === 0 && !chatLoading && (
+              {chatHistory.length === 0 && externalAgentCommits.length === 0 && !chatLoading && (
                 <div className="flex flex-col items-center justify-center h-full min-h-[200px] gap-4 text-on-surface-variant/40">
                   <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/8 to-secondary/8 flex items-center justify-center">
                     <span className="material-symbols-outlined text-3xl text-primary/40" style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -457,12 +465,26 @@ export default function AgentGitLog({
                               <div className={`text-on-surface-variant text-sm leading-relaxed transition-opacity duration-300 ${
                                 expandedPills[interaction.id] ? "opacity-0 absolute pointer-events-none" : "opacity-100 relative"
                               }`}>
-                                <div className="truncate">{interaction.userMessage.content}</div>
+                                <div className="flex min-w-0 items-center gap-2">
+                                  {interaction.userMessage.attachment && (
+                                    <span className="inline-flex max-w-[48%] shrink-0 items-center gap-1 rounded-md border border-primary/15 bg-primary/5 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                      <span className="material-symbols-outlined text-[12px]">attach_file</span>
+                                      <span className="truncate">{interaction.userMessage.attachment.name}</span>
+                                    </span>
+                                  )}
+                                  <span className="truncate">{interaction.userMessage.content}</span>
+                                </div>
                               </div>
                               <div className={`text-on-surface-variant text-sm leading-relaxed whitespace-pre-wrap break-words transition-opacity duration-300 ${
                                 expandedPills[interaction.id] ? "opacity-100 relative pb-1" : "opacity-0 absolute pointer-events-none top-0 left-0 w-full"
                               }`}>
-                                {interaction.userMessage.content}
+                                {interaction.userMessage.attachment && (
+                                  <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-primary/15 bg-primary/5 px-2 py-1 text-[11px] font-semibold text-primary">
+                                    <span className="material-symbols-outlined text-sm">attach_file</span>
+                                    <span className="truncate">{interaction.userMessage.attachment.name}</span>
+                                  </div>
+                                )}
+                                <div>{interaction.userMessage.content}</div>
                               </div>
                             </div>
                             {sideChatterMetrics && (
@@ -537,6 +559,49 @@ export default function AgentGitLog({
                 </div>
                 );
               })}
+
+              {externalAgentCommits.map(({ commit, versionNumber }) => (
+                <div key={`agent-${commit.id}`} className="rounded-2xl border border-violet-200/70 bg-gradient-to-br from-violet-50 to-sky-50 p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm">
+                      <span className="material-symbols-outlined text-lg">smart_toy</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-wide text-violet-700">Code agent update</p>
+                          <p className="mt-0.5 text-sm font-bold text-on-surface">
+                            {commit.agent_connection_name || "Connected agent"}
+                          </p>
+                        </div>
+                        <span className="text-[10px] font-semibold text-on-surface-variant/60">
+                          {relativeTime(commit.created_at)}
+                        </span>
+                      </div>
+                      <p className="mt-3 text-sm font-semibold leading-5 text-on-surface">
+                        {commit.change_summary || commit.commit_message || "Updated the flowchart."}
+                      </p>
+                      {commit.change_reason && (
+                        <div className="mt-2 rounded-lg bg-white/70 px-3 py-2">
+                          <p className="text-[10px] font-black uppercase tracking-wide text-on-surface-variant/60">Why</p>
+                          <p className="mt-1 text-xs leading-5 text-on-surface-variant">{commit.change_reason}</p>
+                        </div>
+                      )}
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <span className="text-[10px] font-semibold text-on-surface-variant/60">Saved as version {versionNumber}</span>
+                        <button
+                          type="button"
+                          onClick={() => onRestore(commit.mermaid_code, versionNumber)}
+                          className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-white/80 px-2.5 py-1 text-[10px] font-bold text-violet-700 hover:bg-white"
+                        >
+                          <span className="material-symbols-outlined text-xs">restore</span>
+                          Restore
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
 
               {/* Loading */}
               {chatLoading && (

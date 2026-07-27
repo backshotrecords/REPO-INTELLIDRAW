@@ -1,7 +1,10 @@
 import type {
+  AgentAction,
+  AgentConnection,
   CanvasCommit,
   CanvasPreviewCode,
   CanvasProject,
+  ChatMessage,
   CollaborationCapability,
   CollaborationCapabilityDefinition,
   CollaborationRole,
@@ -407,6 +410,74 @@ export async function apiDeleteProjectShare(projectId: string, shareId: string) 
   return data;
 }
 
+// ===== User-managed code agent connections =====
+
+export async function apiListAgentConnections(projectId?: string): Promise<AgentConnection[]> {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+  const res = await apiFetch(`/agent-connections${query}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch code agent connections");
+  return data.connections;
+}
+
+export async function apiCreateAgentConnection(input: {
+  projectId: string;
+  name: string;
+  accessLevel: "read" | "edit";
+  includeSubfolders: boolean;
+  expiresInDays: 30 | 90 | 365;
+}): Promise<{ connection: AgentConnection; token: string }> {
+  const res = await apiFetch("/agent-connections", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to create code agent connection");
+  return data;
+}
+
+export async function apiUpdateAgentConnection(
+  connectionId: string,
+  updates: {
+    name?: string;
+    accessLevel?: "read" | "edit";
+    includeSubfolders?: boolean;
+    expiresInDays?: 30 | 90 | 365;
+    rotate?: boolean;
+  },
+): Promise<{ connection: AgentConnection; token?: string }> {
+  const res = await apiFetch(`/agent-connections/${connectionId}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update code agent connection");
+  return data;
+}
+
+export async function apiRevokeAgentConnection(connectionId: string) {
+  const res = await apiFetch(`/agent-connections/${connectionId}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to revoke code agent connection");
+  return data as { success: boolean; revokedAt: string };
+}
+
+export async function apiListAgentActions(options: {
+  projectId?: string;
+  connectionId?: string;
+  limit?: number;
+} = {}): Promise<AgentAction[]> {
+  const query = new URLSearchParams();
+  if (options.projectId) query.set("projectId", options.projectId);
+  if (options.connectionId) query.set("connectionId", options.connectionId);
+  if (options.limit) query.set("limit", String(options.limit));
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  const res = await apiFetch(`/agent-actions${suffix}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch code agent activity");
+  return data.actions;
+}
+
 // ===== Canvas Auto-Naming =====
 
 export async function apiSuggestCanvasName(mermaidCode: string): Promise<string> {
@@ -448,7 +519,7 @@ export async function apiCreateCommit(
 export async function apiChat(
   message: string,
   mermaidCode: string,
-  chatHistory: Array<{ role: string; content: string }>,
+  chatHistory: ChatMessage[],
   canvasId?: string,
   activeScopeId?: string | null,
   scopePath?: string[],
@@ -461,7 +532,12 @@ export async function apiChat(
 }> {
   // Send only what the server reads — full ChatMessage objects carry
   // mermaidSnapshot and other fields that bloat the request body.
-  const slimHistory = chatHistory.map(({ role, content }) => ({ role, content }));
+  const slimHistory = chatHistory.map(({ role, content, attachment }) => ({
+    role,
+    content: attachment
+      ? `[Attached file: ${attachment.name}]\n${content}`
+      : content,
+  }));
   const res = await apiFetch("/chat", {
     method: "POST",
     body: JSON.stringify({ message, mermaidCode, chatHistory: slimHistory, canvasId, activeScopeId, scopePath, source }),
@@ -476,11 +552,13 @@ export async function apiChat(
 export async function apiUploadFile(
   fileData: string,
   fileName: string,
-  fileType: string
+  fileType: string,
+  message: string,
+  mermaidCode: string
 ) {
   const res = await apiFetch("/upload", {
     method: "POST",
-    body: JSON.stringify({ fileData, fileName, fileType }),
+    body: JSON.stringify({ fileData, fileName, fileType, message, mermaidCode }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Upload failed");

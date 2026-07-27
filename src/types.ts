@@ -10,6 +10,10 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  attachment?: {
+    name: string;
+    type: string;
+  };
   causedCrash?: boolean;
   mermaidSnapshot?: string;
   versionSource?: "ai_chat" | "manual" | "auto_fix" | "upload" | "restore" | "project_context" | "meeting_transcribe";
@@ -22,6 +26,45 @@ export interface CanvasCommit {
   mermaid_code: string;
   source: string;
   commit_message: string;
+  created_at: string;
+  actor_type?: "user" | "intellidraw_ai" | "external_agent" | null;
+  agent_connection_id?: string | null;
+  agent_connection_name?: string | null;
+  change_summary?: string | null;
+  change_reason?: string | null;
+  before_hash?: string | null;
+  after_hash?: string | null;
+}
+
+export interface AgentConnection {
+  id: string;
+  rootProjectId: string;
+  rootProjectTitle: string;
+  name: string;
+  tokenPrefix: string;
+  accessLevel: "read" | "edit";
+  includeSubfolders: boolean;
+  expiresAt: string;
+  isExpired: boolean;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentAction {
+  id: string;
+  connection_id: string | null;
+  connection_name: string;
+  root_project_id: string | null;
+  target_project_id: string | null;
+  canvas_id: string | null;
+  commit_id: string | null;
+  operation: "list_folder" | "get_flowchart" | "validate_flowchart" | "create_flowchart" | "update_flowchart";
+  status: "success" | "failure" | "conflict";
+  change_summary: string | null;
+  reason: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
 }
 

@@ -8,9 +8,9 @@ import type { ResponseInputMessageContentList } from "openai/resources/responses
 
 const MAX_INPUT_FILE_BYTES = 50 * 1024 * 1024;
 
-const UPLOAD_ANALYSIS_INSTRUCTIONS = `You are IntelliDraw, an AI that analyzes images and documents to generate Mermaid flowcharts.
+const UPLOAD_ANALYSIS_INSTRUCTIONS = `You are IntelliDraw, an AI that analyzes a user's message together with an attached image or document to generate or update Mermaid flowcharts.
 
-When given an image or document, analyze its content and create a comprehensive Mermaid flowchart that represents the processes, workflows, relationships, or structure shown.
+Follow the user's request as the primary instruction. Analyze the attachment as the source material. If the user explicitly asks to add to, compare with, or update the current diagram, use the supplied current Mermaid code as the starting point. Otherwise create a new comprehensive flowchart from the attachment.
 
 ALWAYS output the complete Mermaid code in a fenced code block with the language identifier "mermaid".
 Use descriptive node labels and proper flow connections.`;
@@ -93,8 +93,19 @@ function buildInputContent(args: {
   fileName: string;
   kind: "image" | "document";
   mimeType: string;
+  message: string;
+  mermaidCode: string;
 }): ResponseInputMessageContentList {
-  const prompt = `Analyze this ${args.kind === "image" ? "image" : "document"} "${args.fileName}" and create a Mermaid flowchart that represents its content, structure, or workflow.`;
+  const requestedAction = args.message.trim() || `Analyze this ${args.kind} and create a Mermaid flowchart that represents its content, structure, or workflow.`;
+  const currentDiagram = args.mermaidCode.trim()
+    ? `\n\nCURRENT MERMAID CODE:\n\`\`\`mermaid\n${args.mermaidCode.trim()}\n\`\`\``
+    : "";
+  const prompt = `The user attached ${args.kind === "image" ? "an image" : "a document"} named "${args.fileName}".
+
+USER REQUEST:
+${requestedAction}${currentDiagram}
+
+Analyze the user's request and the attached file together. Only use the current diagram as a starting point when the user asks to update, extend, compare with, or integrate into it. Return the complete resulting Mermaid diagram.`;
 
   if (args.kind === "image") {
     return [
@@ -157,7 +168,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Parse the uploaded file from the request body (base64 encoded)
-    const { fileData, fileName, fileType } = req.body;
+    const { fileData, fileName, fileType, message, mermaidCode: currentMermaidCode } = req.body;
     const normalizedFileData = normalizeBase64(fileData);
     const safeFileName = typeof fileName === "string" && fileName.trim()
       ? fileName.trim()
@@ -191,6 +202,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             fileName: safeFileName,
             kind: resolvedType.kind,
             mimeType: resolvedType.mimeType,
+            message: typeof message === "string" ? message : "",
+            mermaidCode: typeof currentMermaidCode === "string" ? currentMermaidCode : "",
           }),
         },
       ],
@@ -208,6 +221,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       inputBytes,
       kind: resolvedType.kind,
       model: modelId,
+      hasUserMessage: typeof message === "string" && message.trim().length > 0,
     });
 
     return res.status(200).json({

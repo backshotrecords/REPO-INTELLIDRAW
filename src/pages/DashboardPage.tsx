@@ -5,6 +5,7 @@ import BottomNav from "../components/BottomNav";
 import DashboardCanvasTreeView from "../components/DashboardCanvasTreeView";
 import DashboardFileViewToggle, { type DashboardFileViewMode } from "../components/DashboardFileViewToggle";
 import PlanBadge from "../components/PlanBadge";
+import AgentAccessDialog from "../components/AgentAccessDialog";
 import {
   apiCreateCanvas,
   apiCreateProject,
@@ -105,6 +106,7 @@ export default function DashboardPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [projectWizard, setProjectWizard] = useState<{ mode: "create" } | { mode: "edit"; projectId: string } | null>(null);
   const [collabProjectId, setCollabProjectId] = useState<string | null>(null);
+  const [agentProjectId, setAgentProjectId] = useState<string | null>(null);
   const [movingCanvasId, setMovingCanvasId] = useState<string | null>(null);
   const [movingProjectId, setMovingProjectId] = useState<string | null>(null);
   const [movePendingTargetKey, setMovePendingTargetKey] = useState<string | null>(null);
@@ -196,6 +198,7 @@ export default function DashboardPage() {
   const movingCanvas = movingCanvasId ? canvases.find((canvas) => canvas.id === movingCanvasId) ?? null : null;
   const movingProject = movingProjectId ? projects.find((project) => project.id === movingProjectId) ?? null : null;
   const collabProject = collabProjectId ? projects.find((project) => project.id === collabProjectId) ?? null : null;
+  const agentProject = agentProjectId ? projects.find((project) => project.id === agentProjectId) ?? null : null;
   const editingProject = projectWizard?.mode === "edit"
     ? projects.find((project) => project.id === projectWizard.projectId) ?? null
     : null;
@@ -792,6 +795,17 @@ export default function DashboardPage() {
                       {getAccessRoleLabel(activeProject)}
                     </span>
                   )}
+                  {activeProjectHasShareCapability && (
+                    <button
+                      type="button"
+                      aria-label="Manage code agent access"
+                      title="Agent access"
+                      onClick={() => setAgentProjectId(activeProject.id)}
+                      className="w-10 h-10 rounded-full bg-surface-container-lowest border border-outline-variant/30 shadow-sm hover:bg-surface-container-low flex items-center justify-center text-primary transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[22px]">smart_toy</span>
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -913,6 +927,10 @@ export default function DashboardPage() {
                         onCollaborate={() => {
                           setMenuOpen(null);
                           setCollabProjectId(project.id);
+                        }}
+                        onAgentAccess={() => {
+                          setMenuOpen(null);
+                          setAgentProjectId(project.id);
                         }}
                         onMove={() => {
                           setMenuOpen(null);
@@ -1159,6 +1177,13 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {agentProject && (
+        <AgentAccessDialog
+          project={agentProject}
+          onClose={() => setAgentProjectId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1258,6 +1283,7 @@ function ProjectCard({
   onToggleMenu,
   onEdit,
   onCollaborate,
+  onAgentAccess,
   onMove,
   onDragStart,
   onDragEnd,
@@ -1280,6 +1306,7 @@ function ProjectCard({
   onToggleMenu: (button: HTMLButtonElement) => void;
   onEdit: () => void;
   onCollaborate: () => void;
+  onAgentAccess: () => void;
   onMove: () => void;
   onDragStart: (event: DragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
@@ -1356,6 +1383,7 @@ function ProjectCard({
               onOpen={onOpen}
               onEdit={onEdit}
               onCollaborate={onCollaborate}
+              onAgentAccess={onAgentAccess}
               onMove={onMove}
               onArchive={onArchive}
               onDelete={onDelete}
@@ -1669,6 +1697,7 @@ function ProjectMenu({
   onOpen,
   onEdit,
   onCollaborate,
+  onAgentAccess,
   onMove,
   onArchive,
   onDelete,
@@ -1683,6 +1712,7 @@ function ProjectMenu({
   onOpen: () => void;
   onEdit: () => void;
   onCollaborate: () => void;
+  onAgentAccess: () => void;
   onMove: () => void;
   onArchive: () => void;
   onDelete: () => void;
@@ -1692,6 +1722,7 @@ function ProjectMenu({
       <MenuButton icon="folder_open" label="Open" onClick={onOpen} />
       {canEdit && <MenuButton icon="edit" label="Edit" onClick={onEdit} />}
       {canManageShares && <MenuButton icon="groups" label="Collaborate" onClick={onCollaborate} />}
+      {canManageShares && <MenuButton icon="smart_toy" label="Agent access" onClick={onAgentAccess} />}
       {canMove && <MenuButton icon="drive_file_move" label="Move to Project" onClick={onMove} />}
       {canArchive && <MenuButton icon="archive" label="Archive" onClick={onArchive} />}
       {canDelete && <MenuButton icon="delete" label="Delete" danger onClick={onDelete} />}
