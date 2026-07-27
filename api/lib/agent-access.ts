@@ -8,7 +8,7 @@ export type AgentAccessLevel = "read" | "edit";
 export type AgentConnectionRecord = {
   id: string;
   user_id: string;
-  root_project_id: string;
+  root_project_id: string | null;
   name: string;
   token_prefix: string;
   token_hash: string;
@@ -21,11 +21,21 @@ export type AgentConnectionRecord = {
   updated_at: string;
 };
 
+export type AgentFolderGrantRecord = {
+  id: string;
+  connection_id: string;
+  project_id: string;
+  access_level: AgentAccessLevel;
+  include_subfolders: boolean;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AgentPrincipal = {
   connection: AgentConnectionRecord;
   userId: string;
-  rootProjectId: string;
-  ownerUserId: string;
+  folders: AgentFolderGrantRecord[];
 };
 
 export class AgentAccessError extends Error {
@@ -80,17 +90,43 @@ function secureHashMatch(actualHash: string, expectedHash: string) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-export function publicAgentConnection(row: AgentConnectionRecord & {
+export function publicAgentFolderGrant(row: AgentFolderGrantRecord & {
   canvas_projects?: { title?: string } | null;
 }) {
   return {
     id: row.id,
-    rootProjectId: row.root_project_id,
-    rootProjectTitle: row.canvas_projects?.title || "",
-    name: row.name,
-    tokenPrefix: row.token_prefix,
+    projectId: row.project_id,
+    projectTitle: row.canvas_projects?.title || "",
     accessLevel: row.access_level,
     includeSubfolders: row.include_subfolders,
+    revokedAt: row.revoked_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function publicAgentConnection(row: AgentConnectionRecord & {
+  canvas_projects?: { title?: string } | null;
+  agent_connection_folders?: Array<AgentFolderGrantRecord & {
+    canvas_projects?: { title?: string } | null;
+  }>;
+}) {
+  const folders = (row.agent_connection_folders || [])
+    .map(publicAgentFolderGrant)
+    .sort((left, right) => left.projectTitle.localeCompare(right.projectTitle));
+  const activeFolders = folders.filter((folder) => !folder.revokedAt);
+  const firstFolder = activeFolders[0] || folders[0];
+
+  return {
+    id: row.id,
+    rootProjectId: firstFolder?.projectId || row.root_project_id || null,
+    rootProjectTitle: firstFolder?.projectTitle || row.canvas_projects?.title || "",
+    name: row.name,
+    tokenPrefix: row.token_prefix,
+    accessLevel: firstFolder?.accessLevel || row.access_level,
+    includeSubfolders: firstFolder?.includeSubfolders ?? row.include_subfolders,
+    folders,
+    activeFolderCount: activeFolders.length,
     expiresAt: row.expires_at,
     isExpired: new Date(row.expires_at).getTime() <= Date.now(),
     revokedAt: row.revoked_at,
@@ -140,13 +176,16 @@ export async function authenticateAgentRequest(req: VercelRequest): Promise<Agen
     throw new AgentAccessError(401, "expired_token", "This Intellidraw agent connection has expired.");
   }
 
-  const rootAccess = await getProjectAccess(connection.root_project_id, connection.user_id);
-  if (!rootAccess || !hasCapability(rootAccess, "project.manage_shares")) {
-    throw new AgentAccessError(
-      403,
-      "connection_permission_removed",
-      "The user who created this connection can no longer manage access to its folder.",
-    );
+  const { data: folderRows, error: folderError } = await supabase
+    .from("agent_connection_folders")
+    .select("*")
+    .eq("connection_id", connection.id)
+    .is("revoked_at", null)
+    .order("created_at");
+
+  if (folderError) {
+    console.error("Agent folder grants lookup error:", folderError);
+    throw new AgentAccessError(503, "agent_access_unavailable", "Agent folder access is temporarily unavailable.");
   }
 
   await supabase
@@ -157,15 +196,14 @@ export async function authenticateAgentRequest(req: VercelRequest): Promise<Agen
   return {
     connection,
     userId: connection.user_id,
-    rootProjectId: connection.root_project_id,
-    ownerUserId: rootAccess.ownerUserId,
+    folders: (folderRows || []) as AgentFolderGrantRecord[],
   };
 }
 
 async function loadProjectParent(projectId: string) {
   const { data, error } = await supabase
     .from("canvas_projects")
-    .select("id, user_id, parent_project_id, title")
+    .select("id, user_id, parent_project_id, title, updated_at")
     .eq("id", projectId)
     .maybeSingle();
 
@@ -178,7 +216,53 @@ async function loadProjectParent(projectId: string) {
     user_id: string;
     parent_project_id: string | null;
     title: string;
+    updated_at: string;
   } | null;
+}
+
+async function loadProjectAncestry(projectId: string) {
+  const ancestry: Array<NonNullable<Awaited<ReturnType<typeof loadProjectParent>>>> = [];
+  const visited = new Set<string>();
+  let currentId = projectId;
+
+  for (let depth = 0; depth < 64 && currentId; depth += 1) {
+    if (visited.has(currentId)) break;
+    visited.add(currentId);
+    const current = await loadProjectParent(currentId);
+    if (!current) break;
+    ancestry.push(current);
+    currentId = current.parent_project_id || "";
+  }
+
+  return ancestry;
+}
+
+export async function isProjectWithin(projectId: string, possibleAncestorId: string) {
+  const ancestry = await loadProjectAncestry(projectId);
+  return ancestry.some((project) => project.id === possibleAncestorId);
+}
+
+export async function listAvailableAgentFolders(principal: AgentPrincipal) {
+  const available: Array<{
+    folderGrant: AgentFolderGrantRecord;
+    project: NonNullable<Awaited<ReturnType<typeof loadProjectParent>>>;
+    ownerUserId: string;
+  }> = [];
+
+  for (const folderGrant of principal.folders) {
+    const [project, access] = await Promise.all([
+      loadProjectParent(folderGrant.project_id),
+      getProjectAccess(folderGrant.project_id, principal.userId),
+    ]);
+    if (!project || !access || !hasCapability(access, "project.manage_shares")) continue;
+    available.push({
+      folderGrant,
+      project,
+      ownerUserId: access.ownerUserId,
+    });
+  }
+
+  return available;
 }
 
 export async function requireProjectInAgentScope(
@@ -186,24 +270,38 @@ export async function requireProjectInAgentScope(
   projectId: string,
   capability: "project.view" | "canvas.create" = "project.view",
 ) {
-  const access = await getProjectAccess(projectId, principal.userId);
-  if (!access || access.ownerUserId !== principal.ownerUserId || !hasCapability(access, capability)) {
+  const [access, ancestry] = await Promise.all([
+    getProjectAccess(projectId, principal.userId),
+    loadProjectAncestry(projectId),
+  ]);
+  if (!access || !hasCapability(access, capability)) {
     throw new AgentAccessError(404, "folder_not_found", "Folder not found in this agent connection.");
   }
 
-  if (projectId === principal.rootProjectId) return access;
-  if (!principal.connection.include_subfolders) {
-    throw new AgentAccessError(404, "folder_not_found", "Folder not found in this agent connection.");
-  }
+  const ancestryIndex = new Map(ancestry.map((project, index) => [project.id, index]));
+  const candidates = principal.folders
+    .map((folderGrant) => ({
+      folderGrant,
+      depth: ancestryIndex.get(folderGrant.project_id),
+    }))
+    .filter((candidate) => (
+      candidate.depth !== undefined
+      && (candidate.depth === 0 || candidate.folderGrant.include_subfolders)
+    ))
+    .sort((left, right) => Number(left.depth) - Number(right.depth));
 
-  const visited = new Set<string>();
-  let currentId = projectId;
-  for (let depth = 0; depth < 64 && currentId; depth += 1) {
-    if (visited.has(currentId)) break;
-    visited.add(currentId);
-    if (currentId === principal.rootProjectId) return access;
-    const current = await loadProjectParent(currentId);
-    currentId = current?.parent_project_id || "";
+  for (const candidate of candidates) {
+    const rootAccess = await getProjectAccess(candidate.folderGrant.project_id, principal.userId);
+    if (
+      rootAccess
+      && rootAccess.ownerUserId === access.ownerUserId
+      && hasCapability(rootAccess, "project.manage_shares")
+    ) {
+      return {
+        ...access,
+        folderGrant: candidate.folderGrant,
+      };
+    }
   }
 
   throw new AgentAccessError(404, "folder_not_found", "Folder not found in this agent connection.");
@@ -215,7 +313,7 @@ export async function requireCanvasInAgentScope(
   capability: "canvas.view" | "canvas.update" | "canvas.commit" = "canvas.view",
 ) {
   const access = await getCanvasAccess(canvasId, principal.userId);
-  if (!access || access.ownerUserId !== principal.ownerUserId || !hasCapability(access, capability)) {
+  if (!access || !hasCapability(access, capability)) {
     throw new AgentAccessError(404, "flowchart_not_found", "Flowchart not found in this agent connection.");
   }
 
@@ -224,13 +322,16 @@ export async function requireCanvasInAgentScope(
     throw new AgentAccessError(404, "flowchart_not_found", "Flowchart not found in this agent connection.");
   }
 
-  await requireProjectInAgentScope(principal, projectId);
-  return access;
+  const projectAccess = await requireProjectInAgentScope(principal, projectId);
+  return {
+    ...access,
+    folderGrant: projectAccess.folderGrant,
+  };
 }
 
-export function requireAgentWriteAccess(principal: AgentPrincipal) {
-  if (principal.connection.access_level !== "edit") {
-    throw new AgentAccessError(403, "read_only_connection", "This agent connection is read-only.");
+export function requireAgentWriteAccess(folderGrant: AgentFolderGrantRecord) {
+  if (folderGrant.access_level !== "edit") {
+    throw new AgentAccessError(403, "read_only_connection", "This folder is read-only for this agent connection.");
   }
 }
 

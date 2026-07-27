@@ -36,14 +36,27 @@ export interface CanvasCommit {
   after_hash?: string | null;
 }
 
+export interface AgentConnectionFolder {
+  id: string;
+  projectId: string;
+  projectTitle: string;
+  accessLevel: "read" | "edit";
+  includeSubfolders: boolean;
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AgentConnection {
   id: string;
-  rootProjectId: string;
+  rootProjectId: string | null;
   rootProjectTitle: string;
   name: string;
   tokenPrefix: string;
   accessLevel: "read" | "edit";
   includeSubfolders: boolean;
+  folders: AgentConnectionFolder[];
+  activeFolderCount: number;
   expiresAt: string;
   isExpired: boolean;
   revokedAt: string | null;
@@ -55,6 +68,7 @@ export interface AgentConnection {
 export interface AgentAction {
   id: string;
   connection_id: string | null;
+  authorization_folder_id?: string | null;
   connection_name: string;
   root_project_id: string | null;
   target_project_id: string | null;

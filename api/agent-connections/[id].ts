@@ -8,7 +8,9 @@ import {
   type AgentConnectionRecord,
 } from "../lib/agent-access.js";
 import { supabase } from "../lib/db.js";
-import { getProjectAccess, hasCapability } from "../lib/project-access.js";
+
+const CONNECTION_SELECT =
+  "*, canvas_projects(title), agent_connection_folders(*, canvas_projects(title))";
 
 function sendError(res: VercelResponse, error: unknown) {
   if (error instanceof AgentAccessError) {
@@ -38,10 +40,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!existing) return res.status(404).json({ error: "Agent connection not found" });
 
     const connection = existing as AgentConnectionRecord;
-    const projectAccess = await getProjectAccess(connection.root_project_id, auth.userId);
-    if (!projectAccess || !hasCapability(projectAccess, "project.manage_shares")) {
-      return res.status(403).json({ error: "You no longer have permission to manage this connection" });
-    }
 
     if (req.method === "DELETE") {
       if (connection.revoked_at) {
@@ -93,14 +91,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         token = credential.token;
       }
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("agent_connections")
         .update(update)
         .eq("id", connectionId)
+        .eq("user_id", auth.userId);
+      if (error) throw error;
+
+      if (connection.root_project_id && (accessLevel !== undefined || includeSubfolders !== undefined)) {
+        const legacyFolderUpdate: Record<string, unknown> = {
+          updated_at: new Date().toISOString(),
+        };
+        if (accessLevel !== undefined) legacyFolderUpdate.access_level = accessLevel;
+        if (includeSubfolders !== undefined) {
+          legacyFolderUpdate.include_subfolders = Boolean(includeSubfolders);
+        }
+        const { error: legacyFolderError } = await supabase
+          .from("agent_connection_folders")
+          .update(legacyFolderUpdate)
+          .eq("connection_id", connectionId)
+          .eq("project_id", connection.root_project_id);
+        if (legacyFolderError) throw legacyFolderError;
+      }
+
+      const { data, error: loadError } = await supabase
+        .from("agent_connections")
+        .select(CONNECTION_SELECT)
+        .eq("id", connectionId)
         .eq("user_id", auth.userId)
-        .select("*, canvas_projects(title)")
         .single();
-      if (error || !data) throw error || new Error("Connection update returned no row");
+      if (loadError || !data) throw loadError || new Error("Connection update returned no row");
 
       return res.status(200).json({
         connection: publicAgentConnection(data as never),

@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  apiAddAgentConnectionFolder,
   apiCreateAgentConnection,
   apiListAgentActions,
   apiListAgentConnections,
+  apiListProjects,
   apiRevokeAgentConnection,
+  apiRevokeAgentConnectionFolder,
   apiUpdateAgentConnection,
+  apiUpdateAgentConnectionFolder,
 } from "../lib/api";
-import type { AgentAction, AgentConnection, CanvasProject } from "../types";
+import type {
+  AgentAction,
+  AgentConnection,
+  AgentConnectionFolder,
+  CanvasProject,
+} from "../types";
 
 function formatDate(value: string | null) {
   if (!value) return "Never";
@@ -117,21 +126,46 @@ function CredentialRow({
 
 function ConnectionCard({
   connection,
+  projects,
+  preferredProjectId,
   busy,
-  onAccessChange,
-  onSubfoldersChange,
+  onAddFolder,
+  onFolderAccessChange,
+  onFolderSubfoldersChange,
+  onFolderRevoke,
   onRotate,
   onRevoke,
 }: {
   connection: AgentConnection;
+  projects: CanvasProject[];
+  preferredProjectId?: string;
   busy: boolean;
-  onAccessChange: (accessLevel: "read" | "edit") => void;
-  onSubfoldersChange: (includeSubfolders: boolean) => void;
+  onAddFolder: (input: {
+    projectId: string;
+    accessLevel: "read" | "edit";
+    includeSubfolders: boolean;
+  }) => void;
+  onFolderAccessChange: (folder: AgentConnectionFolder, accessLevel: "read" | "edit") => void;
+  onFolderSubfoldersChange: (folder: AgentConnectionFolder, includeSubfolders: boolean) => void;
+  onFolderRevoke: (folder: AgentConnectionFolder) => void;
   onRotate: () => void;
   onRevoke: () => void;
 }) {
   const expired = connection.isExpired;
   const inactive = Boolean(connection.revokedAt) || expired;
+  const activeFolders = connection.folders.filter((folder) => !folder.revokedAt);
+  const availableProjects = projects.filter((project) => (
+    !activeFolders.some((folder) => folder.projectId === project.id)
+  ));
+  const [showAddFolder, setShowAddFolder] = useState(false);
+  const [projectId, setProjectId] = useState(preferredProjectId || "");
+  const [folderAccess, setFolderAccess] = useState<"read" | "edit">("edit");
+  const [folderSubfolders, setFolderSubfolders] = useState(true);
+  const selectedProjectId = availableProjects.some((project) => project.id === projectId)
+    ? projectId
+    : preferredProjectId && availableProjects.some((project) => project.id === preferredProjectId)
+      ? preferredProjectId
+      : availableProjects[0]?.id || "";
 
   return (
     <div className={`rounded-xl border p-4 ${inactive ? "border-outline-variant/20 bg-surface-container-low/60" : "border-outline-variant/25 bg-white"}`}>
@@ -149,38 +183,129 @@ function ConnectionCard({
               {connection.revokedAt ? "Revoked" : expired ? "Expired" : "Active"}
             </span>
           </div>
-          {connection.rootProjectTitle && (
-            <p className="mt-1 text-xs font-semibold text-primary">{connection.rootProjectTitle}</p>
-          )}
           <p className="mt-1 font-mono text-[11px] text-on-surface-variant">{connection.tokenPrefix}…</p>
         </div>
-
-        {!inactive && (
-          <select
-            value={connection.accessLevel}
-            disabled={busy}
-            onChange={(event) => onAccessChange(event.target.value as "read" | "edit")}
-            className="rounded-lg border border-outline-variant/30 bg-surface-container-low px-3 py-2 text-xs font-bold text-on-surface outline-none"
-            aria-label={`Access level for ${connection.name}`}
-          >
-            <option value="read">Read only</option>
-            <option value="edit">Can edit</option>
-          </select>
-        )}
+        <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-black uppercase text-primary">
+          {activeFolders.length} {activeFolders.length === 1 ? "folder" : "folders"}
+        </span>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-on-surface-variant sm:grid-cols-3">
-        <button
-          type="button"
-          disabled={busy || inactive}
-          onClick={() => onSubfoldersChange(!connection.includeSubfolders)}
-          className="text-left hover:text-primary disabled:pointer-events-none"
-          title={inactive ? undefined : "Change subfolder access"}
-        >
-          Subfolders: <strong>{connection.includeSubfolders ? "Included" : "Not included"}</strong>
-        </button>
+      <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-on-surface-variant sm:grid-cols-2">
         <span>Last used: <strong>{formatDate(connection.lastUsedAt)}</strong></span>
         <span>Expires: <strong>{formatDate(connection.expiresAt)}</strong></span>
+      </div>
+
+      <div className="mt-4 space-y-2 border-t border-outline-variant/20 pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-black uppercase tracking-wide text-on-surface-variant">Authorized folders</p>
+          {!inactive && availableProjects.length > 0 && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setShowAddFolder((current) => !current)}
+              className="text-xs font-bold text-primary hover:underline disabled:opacity-50"
+            >
+              Add folder
+            </button>
+          )}
+        </div>
+
+        {activeFolders.length === 0 ? (
+          <p className="rounded-lg bg-surface-container-low px-3 py-3 text-xs text-on-surface-variant">
+            This key is active but cannot see any folders yet.
+          </p>
+        ) : activeFolders.map((folder) => (
+          <div key={folder.id} className="rounded-lg bg-surface-container-low px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="min-w-0 truncate text-sm font-bold text-on-surface">{folder.projectTitle || "Untitled folder"}</p>
+              <select
+                value={folder.accessLevel}
+                disabled={busy || inactive}
+                onChange={(event) => onFolderAccessChange(folder, event.target.value as "read" | "edit")}
+                className="rounded-md border border-outline-variant/30 bg-white px-2 py-1.5 text-[11px] font-bold text-on-surface outline-none"
+                aria-label={`Access level for ${folder.projectTitle}`}
+              >
+                <option value="read">Read only</option>
+                <option value="edit">Can edit</option>
+              </select>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+              <button
+                type="button"
+                disabled={busy || inactive}
+                onClick={() => onFolderSubfoldersChange(folder, !folder.includeSubfolders)}
+                className="text-on-surface-variant hover:text-primary disabled:opacity-50"
+              >
+                Subfolders: <strong>{folder.includeSubfolders ? "Included" : "Not included"}</strong>
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onFolderRevoke(folder)}
+                className="font-bold text-error hover:underline disabled:opacity-50"
+              >
+                Remove access
+              </button>
+            </div>
+          </div>
+        ))}
+
+        {showAddFolder && !inactive && (
+          <div className="grid grid-cols-1 gap-3 rounded-lg border border-primary/15 bg-primary/5 p-3 sm:grid-cols-2">
+            <label className="text-xs font-bold text-on-surface sm:col-span-2">
+              Folder
+              <select
+                value={selectedProjectId}
+                onChange={(event) => setProjectId(event.target.value)}
+                className="mt-1.5 w-full rounded-lg border border-outline-variant/30 bg-white px-3 py-2 text-sm font-normal outline-none"
+              >
+                {availableProjects.map((project) => (
+                  <option key={project.id} value={project.id}>{project.title}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs font-bold text-on-surface">
+              Access
+              <select
+                value={folderAccess}
+                onChange={(event) => setFolderAccess(event.target.value as "read" | "edit")}
+                className="mt-1.5 w-full rounded-lg border border-outline-variant/30 bg-white px-3 py-2 text-sm font-normal outline-none"
+              >
+                <option value="read">Read only</option>
+                <option value="edit">Can create and edit</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-3 self-end rounded-lg bg-white px-3 py-2.5 text-xs font-bold text-on-surface ring-1 ring-outline-variant/20">
+              <input
+                type="checkbox"
+                checked={folderSubfolders}
+                onChange={(event) => setFolderSubfolders(event.target.checked)}
+                className="h-4 w-4 accent-primary"
+              />
+              Include subfolders
+            </label>
+            <div className="flex justify-end gap-2 sm:col-span-2">
+              <button type="button" onClick={() => setShowAddFolder(false)} className="px-3 py-2 text-xs font-bold text-on-surface-variant">
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={busy || !selectedProjectId}
+                onClick={() => {
+                  onAddFolder({
+                    projectId: selectedProjectId,
+                    accessLevel: folderAccess,
+                    includeSubfolders: folderSubfolders,
+                  });
+                  setShowAddFolder(false);
+                }}
+                className="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+              >
+                Authorize folder
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="mt-4 flex justify-end gap-2">
@@ -216,6 +341,7 @@ function AgentConnectionsPanel({
 }) {
   const [connections, setConnections] = useState<AgentConnection[]>([]);
   const [actions, setActions] = useState<AgentAction[]>([]);
+  const [projects, setProjects] = useState<CanvasProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -230,12 +356,20 @@ function AgentConnectionsPanel({
     setLoading(true);
     setError("");
     try {
-      const [nextConnections, nextActions] = await Promise.all([
-        apiListAgentConnections(project?.id),
+      const [nextConnections, nextActions, nextProjects] = await Promise.all([
+        apiListAgentConnections(),
         showActivity ? apiListAgentActions({ projectId: project?.id, limit: 30 }) : Promise.resolve([]),
+        apiListProjects(),
       ]);
       setConnections(nextConnections);
       setActions(nextActions);
+      setProjects(nextProjects.filter((candidate) => (
+        !candidate.manually_archived
+        && (
+          candidate.access_level === "owner"
+          || candidate.capabilities?.includes("project.manage_shares")
+        )
+      )));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load code agent access");
     } finally {
@@ -248,12 +382,11 @@ function AgentConnectionsPanel({
   }, [load]);
 
   const createConnection = async () => {
-    if (!project) return;
     setBusyId("create");
     setError("");
     try {
       const result = await apiCreateAgentConnection({
-        projectId: project.id,
+        ...(project ? { projectId: project.id } : {}),
         name,
         accessLevel,
         includeSubfolders,
@@ -269,27 +402,89 @@ function AgentConnectionsPanel({
     }
   };
 
-  const updateAccess = async (connection: AgentConnection, nextAccess: "read" | "edit") => {
+  const addFolder = async (
+    connection: AgentConnection,
+    input: {
+      projectId: string;
+      accessLevel: "read" | "edit";
+      includeSubfolders: boolean;
+    },
+  ) => {
     setBusyId(connection.id);
     setError("");
     try {
-      const result = await apiUpdateAgentConnection(connection.id, { accessLevel: nextAccess });
-      setConnections((current) => current.map((item) => item.id === connection.id ? result.connection : item));
+      const result = await apiAddAgentConnectionFolder(connection.id, input);
+      setConnections((current) => current.map((item) => (
+        item.id === connection.id
+          ? {
+            ...item,
+            folders: [
+              ...item.folders.filter((folder) => folder.id !== result.folder.id),
+              result.folder,
+            ],
+            activeFolderCount: item.folders.filter((folder) => (
+              !folder.revokedAt && folder.id !== result.folder.id
+            )).length + 1,
+          }
+          : item
+      )));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update code agent access");
+      setError(err instanceof Error ? err.message : "Could not authorize folder");
     } finally {
       setBusyId(null);
     }
   };
 
-  const updateSubfolders = async (connection: AgentConnection, nextValue: boolean) => {
+  const updateFolder = async (
+    connection: AgentConnection,
+    folder: AgentConnectionFolder,
+    updates: { accessLevel?: "read" | "edit"; includeSubfolders?: boolean },
+  ) => {
     setBusyId(connection.id);
     setError("");
     try {
-      const result = await apiUpdateAgentConnection(connection.id, { includeSubfolders: nextValue });
-      setConnections((current) => current.map((item) => item.id === connection.id ? result.connection : item));
+      const result = await apiUpdateAgentConnectionFolder(connection.id, folder.id, updates);
+      setConnections((current) => current.map((item) => (
+        item.id === connection.id
+          ? {
+            ...item,
+            folders: item.folders.map((candidate) => (
+              candidate.id === folder.id ? result.folder : candidate
+            )),
+          }
+          : item
+      )));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update subfolder access");
+      setError(err instanceof Error ? err.message : "Could not update folder access");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const revokeFolder = async (
+    connection: AgentConnection,
+    folder: AgentConnectionFolder,
+  ) => {
+    if (!window.confirm(`Remove ${folder.projectTitle} from ${connection.name}? The key will immediately lose access to this folder.`)) return;
+    setBusyId(connection.id);
+    setError("");
+    try {
+      const result = await apiRevokeAgentConnectionFolder(connection.id, folder.id);
+      setConnections((current) => current.map((item) => (
+        item.id === connection.id
+          ? {
+            ...item,
+            folders: item.folders.map((candidate) => (
+              candidate.id === folder.id
+                ? { ...candidate, revokedAt: result.revokedAt }
+                : candidate
+            )),
+            activeFolderCount: Math.max(0, item.activeFolderCount - 1),
+          }
+          : item
+      )));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove folder access");
     } finally {
       setBusyId(null);
     }
@@ -311,7 +506,7 @@ function AgentConnectionsPanel({
   };
 
   const revoke = async (connection: AgentConnection) => {
-    if (!window.confirm(`Revoke ${connection.name}? The code agent will immediately lose access to this folder.`)) return;
+    if (!window.confirm(`Revoke ${connection.name}? The code agent will immediately lose access to every authorized folder.`)) return;
     setBusyId(connection.id);
     setError("");
     try {
@@ -330,13 +525,17 @@ function AgentConnectionsPanel({
     <div className="space-y-5">
       {token && <OneTimeCredential token={token} onDismiss={() => setToken(null)} />}
 
-      {project && !token && (
+      {!token && (
         <div className="rounded-xl bg-primary/5 p-4">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div>
-              <p className="font-bold text-on-surface">Connect a code agent to this folder</p>
+              <p className="font-bold text-on-surface">
+                {project ? "Connect a code agent to this folder" : "Create a code agent connection"}
+              </p>
               <p className="mt-1 text-xs leading-5 text-on-surface-variant">
-                You choose whether it can only read or can also create and update flowcharts.
+                {project
+                  ? "Add this folder to an existing key below, or create a separate connection."
+                  : "Generate one key, then choose every folder that key is allowed to use."}
               </p>
             </div>
             <button
@@ -360,17 +559,19 @@ function AgentConnectionsPanel({
                   maxLength={80}
                 />
               </label>
-              <label className="text-xs font-bold text-on-surface">
-                Access
-                <select
-                  value={accessLevel}
-                  onChange={(event) => setAccessLevel(event.target.value as "read" | "edit")}
-                  className="mt-1.5 w-full rounded-lg border border-outline-variant/30 bg-white px-3 py-2.5 text-sm font-normal outline-none"
-                >
-                  <option value="read">Read only</option>
-                  <option value="edit">Can create and edit</option>
-                </select>
-              </label>
+              {project && (
+                <label className="text-xs font-bold text-on-surface">
+                  Access to this folder
+                  <select
+                    value={accessLevel}
+                    onChange={(event) => setAccessLevel(event.target.value as "read" | "edit")}
+                    className="mt-1.5 w-full rounded-lg border border-outline-variant/30 bg-white px-3 py-2.5 text-sm font-normal outline-none"
+                  >
+                    <option value="read">Read only</option>
+                    <option value="edit">Can create and edit</option>
+                  </select>
+                </label>
+              )}
               <label className="text-xs font-bold text-on-surface">
                 Key expires
                 <select
@@ -383,15 +584,17 @@ function AgentConnectionsPanel({
                   <option value={365}>1 year</option>
                 </select>
               </label>
-              <label className="flex items-center gap-3 self-end rounded-lg bg-white px-3 py-2.5 text-xs font-bold text-on-surface ring-1 ring-outline-variant/20">
-                <input
-                  type="checkbox"
-                  checked={includeSubfolders}
-                  onChange={(event) => setIncludeSubfolders(event.target.checked)}
-                  className="h-4 w-4 accent-primary"
-                />
-                Include subfolders
-              </label>
+              {project && (
+                <label className="flex items-center gap-3 self-end rounded-lg bg-white px-3 py-2.5 text-xs font-bold text-on-surface ring-1 ring-outline-variant/20">
+                  <input
+                    type="checkbox"
+                    checked={includeSubfolders}
+                    onChange={(event) => setIncludeSubfolders(event.target.checked)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  Include subfolders
+                </label>
+              )}
               <div className="flex justify-end gap-2 sm:col-span-2">
                 <button type="button" onClick={() => setShowCreate(false)} className="rounded-lg px-4 py-2 text-xs font-bold text-on-surface-variant">
                   Cancel
@@ -431,7 +634,7 @@ function AgentConnectionsPanel({
             <span className="material-symbols-outlined text-3xl text-on-surface-variant/40">smart_toy</span>
             <p className="mt-2 text-sm font-bold text-on-surface">No code agents connected</p>
             <p className="mt-1 text-xs text-on-surface-variant">
-              {project ? "Generate a key when you are ready." : "Open a project folder and choose Agent access to create one."}
+              Generate a key when you are ready, then authorize one or more folders.
             </p>
           </div>
         ) : (
@@ -440,9 +643,13 @@ function AgentConnectionsPanel({
               <ConnectionCard
                 key={connection.id}
                 connection={connection}
+                projects={projects}
+                preferredProjectId={project?.id}
                 busy={busyId === connection.id}
-                onAccessChange={(nextAccess) => void updateAccess(connection, nextAccess)}
-                onSubfoldersChange={(nextValue) => void updateSubfolders(connection, nextValue)}
+                onAddFolder={(input) => void addFolder(connection, input)}
+                onFolderAccessChange={(folder, nextAccess) => void updateFolder(connection, folder, { accessLevel: nextAccess })}
+                onFolderSubfoldersChange={(folder, nextValue) => void updateFolder(connection, folder, { includeSubfolders: nextValue })}
+                onFolderRevoke={(folder) => void revokeFolder(connection, folder)}
                 onRotate={() => void rotate(connection)}
                 onRevoke={() => void revoke(connection)}
               />
@@ -484,7 +691,7 @@ export function ConnectedAgentsSection() {
       <div className="md:col-span-1">
         <h3 className="text-xl font-headline font-bold text-primary">Connected Code Agents</h3>
         <p className="mt-2 text-sm text-on-surface-variant">
-          Review every code agent key you created, see when it was last used, replace it, or revoke it.
+          Create a key once, then add or remove the folders it can use without reconnecting your code agent.
         </p>
       </div>
       <div className="md:col-span-2">
@@ -512,7 +719,7 @@ export default function AgentAccessDialog({
             <p className="text-xs font-black uppercase tracking-widest text-secondary">Agent access</p>
             <h3 className="mt-1 text-2xl font-extrabold text-primary">{project.title}</h3>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Each key is controlled by you and only opens this folder.
+              Add this folder to an existing key, or create a separate connection.
             </p>
           </div>
           <button type="button" onClick={onClose} className="rounded-full p-2 hover:bg-surface-container-low" aria-label="Close">
