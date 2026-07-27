@@ -5,6 +5,7 @@ import { useCommunityAccess } from "../contexts/CommunityAccessContext";
 import TopBar from "../components/TopBar";
 import BottomNav from "../components/BottomNav";
 import PlanUsagePanel from "../components/PlanUsagePanel";
+import { ConnectedAgentsSection } from "../components/AgentAccessDialog";
 import {
   apiGetSettings,
   apiUpdateProfile,
@@ -714,6 +715,7 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        <ConnectedAgentsSection />
 
         {/* Danger Zone */}
         <section className="grid grid-cols-1 md:grid-cols-3 gap-8">
