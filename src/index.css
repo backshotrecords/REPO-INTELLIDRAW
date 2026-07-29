@@ -3388,15 +3388,9 @@
   margin-top: clamp(48px, 8vh, 82px);
 }
 
-.mobile-canvas-welcome-voice > span {
-  margin-top: 13px;
-  color: rgba(68, 71, 76, 0.72);
-  font-size: 10px;
-  font-weight: 800;
-}
-
 .voice-mic-wrapper.voice-mic-welcome {
-  display: block;
+  display: grid;
+  justify-items: center;
 }
 
 .voice-mic-welcome .voice-mic-btn {
@@ -3438,11 +3432,73 @@
 .voice-mic-welcome .voice-mic-btn.voice-processing {
   background: #041627;
   color: #ffffff;
+  opacity: 1;
+  animation: none;
 }
 
 .voice-mic-welcome .voice-mic-btn.voice-success {
   background: #166534;
   color: #ffffff;
+}
+
+.voice-welcome-inline-status {
+  min-height: 42px;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  margin-top: 12px;
+  color: rgba(68, 71, 76, 0.72);
+}
+
+.voice-welcome-inline-status > small {
+  margin-top: 7px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.voice-welcome-inline-status > .material-symbols-outlined {
+  color: #166534;
+  font-size: 21px;
+}
+
+.voice-welcome-inline-cancelled > .material-symbols-outlined {
+  color: #64748b;
+}
+
+.voice-welcome-wave-bars {
+  height: 21px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.voice-welcome-wave-bars > span {
+  width: 3px;
+  height: 5px;
+  border-radius: 99px;
+  background: #ba1a1a;
+  animation: quickLaunchVoiceWave 760ms ease-in-out infinite alternate;
+}
+
+.voice-welcome-wave-bars > span:nth-child(2n) {
+  animation-delay: -300ms;
+}
+
+.voice-welcome-wave-bars > span:nth-child(3n) {
+  animation-delay: -520ms;
+}
+
+.voice-welcome-inline-processing .voice-welcome-wave-bars > span {
+  background: #0058bc;
+  animation-duration: 560ms;
+}
+
+@keyframes quickLaunchVoiceWave {
+  to {
+    height: 19px;
+  }
 }
 
 .mobile-canvas-welcome-composer-area {

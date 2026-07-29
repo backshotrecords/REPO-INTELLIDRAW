@@ -113,7 +113,6 @@ export default function MobileCanvasWelcome({ onMinimize, onSubmit }: MobileCanv
               }}
             />
           </div>
-          <span>{canUseVoice ? "Tap to talk" : "Voice input is locked"}</span>
           {!canUseVoice && <PlanBadge planId={getRequiredPlan("voice.dictation")} />}
         </div>
       </section>

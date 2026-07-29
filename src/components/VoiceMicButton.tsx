@@ -50,6 +50,7 @@ const MENU_WIDTH_PX = 220;
 const MENU_HEIGHT_PX = 96;
 const SILENCE_INDICATOR_MS = 2000;
 const SILENCE_RMS_THRESHOLD = 0.015;
+const WELCOME_WAVE_BARS = Array.from({ length: 9 }, (_, index) => index);
 
 function clampChunkLength(minutes?: number) {
   if (!Number.isFinite(minutes)) return DEFAULT_CHUNK_MINUTES;
@@ -623,6 +624,33 @@ export default function VoiceMicButton({
         )}
       </button>
 
+      {variant === "welcome" && (
+        <div className={`voice-welcome-inline-status voice-welcome-inline-${state}`} aria-live="polite">
+          {(state === "recording" || state === "processing") && (
+            <div className="voice-welcome-wave-bars" aria-hidden="true">
+              {WELCOME_WAVE_BARS.map((bar) => <span key={bar} />)}
+            </div>
+          )}
+          {state === "success" && <span className="material-symbols-outlined fill">check_circle</span>}
+          {state === "cancelled" && <span className="material-symbols-outlined">delete</span>}
+          <small>
+            {errorMsg
+              ? errorMsg
+              : state === "recording"
+                ? "Recording · tap to finish"
+                : state === "processing"
+                  ? "Turning that into text…"
+                  : state === "success"
+                    ? "Transcript ready"
+                    : state === "cancelled"
+                      ? "Recording discarded"
+                      : disabled
+                        ? "Voice input unavailable"
+                        : "Tap to talk"}
+          </small>
+        </div>
+      )}
+
       {variant === "default" && <button
         type="button"
         className="voice-mode-menu-btn"
@@ -666,7 +694,7 @@ export default function VoiceMicButton({
         document.body
       )}
 
-      {(state === "recording") && createPortal(
+      {variant === "default" && state === "recording" && createPortal(
         <div className="voice-waveform-panel" style={waveformStyle}>
           <div className="voice-waveform-inner">
             <div className="voice-waveform-status">
@@ -700,7 +728,7 @@ export default function VoiceMicButton({
         document.body
       )}
 
-      {state === "success" && createPortal(
+      {variant === "default" && state === "success" && createPortal(
         <div className="voice-success-toast">
           <span className="material-symbols-outlined voice-success-icon" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
           <span>Transcribed</span>
@@ -708,7 +736,7 @@ export default function VoiceMicButton({
         document.body
       )}
 
-      {state === "cancelled" && createPortal(
+      {variant === "default" && state === "cancelled" && createPortal(
         <div className="voice-cancelled-toast">
           <span className="material-symbols-outlined voice-trash-icon" style={{ fontVariationSettings: "'FILL' 1" }}>delete</span>
           <span>Cancelled</span>
@@ -716,7 +744,7 @@ export default function VoiceMicButton({
         document.body
       )}
 
-      {errorMsg && createPortal(
+      {variant === "default" && errorMsg && createPortal(
         <div className="voice-error-toast">
           <span className="material-symbols-outlined voice-error-icon" style={{ fontVariationSettings: "'FILL' 1" }}>error</span>
           <span>{errorMsg}</span>
