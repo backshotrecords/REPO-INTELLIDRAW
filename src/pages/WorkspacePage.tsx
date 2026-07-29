@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import MermaidRenderer, { extractNodeId } from "../components/MermaidRenderer";
 import NodeActionOverlay from "../components/NodeActionOverlay";
 import type { NodeAction } from "../components/NodeActionOverlay";
@@ -13,6 +13,7 @@ import ProjectAssetsPanel from "../components/ProjectAssetsPanel";
 import CanvasAssetLinkLayer from "../components/CanvasAssetLinkLayer";
 import { useProjectAssets } from "../hooks/useProjectAssets";
 import PlanBadge from "../components/PlanBadge";
+import MobileCanvasWelcome from "../components/MobileCanvasWelcome";
 import { NetworkError, apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext, apiTranscribeAudio, apiListProjects, apiListCanvases } from "../lib/api";
 import { resolveRootProjectId, collectProjectTreeIds, type ProjectAsset } from "../lib/projectAssets";
 import type { AssetTargetOption } from "../components/ProjectAssetsPanel";
@@ -173,6 +174,28 @@ function getClusterSubgraphId(cluster: Element, parsedAST: MermaidAST | null): s
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const quickLaunchRequested = id === "new" && new URLSearchParams(location.search).get("quick") === "1";
+  const quickLaunchNavigationState = location.state as {
+    quickLaunchTransition?: boolean;
+    quickLaunchTargetCanvasId?: string;
+  } | null;
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches,
+  );
+  const [quickLaunchOverlayActive, setQuickLaunchOverlayActive] = useState(
+    () => Boolean(
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 767px)").matches &&
+      (quickLaunchRequested || quickLaunchNavigationState?.quickLaunchTransition)
+    ),
+  );
+  const [quickLaunchTargetCanvasId, setQuickLaunchTargetCanvasId] = useState<string | null>(
+    quickLaunchNavigationState?.quickLaunchTargetCanvasId || null,
+  );
+  const quickLaunchDraftCanvasRef = useRef<DashboardCanvas | null>(null);
+  const quickLaunchReadyResolverRef = useRef<(() => void) | null>(null);
+  const quickLaunchReadyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const {
     isOffline,
     registerReconnectHandler,
@@ -265,6 +288,13 @@ export default function WorkspacePage() {
   useEffect(() => { meetingSideChatterStopChunksRef.current = meetingSideChatterStopChunks; }, [meetingSideChatterStopChunks]);
   useEffect(() => { activeScopeIdRef.current = activeScopeId; }, [activeScopeId]);
   useEffect(() => { scopePathRef.current = scopePath; }, [scopePath]);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const updateViewport = () => setIsMobileViewport(mediaQuery.matches);
+    updateViewport();
+    mediaQuery.addEventListener("change", updateViewport);
+    return () => mediaQuery.removeEventListener("change", updateViewport);
+  }, []);
   // Re-arm on mount so StrictMode's dev double-mount doesn't leave this
   // permanently false after the first cleanup.
   useEffect(() => {
@@ -944,6 +974,60 @@ export default function WorkspacePage() {
     }
   }, [navigate]);
 
+  const submitQuickLaunch = useCallback(async (prompt: string) => {
+    const canvas = quickLaunchDraftCanvasRef.current || await apiCreateCanvas();
+    quickLaunchDraftCanvasRef.current = canvas;
+
+    const userMessage: ChatMessage = {
+      role: "user",
+      content: prompt,
+      timestamp: new Date().toISOString(),
+    };
+    const result = await apiChat(prompt, canvas.mermaid_code, [userMessage], canvas.id);
+    const assistantMessage: ChatMessage = {
+      role: "assistant",
+      content: result.response,
+      timestamp: new Date().toISOString(),
+    };
+    const updatedHistory = [userMessage, assistantMessage];
+    const updatedCode = result.updatedMermaidCode || canvas.mermaid_code;
+
+    const updatedCanvas = await apiUpdateCanvas(canvas.id, {
+      mermaidCode: updatedCode,
+      chatHistory: updatedHistory,
+    });
+    quickLaunchDraftCanvasRef.current = updatedCanvas;
+
+    if (result.updatedMermaidCode) {
+      try {
+        await apiCreateCommit(canvas.id, result.updatedMermaidCode, "ai_chat", prompt);
+      } catch (err) {
+        console.error("Quick Launch commit failed:", err);
+      }
+    }
+
+    setQuickLaunchTargetCanvasId(canvas.id);
+    const diagramReady = new Promise<void>((resolve) => {
+      quickLaunchReadyResolverRef.current = resolve;
+      quickLaunchReadyTimeoutRef.current = setTimeout(resolve, 20000);
+    });
+
+    navigate(`/canvas/${canvas.id}`, {
+      replace: true,
+      state: {
+        quickLaunchTransition: true,
+        quickLaunchTargetCanvasId: canvas.id,
+      },
+    });
+    await diagramReady;
+    if (quickLaunchReadyTimeoutRef.current) {
+      clearTimeout(quickLaunchReadyTimeoutRef.current);
+      quickLaunchReadyTimeoutRef.current = null;
+    }
+    setQuickLaunchOverlayActive(false);
+    navigate(`/canvas/${canvas.id}`, { replace: true, state: {} });
+  }, [navigate]);
+
   useEffect(() => {
     setIsInitialCanvasDataReady(false);
     setIsInitialDiagramReady(false);
@@ -951,10 +1035,45 @@ export default function WorkspacePage() {
 
     if (id && id !== "new") {
       loadCanvas(id);
-    } else if (id === "new") {
+    } else if (id === "new" && !(quickLaunchRequested && isMobileViewport)) {
       createNewCanvas();
     }
-  }, [id, loadCanvas, createNewCanvas]);
+  }, [id, loadCanvas, createNewCanvas, quickLaunchRequested, isMobileViewport]);
+
+  useEffect(() => {
+    if (
+      !quickLaunchOverlayActive ||
+      !quickLaunchTargetCanvasId ||
+      canvasId !== quickLaunchTargetCanvasId ||
+      !isInitialCanvasDataReady ||
+      !isInitialDiagramReady
+    ) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const resolveReady = quickLaunchReadyResolverRef.current;
+      if (resolveReady) {
+        quickLaunchReadyResolverRef.current = null;
+        resolveReady();
+        return;
+      }
+      setQuickLaunchOverlayActive(false);
+      navigate(`/canvas/${quickLaunchTargetCanvasId}`, { replace: true, state: {} });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    canvasId,
+    isInitialCanvasDataReady,
+    isInitialDiagramReady,
+    navigate,
+    quickLaunchOverlayActive,
+    quickLaunchTargetCanvasId,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (quickLaunchReadyTimeoutRef.current) clearTimeout(quickLaunchReadyTimeoutRef.current);
+    };
+  }, []);
 
   // Retry a canvas load that failed while offline once the connection returns.
   useEffect(() => {
@@ -2470,6 +2589,23 @@ ${transcript}
 
   return (
     <div className="bg-background font-body text-on-surface overflow-hidden h-dvh flex flex-col">
+      {quickLaunchOverlayActive && isMobileViewport && (
+        <div className="mobile-canvas-welcome-overlay">
+          <MobileCanvasWelcome
+            onMinimize={() => {
+              const draftCanvasId = quickLaunchDraftCanvasRef.current?.id;
+              if (!draftCanvasId) {
+                navigate("/dashboard", { replace: true });
+                return;
+              }
+              void apiDeleteCanvas(draftCanvasId)
+                .catch((err) => console.error("Failed to discard Quick Launch canvas:", err))
+                .finally(() => navigate("/dashboard", { replace: true }));
+            }}
+            onSubmit={submitQuickLaunch}
+          />
+        </div>
+      )}
       {/* Naming overlay */}
       {isNaming && (
         <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center">

@@ -1,70 +1,65 @@
-import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { apiCreateCanvas } from "../lib/api";
 
 const tabs = [
   { id: "canvases", label: "Canvases", icon: "dashboard", path: "/dashboard" },
-  { id: "draw", label: "Draw", icon: "draw", path: "/canvas/new" },
   { id: "skills", label: "Skills", icon: "auto_awesome", path: "/skills" },
+  { id: "quick-launch", label: "Quick Launch", icon: "mic", path: "/canvas/new?quick=1", primary: true },
+  { id: "guild", label: "Guild", icon: "trophy", path: "/guild" },
   { id: "settings", label: "Settings", icon: "settings", path: "/settings" },
 ];
 
 export default function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [creatingCanvas, setCreatingCanvas] = useState(false);
 
   const getActiveTab = () => {
     if (location.pathname === "/settings") return "settings";
     if (location.pathname === "/skills") return "skills";
-    if (location.pathname.startsWith("/canvas")) return "draw";
+    if (location.pathname === "/guild") return "guild";
     return "canvases";
   };
 
   const activeTab = getActiveTab();
 
-  const handleNavigate = async (path: string) => {
-    if (path !== "/canvas/new") {
-      navigate(path);
-      return;
-    }
-
-    if (creatingCanvas) return;
-    setCreatingCanvas(true);
-    try {
-      const canvas = await apiCreateCanvas();
-      navigate(`/canvas/${canvas.id}`);
-    } catch (err) {
-      console.error("Failed to create canvas:", err);
-    } finally {
-      setCreatingCanvas(false);
-    }
-  };
-
   return (
-    <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-2 bg-white/80 backdrop-blur-2xl rounded-t-3xl shadow-[0px_-12px_32px_rgba(24,28,30,0.06)] md:hidden">
+    <nav className="mobile-bottom-nav md:hidden" aria-label="Primary navigation">
       {tabs.map((tab) => {
         const isActive = tab.id === activeTab;
+        if (tab.primary) {
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => navigate(tab.path)}
+              className="mobile-bottom-nav-quick-launch"
+              aria-label={tab.label}
+            >
+              <span className="mobile-bottom-nav-quick-launch-circle">
+                <span className="material-symbols-outlined fill">{tab.icon}</span>
+              </span>
+              <span>{tab.label}</span>
+            </button>
+          );
+        }
         return (
           <button
             key={tab.id}
-            onClick={() => handleNavigate(tab.path)}
-            disabled={tab.path === "/canvas/new" && creatingCanvas}
-            className={`flex flex-col items-center justify-center px-5 py-2 transition-all active:scale-90 duration-150 ${
+            type="button"
+            onClick={() => navigate(tab.path)}
+            className={`mobile-bottom-nav-item ${
               isActive
-                ? "bg-slate-900 text-white rounded-2xl"
-                : "text-slate-500 hover:text-slate-900"
+                ? "active"
+                : ""
             }`}
+            aria-current={isActive ? "page" : undefined}
           >
             <span
-              className={`material-symbols-outlined ${isActive ? "fill" : ""}`}
+              className={`material-symbols-outlined${isActive ? " fill" : ""}`}
               style={isActive ? { fontVariationSettings: "'FILL' 1" } : {}}
             >
               {tab.icon}
             </span>
-            <span className="font-inter text-[10px] font-semibold uppercase tracking-wider mt-1">
-              {tab.label}
-            </span>
+            <span>{tab.label}</span>
           </button>
         );
       })}
