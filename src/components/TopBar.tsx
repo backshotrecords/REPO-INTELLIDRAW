@@ -34,6 +34,12 @@ export default function TopBar({ showSearch, onSearchChange, searchPlaceholder =
 
   const handleCreateCanvas = async () => {
     if (creatingCanvas) return;
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      setShowMobileMenu(false);
+      setMenuMessage("");
+      navigate("/canvas/new?quick=1");
+      return;
+    }
     if (!hasFeature("canvas.create")) {
       openUpgradePrompt({
         featureKey: "canvas.create",

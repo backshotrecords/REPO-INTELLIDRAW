@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import MermaidRenderer, { extractNodeId } from "../components/MermaidRenderer";
 import NodeActionOverlay from "../components/NodeActionOverlay";
 import type { NodeAction } from "../components/NodeActionOverlay";
@@ -13,6 +13,7 @@ import ProjectAssetsPanel from "../components/ProjectAssetsPanel";
 import CanvasAssetLinkLayer from "../components/CanvasAssetLinkLayer";
 import { useProjectAssets } from "../hooks/useProjectAssets";
 import PlanBadge from "../components/PlanBadge";
+import MobileCanvasWelcome from "../components/MobileCanvasWelcome";
 import { NetworkError, apiGetCanvas, apiCreateCanvas, apiUpdateCanvas, apiDeleteCanvas, apiChat, apiUploadFile, apiGetActiveRules, apiPublishCanvas, apiSuggestCanvasName, apiGetCommits, apiCreateCommit, apiGetProject, apiRefreshProjectContext, apiUpdateCanvasExternalContext, apiTranscribeAudio, apiListProjects, apiListCanvases } from "../lib/api";
 import { resolveRootProjectId, collectProjectTreeIds, type ProjectAsset } from "../lib/projectAssets";
 import type { AssetTargetOption } from "../components/ProjectAssetsPanel";
@@ -173,6 +174,13 @@ function getClusterSubgraphId(cluster: Element, parsedAST: MermaidAST | null): s
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const quickLaunchRequested = id === "new" && new URLSearchParams(location.search).get("quick") === "1";
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches,
+  );
+  const [pendingQuickLaunchPrompt, setPendingQuickLaunchPrompt] = useState<string | null>(null);
+  const quickLaunchPromptStartedRef = useRef(false);
   const {
     isOffline,
     registerReconnectHandler,
@@ -265,6 +273,20 @@ export default function WorkspacePage() {
   useEffect(() => { meetingSideChatterStopChunksRef.current = meetingSideChatterStopChunks; }, [meetingSideChatterStopChunks]);
   useEffect(() => { activeScopeIdRef.current = activeScopeId; }, [activeScopeId]);
   useEffect(() => { scopePathRef.current = scopePath; }, [scopePath]);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const updateViewport = () => setIsMobileViewport(mediaQuery.matches);
+    updateViewport();
+    mediaQuery.addEventListener("change", updateViewport);
+    return () => mediaQuery.removeEventListener("change", updateViewport);
+  }, []);
+  useEffect(() => {
+    const launchPrompt = (location.state as { quickLaunchPrompt?: unknown } | null)?.quickLaunchPrompt;
+    if (typeof launchPrompt !== "string" || !launchPrompt.trim()) return;
+    quickLaunchPromptStartedRef.current = false;
+    setPendingQuickLaunchPrompt(launchPrompt.trim());
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: {} });
+  }, [location.pathname, location.search, location.state, navigate]);
   // Re-arm on mount so StrictMode's dev double-mount doesn't leave this
   // permanently false after the first cleanup.
   useEffect(() => {
@@ -944,6 +966,14 @@ export default function WorkspacePage() {
     }
   }, [navigate]);
 
+  const submitQuickLaunch = useCallback(async (prompt: string) => {
+    const canvas = await apiCreateCanvas();
+    navigate(`/canvas/${canvas.id}`, {
+      replace: true,
+      state: { quickLaunchPrompt: prompt },
+    });
+  }, [navigate]);
+
   useEffect(() => {
     setIsInitialCanvasDataReady(false);
     setIsInitialDiagramReady(false);
@@ -951,10 +981,10 @@ export default function WorkspacePage() {
 
     if (id && id !== "new") {
       loadCanvas(id);
-    } else if (id === "new") {
+    } else if (id === "new" && !(quickLaunchRequested && isMobileViewport)) {
       createNewCanvas();
     }
-  }, [id, loadCanvas, createNewCanvas]);
+  }, [id, loadCanvas, createNewCanvas, quickLaunchRequested, isMobileViewport]);
 
   // Retry a canvas load that failed while offline once the connection returns.
   useEffect(() => {
@@ -1737,6 +1767,20 @@ export default function WorkspacePage() {
     }
   }, [autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure, isReadOnlyCollab, canUseChat, addPlanNotice]);
 
+  useEffect(() => {
+    if (
+      !pendingQuickLaunchPrompt ||
+      !canvasId ||
+      !isInitialCanvasDataReady ||
+      chatLoadingRef.current ||
+      quickLaunchPromptStartedRef.current
+    ) return;
+    quickLaunchPromptStartedRef.current = true;
+    const prompt = pendingQuickLaunchPrompt;
+    setPendingQuickLaunchPrompt(null);
+    void sendMessage(prompt);
+  }, [canvasId, isInitialCanvasDataReady, pendingQuickLaunchPrompt, sendMessage]);
+
   const appendVoiceTranscript = useCallback((text: string) => {
     if (isReadOnlyCollab) return;
     const transcript = text.trim();
@@ -2467,6 +2511,15 @@ ${transcript}
 
 
   const visibleVoiceQueueChunks = voiceQueueChunks.slice(-8);
+
+  if (quickLaunchRequested && isMobileViewport) {
+    return (
+      <MobileCanvasWelcome
+        onMinimize={() => navigate("/dashboard", { replace: true })}
+        onSubmit={submitQuickLaunch}
+      />
+    );
+  }
 
   return (
     <div className="bg-background font-body text-on-surface overflow-hidden h-dvh flex flex-col">

@@ -33,6 +33,8 @@ import type { CanvasProject, CollaborationCapability, CollaborationRoleSummary, 
 import { isLongTermMemoryItem } from "../types";
 
 const THUMBNAIL_BATCH_SIZE = 9;
+const MOBILE_QUICK_LAUNCH_SESSION_KEY = "intellidraw.mobileQuickLaunch.seen";
+let mobileQuickLaunchSeenInMemory = false;
 
 const INITIAL_LEVELS = [
   { id: 1, threshold: 0, name: "Initiate", svg: '<circle cx="110" cy="110" r="80" stroke="currentColor" stroke-width="3" />\n<circle cx="110" cy="110" r="50" stroke="currentColor" stroke-width="2" />\n<circle cx="110" cy="110" r="6" fill="currentColor" stroke="none" />' },
@@ -210,6 +212,23 @@ export default function DashboardPage() {
   const activeProjectHasShareCapability = activeProject ? hasItemCapability(activeProject, "project.manage_shares") : false;
   const activeProjectCanManageShares = activeProjectHasShareCapability && hasFeature("project.share_groups");
   const activeProjectAudienceLabel = activeProject ? getProjectAudienceLabelForPath(projectPath) : "";
+
+  useEffect(() => {
+    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    if (mobileQuickLaunchSeenInMemory) return;
+    try {
+      if (window.sessionStorage.getItem(MOBILE_QUICK_LAUNCH_SESSION_KEY) === "1") {
+        mobileQuickLaunchSeenInMemory = true;
+        return;
+      }
+      window.sessionStorage.setItem(MOBILE_QUICK_LAUNCH_SESSION_KEY, "1");
+    } catch {
+      // Storage can be unavailable in strict privacy modes. The navigation is
+      // still remembered by the module-scoped fallback for the current app load.
+    }
+    mobileQuickLaunchSeenInMemory = true;
+    navigate("/canvas/new?quick=1", { replace: true });
+  }, [navigate]);
 
   useEffect(() => {
     const cid = (location.state as Record<string, unknown> | null)?.closedCanvasId as string | undefined;

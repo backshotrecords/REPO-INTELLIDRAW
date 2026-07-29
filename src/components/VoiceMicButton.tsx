@@ -33,6 +33,7 @@ interface VoiceMicButtonProps {
   allowMeetingMode?: boolean;
   meetingModeBadge?: ReactNode;
   onLockedMeetingModeClick?: () => void;
+  variant?: "default" | "welcome";
 }
 
 type VoiceState = "idle" | "recording" | "processing" | "success" | "cancelled";
@@ -83,6 +84,7 @@ export default function VoiceMicButton({
   allowMeetingMode = true,
   meetingModeBadge,
   onLockedMeetingModeClick,
+  variant = "default",
 }: VoiceMicButtonProps) {
   const [mode, setMode] = useState<VoiceMode>("normal");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -580,7 +582,7 @@ export default function VoiceMicButton({
   ].filter(Boolean).join(" ");
 
   return (
-    <div className="voice-mic-wrapper" ref={wrapperRef}>
+    <div className={`voice-mic-wrapper${variant === "welcome" ? " voice-mic-welcome" : ""}`} ref={wrapperRef}>
       <button
         type="button"
         onPointerDown={handlePointerDown}
@@ -621,7 +623,7 @@ export default function VoiceMicButton({
         )}
       </button>
 
-      <button
+      {variant === "default" && <button
         type="button"
         className="voice-mode-menu-btn"
         onPointerDown={(event) => event.stopPropagation()}
@@ -635,9 +637,9 @@ export default function VoiceMicButton({
         disabled={state === "recording" || state === "processing"}
       >
         <span className="material-symbols-outlined">expand_more</span>
-      </button>
+      </button>}
 
-      {menuOpen && menuPosition && createPortal(
+      {variant === "default" && menuOpen && menuPosition && createPortal(
         <div className="voice-mode-menu" style={{ left: menuPosition.left, top: menuPosition.top }}>
           {(["normal", "meeting"] as VoiceMode[]).map((item) => (
             <button
