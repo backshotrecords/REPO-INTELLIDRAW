@@ -176,11 +176,26 @@ export default function WorkspacePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const quickLaunchRequested = id === "new" && new URLSearchParams(location.search).get("quick") === "1";
+  const quickLaunchNavigationState = location.state as {
+    quickLaunchTransition?: boolean;
+    quickLaunchTargetCanvasId?: string;
+  } | null;
   const [isMobileViewport, setIsMobileViewport] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches,
   );
-  const [pendingQuickLaunchPrompt, setPendingQuickLaunchPrompt] = useState<string | null>(null);
-  const quickLaunchPromptStartedRef = useRef(false);
+  const [quickLaunchOverlayActive, setQuickLaunchOverlayActive] = useState(
+    () => Boolean(
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 767px)").matches &&
+      (quickLaunchRequested || quickLaunchNavigationState?.quickLaunchTransition)
+    ),
+  );
+  const [quickLaunchTargetCanvasId, setQuickLaunchTargetCanvasId] = useState<string | null>(
+    quickLaunchNavigationState?.quickLaunchTargetCanvasId || null,
+  );
+  const quickLaunchDraftCanvasRef = useRef<DashboardCanvas | null>(null);
+  const quickLaunchReadyResolverRef = useRef<(() => void) | null>(null);
+  const quickLaunchReadyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const {
     isOffline,
     registerReconnectHandler,
@@ -280,13 +295,6 @@ export default function WorkspacePage() {
     mediaQuery.addEventListener("change", updateViewport);
     return () => mediaQuery.removeEventListener("change", updateViewport);
   }, []);
-  useEffect(() => {
-    const launchPrompt = (location.state as { quickLaunchPrompt?: unknown } | null)?.quickLaunchPrompt;
-    if (typeof launchPrompt !== "string" || !launchPrompt.trim()) return;
-    quickLaunchPromptStartedRef.current = false;
-    setPendingQuickLaunchPrompt(launchPrompt.trim());
-    navigate(`${location.pathname}${location.search}`, { replace: true, state: {} });
-  }, [location.pathname, location.search, location.state, navigate]);
   // Re-arm on mount so StrictMode's dev double-mount doesn't leave this
   // permanently false after the first cleanup.
   useEffect(() => {
@@ -967,11 +975,57 @@ export default function WorkspacePage() {
   }, [navigate]);
 
   const submitQuickLaunch = useCallback(async (prompt: string) => {
-    const canvas = await apiCreateCanvas();
+    const canvas = quickLaunchDraftCanvasRef.current || await apiCreateCanvas();
+    quickLaunchDraftCanvasRef.current = canvas;
+
+    const userMessage: ChatMessage = {
+      role: "user",
+      content: prompt,
+      timestamp: new Date().toISOString(),
+    };
+    const result = await apiChat(prompt, canvas.mermaid_code, [userMessage], canvas.id);
+    const assistantMessage: ChatMessage = {
+      role: "assistant",
+      content: result.response,
+      timestamp: new Date().toISOString(),
+    };
+    const updatedHistory = [userMessage, assistantMessage];
+    const updatedCode = result.updatedMermaidCode || canvas.mermaid_code;
+
+    const updatedCanvas = await apiUpdateCanvas(canvas.id, {
+      mermaidCode: updatedCode,
+      chatHistory: updatedHistory,
+    });
+    quickLaunchDraftCanvasRef.current = updatedCanvas;
+
+    if (result.updatedMermaidCode) {
+      try {
+        await apiCreateCommit(canvas.id, result.updatedMermaidCode, "ai_chat", prompt);
+      } catch (err) {
+        console.error("Quick Launch commit failed:", err);
+      }
+    }
+
+    setQuickLaunchTargetCanvasId(canvas.id);
+    const diagramReady = new Promise<void>((resolve) => {
+      quickLaunchReadyResolverRef.current = resolve;
+      quickLaunchReadyTimeoutRef.current = setTimeout(resolve, 20000);
+    });
+
     navigate(`/canvas/${canvas.id}`, {
       replace: true,
-      state: { quickLaunchPrompt: prompt },
+      state: {
+        quickLaunchTransition: true,
+        quickLaunchTargetCanvasId: canvas.id,
+      },
     });
+    await diagramReady;
+    if (quickLaunchReadyTimeoutRef.current) {
+      clearTimeout(quickLaunchReadyTimeoutRef.current);
+      quickLaunchReadyTimeoutRef.current = null;
+    }
+    setQuickLaunchOverlayActive(false);
+    navigate(`/canvas/${canvas.id}`, { replace: true, state: {} });
   }, [navigate]);
 
   useEffect(() => {
@@ -985,6 +1039,41 @@ export default function WorkspacePage() {
       createNewCanvas();
     }
   }, [id, loadCanvas, createNewCanvas, quickLaunchRequested, isMobileViewport]);
+
+  useEffect(() => {
+    if (
+      !quickLaunchOverlayActive ||
+      !quickLaunchTargetCanvasId ||
+      canvasId !== quickLaunchTargetCanvasId ||
+      !isInitialCanvasDataReady ||
+      !isInitialDiagramReady
+    ) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const resolveReady = quickLaunchReadyResolverRef.current;
+      if (resolveReady) {
+        quickLaunchReadyResolverRef.current = null;
+        resolveReady();
+        return;
+      }
+      setQuickLaunchOverlayActive(false);
+      navigate(`/canvas/${quickLaunchTargetCanvasId}`, { replace: true, state: {} });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    canvasId,
+    isInitialCanvasDataReady,
+    isInitialDiagramReady,
+    navigate,
+    quickLaunchOverlayActive,
+    quickLaunchTargetCanvasId,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (quickLaunchReadyTimeoutRef.current) clearTimeout(quickLaunchReadyTimeoutRef.current);
+    };
+  }, []);
 
   // Retry a canvas load that failed while offline once the connection returns.
   useEffect(() => {
@@ -1767,20 +1856,6 @@ export default function WorkspacePage() {
     }
   }, [autoSave, canvasId, playCanvasSound, createCommit, flushPreviewMode, reportNetworkFailure, isReadOnlyCollab, canUseChat, addPlanNotice]);
 
-  useEffect(() => {
-    if (
-      !pendingQuickLaunchPrompt ||
-      !canvasId ||
-      !isInitialCanvasDataReady ||
-      chatLoadingRef.current ||
-      quickLaunchPromptStartedRef.current
-    ) return;
-    quickLaunchPromptStartedRef.current = true;
-    const prompt = pendingQuickLaunchPrompt;
-    setPendingQuickLaunchPrompt(null);
-    void sendMessage(prompt);
-  }, [canvasId, isInitialCanvasDataReady, pendingQuickLaunchPrompt, sendMessage]);
-
   const appendVoiceTranscript = useCallback((text: string) => {
     if (isReadOnlyCollab) return;
     const transcript = text.trim();
@@ -2512,17 +2587,25 @@ ${transcript}
 
   const visibleVoiceQueueChunks = voiceQueueChunks.slice(-8);
 
-  if (quickLaunchRequested && isMobileViewport) {
-    return (
-      <MobileCanvasWelcome
-        onMinimize={() => navigate("/dashboard", { replace: true })}
-        onSubmit={submitQuickLaunch}
-      />
-    );
-  }
-
   return (
     <div className="bg-background font-body text-on-surface overflow-hidden h-dvh flex flex-col">
+      {quickLaunchOverlayActive && isMobileViewport && (
+        <div className="mobile-canvas-welcome-overlay">
+          <MobileCanvasWelcome
+            onMinimize={() => {
+              const draftCanvasId = quickLaunchDraftCanvasRef.current?.id;
+              if (!draftCanvasId) {
+                navigate("/dashboard", { replace: true });
+                return;
+              }
+              void apiDeleteCanvas(draftCanvasId)
+                .catch((err) => console.error("Failed to discard Quick Launch canvas:", err))
+                .finally(() => navigate("/dashboard", { replace: true }));
+            }}
+            onSubmit={submitQuickLaunch}
+          />
+        </div>
+      )}
       {/* Naming overlay */}
       {isNaming && (
         <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center">

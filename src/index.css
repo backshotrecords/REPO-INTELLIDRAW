@@ -3277,6 +3277,12 @@
   isolation: isolate;
 }
 
+.mobile-canvas-welcome-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+}
+
 .mobile-canvas-welcome-grid {
   position: absolute;
   inset: 0;
@@ -3421,6 +3427,22 @@
 .voice-mic-welcome .voice-icon {
   width: 39px;
   height: 39px;
+}
+
+.voice-welcome-mic-spinner {
+  width: 34px;
+  height: 34px;
+  display: block;
+  border: 3px solid rgba(255, 255, 255, 0.26);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: quickLaunchMicSpin 720ms linear infinite;
+}
+
+@keyframes quickLaunchMicSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .voice-mic-welcome .voice-mic-btn.voice-recording {

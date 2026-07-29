@@ -34,6 +34,7 @@ interface VoiceMicButtonProps {
   meetingModeBadge?: ReactNode;
   onLockedMeetingModeClick?: () => void;
   variant?: "default" | "welcome";
+  busy?: boolean;
 }
 
 type VoiceState = "idle" | "recording" | "processing" | "success" | "cancelled";
@@ -86,6 +87,7 @@ export default function VoiceMicButton({
   meetingModeBadge,
   onLockedMeetingModeClick,
   variant = "default",
+  busy = false,
 }: VoiceMicButtonProps) {
   const [mode, setMode] = useState<VoiceMode>("normal");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -590,7 +592,13 @@ export default function VoiceMicButton({
         onKeyDown={handleKeyDown}
         className={btnClass}
         aria-label={
-          state === "recording" ? "Stop recording" : state === "processing" ? "Processing recording chunks" : "Start voice input"
+          busy
+            ? "Building your flowchart"
+            : state === "recording"
+              ? "Stop recording"
+              : state === "processing"
+                ? "Transcribing recording"
+                : "Start voice input"
         }
         title={
           state === "recording"
@@ -599,9 +607,12 @@ export default function VoiceMicButton({
               ? "Processing recording chunks"
               : `${modeLabel(mode)} (${chunkLengthRef.current} min chunks)`
         }
-        disabled={disabled && state !== "recording"}
+        disabled={(disabled || busy) && state !== "recording"}
       >
-        {(state === "idle" || state === "success" || state === "cancelled") && (
+        {variant === "welcome" && (busy || state === "processing") && (
+          <span className="voice-welcome-mic-spinner" aria-hidden="true" />
+        )}
+        {!busy && (state === "idle" || state === "success" || state === "cancelled") && (
           <svg className="voice-icon" viewBox="0 0 24 24" fill="none">
             <path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4Z" fill="currentColor" />
             <path d="M19 10v1a7 7 0 0 1-14 0v-1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -609,13 +620,13 @@ export default function VoiceMicButton({
           </svg>
         )}
 
-        {state === "recording" && (
+        {!busy && state === "recording" && (
           <svg className="voice-icon" viewBox="0 0 24 24" fill="none">
             <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
           </svg>
         )}
 
-        {state === "processing" && (
+        {variant === "default" && state === "processing" && (
           <svg className="voice-icon" viewBox="0 0 24 24" fill="none">
             <path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4Z" fill="currentColor" />
             <path d="M19 10v1a7 7 0 0 1-14 0v-1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -626,7 +637,7 @@ export default function VoiceMicButton({
 
       {variant === "welcome" && (
         <div className={`voice-welcome-inline-status voice-welcome-inline-${state}`} aria-live="polite">
-          {(state === "recording" || state === "processing") && (
+          {!busy && (state === "recording" || state === "processing") && (
             <div className="voice-welcome-wave-bars" aria-hidden="true">
               {WELCOME_WAVE_BARS.map((bar) => <span key={bar} />)}
             </div>
@@ -634,7 +645,9 @@ export default function VoiceMicButton({
           {state === "success" && <span className="material-symbols-outlined fill">check_circle</span>}
           {state === "cancelled" && <span className="material-symbols-outlined">delete</span>}
           <small>
-            {errorMsg
+            {busy
+              ? "Building your flowchart…"
+              : errorMsg
               ? errorMsg
               : state === "recording"
                 ? "Recording · tap to finish"

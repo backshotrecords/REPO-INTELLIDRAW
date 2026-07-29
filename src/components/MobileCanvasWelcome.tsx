@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useUpgradePrompt } from "../contexts/UpgradePromptContext";
@@ -17,11 +17,22 @@ export default function MobileCanvasWelcome({ onMinimize, onSubmit }: MobileCanv
   const [prompt, setPrompt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const submittingRef = useRef(false);
 
   const canCreateCanvas = hasFeature("canvas.create");
   const canUseChat = hasFeature("canvas.ai_chat");
   const canUseVoice = hasFeature("voice.dictation");
   const displayName = user?.displayName?.trim() || "there";
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    const fiveLineHeight = 112;
+    textarea.style.height = `${Math.min(textarea.scrollHeight, fiveLineHeight)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > fiveLineHeight ? "auto" : "hidden";
+  }, [prompt]);
 
   const requiredPlanMessage = (featureKey: string, label: string) => {
     const plan = getRequiredPlan(featureKey);
@@ -40,7 +51,7 @@ export default function MobileCanvasWelcome({ onMinimize, onSubmit }: MobileCanv
 
   const submit = async () => {
     const trimmedPrompt = prompt.trim();
-    if (!trimmedPrompt || submitting) return;
+    if (!trimmedPrompt || submittingRef.current) return;
     if (!canCreateCanvas) {
       showUpgrade("canvas.create", "Creating canvases");
       setError(requiredPlanMessage("canvas.create", "Creating canvases"));
@@ -52,12 +63,14 @@ export default function MobileCanvasWelcome({ onMinimize, onSubmit }: MobileCanv
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     setError("");
     try {
       await onSubmit(trimmedPrompt);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create canvas");
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -103,6 +116,7 @@ export default function MobileCanvasWelcome({ onMinimize, onSubmit }: MobileCanv
           >
             <VoiceMicButton
               variant="welcome"
+              busy={submitting}
               canvasId={null}
               allowMeetingMode={false}
               inputBarHeight={112}
@@ -126,6 +140,7 @@ export default function MobileCanvasWelcome({ onMinimize, onSubmit }: MobileCanv
         )}
         <div className="mobile-canvas-welcome-composer">
           <textarea
+            ref={textareaRef}
             rows={1}
             value={prompt}
             onChange={(event) => {
@@ -148,14 +163,10 @@ export default function MobileCanvasWelcome({ onMinimize, onSubmit }: MobileCanv
             aria-label="Create canvas from prompt"
             title="Create canvas"
           >
-            {submitting ? (
-              <span className="spinner border-white/30 border-t-white" />
-            ) : (
-              <span className="material-symbols-outlined">arrow_upward</span>
-            )}
+            <span className="material-symbols-outlined">arrow_upward</span>
           </button>
         </div>
-        <small>{submitting ? "Creating your canvas…" : "Your canvas is created when you send"}</small>
+        <small>{submitting ? "Your flowchart is being prepared…" : "Your canvas is created when you send"}</small>
       </div>
     </main>
   );
